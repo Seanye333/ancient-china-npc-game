@@ -26,6 +26,8 @@ import { PlacePanel } from './ui/PlacePanel';
 import { Journal } from './ui/Journal';
 import { Title } from './ui/Title';
 import { Hud } from './ui/Hud';
+import { Ending } from './ui/Ending';
+import { Hint } from './ui/Hint';
 import { HeroBar } from './ui/HeroBar';
 import { Lanterns } from './world/Lanterns';
 import { Weather } from './world/Weather';
@@ -40,6 +42,8 @@ import { placeById } from './game/places';
 import { useJournal } from './game/journal';
 import { originById } from './game/origin';
 import { updateAmbience, isMuted, audioReady } from './game/audio';
+import { useEnding } from './game/ending';
+import { lifeTally } from './game/daily';
 
 /**
  * 隨時間變的一切 — 太陽、天空、霧、曝光,全部從 skyFor() 拿同一份參數。
@@ -198,6 +202,7 @@ export default function App() {
    * 在標題頁時就已經存在 —— 否則加一個開場等於一次弄壞六支腳本。
    */
   const [started, setStarted] = useState(false);
+  const ending = useEnding((s) => s.life);
   useEffect(() => {
     // 世界在標題頁不該偷偷走掉幾天
     if (!started) useClock.setState({ auto: false });
@@ -282,6 +287,13 @@ export default function App() {
         <CamBridge />
       </Canvas>
       {!started && <Title onStart={() => setStarted(true)} />}
+      {started && <Ending onRestart={() => {
+        // 再來一局:回標題頁,把一生的流水帳歸零
+        useEnding.getState().reset();
+        lifeTally.reset();
+        setStarted(false);
+      }} />}
+      {started && !ending && <Hint />}
       <Dialogue />
       <PlacePanel />
       <BattleHud />

@@ -10,6 +10,7 @@ import { deltaOf, isSick, spreadRumor } from '../game/folk';
 import { homeOf, homeBonus, moodOf, isGrieving } from '../game/company';
 import { useClock } from '../world/worldTime';
 import { partsFor } from '../game/calendar';
+import { lifeTally } from '../game/daily';
 import { useHero } from '../game/hero';
 import { useVillage } from '../game/village';
 import { askToJoin, joinThreshold } from '../game/recruiting';
@@ -132,6 +133,7 @@ export function Dialogue() {
     hero.addMerit(r.merit);
     hero.addFavor(npc.id, r.favor);
     if (r.order) village.nudge({ order: village.order + r.order });
+    lifeTally.errandsDone++;
     quest.drop();
     setLine(`「這事你真辦成了。」 · 得錢 ${r.gold} · 功績 +${r.merit} · 人情 +${r.favor}`);
   };

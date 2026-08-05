@@ -9,6 +9,7 @@ import { useHero } from '../game/hero';
 import { useBands } from '../game/bands';
 import { raidParties, useRaids } from '../game/raids';
 import { useQuest } from '../game/quest';
+import { lifeTally } from '../game/daily';
 import { useClock } from './worldTime';
 import { swingSound, hitSound, hurtSound } from '../game/audio';
 import { makeVillagers, might } from '../game/npcs';
@@ -260,6 +261,7 @@ export function Battle() {
 
     if (!tally.won) return;
     rout(bandId);
+    lifeTally.bandsCleared++;
     // 若這正是你接下的活,回去就能覆命了
     const q = useQuest.getState();
     if (q.taken && q.taken.bandId === bandId) q.markCleared();

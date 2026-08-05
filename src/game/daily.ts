@@ -12,6 +12,7 @@ import {
 } from './calamity';
 import { useQuest } from './quest';
 import { moodOf, grumble, isGrieving } from './company';
+import { checkEnding, useEnding } from './ending';
 import { playerPos } from './interact';
 import { MARKET } from '../world/sites';
 import {
@@ -46,6 +47,30 @@ export const settleGuard = { skipUntil: -1 };
 /** 抱怨過一次的人。走之前一定先抱怨 —— 這張表就是那個「先」。 */
 const warnedOnce = new Set<string>();
 
+/**
+ * 一生的流水帳。
+ *
+ * 刻意<b>不叫 tally</b>:Battle.tsx 裡的 tally 是「這一場架的結果」,
+ * 兩個都叫 tally 的話,import 進去就會和區域變數撞在一起 ——
+ * 而且撞得很安靜,只有型別檢查會叫。
+ *
+ * 落幕那一頁要的不是分數是名字,所以這裡記的是<b>誰跟過你、誰沒回來</b>,
+ * 外加幾個真的做過的事。放在模組層而不是 store,是因為它只在收場時讀一次。
+ */
+export const lifeTally = {
+  starvingDays: 0,
+  sickDays: 0,
+  bandsCleared: 0,
+  errandsDone: 0,
+  companions: new Set<string>(),
+  lost: new Set<string>(),
+  reset() {
+    this.starvingDays = 0; this.sickDays = 0;
+    this.bandsCleared = 0; this.errandsDone = 0;
+    this.companions.clear(); this.lost.clear();
+  },
+};
+
 export interface DayReport {
   ate: number;
   starved: boolean;
@@ -64,6 +89,7 @@ export function settleDay(day: number, season: Season): DayReport {
   const need = heads / DAYS_PER_SHI;
   if (hero.grain >= need) {
     hero.addGrain(-need);
+    lifeTally.starvingDays = 0;      // 吃上飯就重新算 —— 餓的是「連著幾天」
     report.ate = need;
     // 快見底的時候提醒一次,而不是等斷糧才說
     const daysLeft = Math.floor((hero.grain - need) * DAYS_PER_SHI / heads);
@@ -72,6 +98,7 @@ export function settleDay(day: number, season: Season): DayReport {
     }
   } else {
     report.starved = true;
+    lifeTally.starvingDays++;
     hero.addGrain(-hero.grain);
     hero.addToil(2);
     journal.note(day, heads > 1 ? '斷糧了。跟著你的人今天沒吃上飯。' : '斷糧了。', 'bad');
@@ -328,6 +355,41 @@ export function settleDay(day: number, season: Season): DayReport {
         : `守了一夜。（${t?.done}/${t?.need}）`);
     } else {
       journal.note(day, '昨夜你不在村裡。託你護院的人一夜沒合眼。', 'bad');
+    }
+  }
+
+  /* 記下跟過你的人 —— 落幕那一頁要的是名字 */
+  for (const id of useHero.getState().followers) lifeTally.companions.add(id);
+  for (const id of report.left) lifeTally.lost.add(id);
+
+  /*
+   * 該收場了嗎。
+   *
+   * 判斷全部放在 ending.ts 一處:分散在各系統裡的話,「怎樣算輸」
+   * 會慢慢長成五個互相不知道的版本。
+   */
+  {
+    const h = useHero.getState();
+    const people = makeVillagers(38);
+    const nameOf = (id: string) => people.find((p) => p.id === id)?.name ?? '某人';
+    const kind = checkEnding({
+      starvingDays: lifeTally.starvingDays,
+      sickDays: lifeTally.sickDays,
+      merit: h.merit,
+      renown: h.renown,
+      lodging: h.lodging,
+      gold: h.gold,
+      bandsCleared: lifeTally.bandsCleared,
+    });
+    if (kind && !useEnding.getState().life) {
+      useEnding.getState().end({
+        kind, days: day, merit: h.merit, renown: h.renown, gold: h.gold,
+        lodging: h.lodging,
+        companions: [...lifeTally.companions].map(nameOf),
+        lost: [...lifeTally.lost].map(nameOf),
+        bandsCleared: lifeTally.bandsCleared,
+        errandsDone: lifeTally.errandsDone,
+      });
     }
   }
 
