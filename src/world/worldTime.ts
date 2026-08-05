@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { create } from 'zustand';
+import { seasonOf, firstDayOf } from '../game/calendar';
 
 /**
  * 世界時鐘 — 一天的時辰與四季。
@@ -21,8 +22,18 @@ export const WEATHER_LABEL: Record<Weather, string> = {
   clear: '晴', rain: '雨', snow: '雪',
 };
 
+/**
+ * 一秒真實時間走掉多少個時辰 —— 一天約四分鐘。
+ *
+ * 這個數字是有意調慢的:走到最近的賊窩要兩分鐘,也就是<b>大半天</b>。
+ * 一趟差事花掉一天,那句「早去早回」才有重量。快了就變成不用計較的旅費。
+ */
+const HOUR_RATE = 0.1;
+
 interface ClockState {
   hour: number;                 // 0–24
+  /** 開局以來第幾天。<b>季節由它推導</b>,不是另外存一份。 */
+  day: number;
   season: Season;
   weather: Weather;
   auto: boolean;
@@ -31,18 +42,33 @@ interface ClockState {
   setWeather: (w: Weather) => void;
   toggleAuto: () => void;
   tick: (dt: number) => void;
+  /** 過掉一段時間(睡覺、做工、趕路)。跨日的結算由 VillageClock 接手。 */
+  advance: (hours: number) => void;
 }
 
 export const useClock = create<ClockState>((set) => ({
-  hour: 17.2,
-  season: 'autumn',
+  hour: 7.4,
+  day: 0,
+  season: seasonOf(0),
   weather: 'clear',
-  auto: false,
+  auto: true,
   setHour: (hour) => set({ hour }),
-  setSeason: (season) => set({ season }),
+  // 除錯面板直接點季節 —— 跳到那一季的頭一天,而不是偷偷改一個和日子對不上的欄位
+  setSeason: (season) => set((s) => ({ season, day: firstDayOf(season, s.day) })),
   setWeather: (weather) => set({ weather }),
   toggleAuto: () => set((s) => ({ auto: !s.auto })),
-  tick: (dt) => set((s) => (s.auto ? { hour: (s.hour + dt * 0.35) % 24 } : {})),
+  tick: (dt) => set((s) => {
+    if (!s.auto) return {};
+    const h = s.hour + dt * HOUR_RATE;
+    if (h < 24) return { hour: h };
+    const day = s.day + Math.floor(h / 24);
+    return { hour: h % 24, day, season: seasonOf(day) };
+  }),
+  advance: (hours) => set((s) => {
+    const h = s.hour + Math.max(0, hours);
+    const day = s.day + Math.floor(h / 24);
+    return { hour: h % 24, day, season: seasonOf(day) };
+  }),
 }));
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;

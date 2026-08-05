@@ -5,6 +5,7 @@ import { useBands, bandWord } from '../game/bands';
 import { useQuest, wayWord } from '../game/quest';
 import { makeVillagers, smallTalk, addressYou, TRADE_LABEL, TEMPER_LABEL } from '../game/npcs';
 import { useClock } from '../world/worldTime';
+import { partsFor } from '../game/calendar';
 import { useHero } from '../game/hero';
 import { useVillage } from '../game/village';
 import { askToJoin, joinThreshold } from '../game/recruiting';
@@ -39,8 +40,11 @@ export function Dialogue() {
     [villagers, talkingTo],
   );
 
-  // 同一個人同一旬的活是固定的 —— 反覆搭話刷不出更好的差事
-  const span = Math.floor(hour / 24) + season.length;   // 原型階段的「旬」
+  // 同一個人同一旬的活是固定的 —— 反覆搭話刷不出更好的差事。
+  // 從前這裡是 `Math.floor(hour/24) + season.length` 拼出來的「旬」,
+  // 而 hour 永遠小於 24,所以那個值只跟季節的英文字母數有關 ——
+  // 換季才換活,一季之內怎麼等都是同一件。現在有真的曆法了
+  const span = useClock((s) => partsFor(s.day).xunIndex);
   const errand = useMemo(
     () => (npc ? errandFrom(npc, village, span, hero.merit, bands) : null),
     [npc, village, span, hero.merit, bands],
