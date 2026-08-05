@@ -16,6 +16,8 @@ import { DAYS_PER_XUN, shichenWord } from '../game/calendar';
 import {
   DRINK_PRICE, NEWS_PRICE, DRINK_TOIL, newsFrom, hirePrice, canHire, tavernMood,
 } from '../game/tavern';
+import { countyPrice, INN_PRICE } from '../game/economy';
+import { petition, PETITION_COST } from '../game/yamen';
 import { useBands } from '../game/bands';
 import { raidParties } from '../game/raids';
 import { livingVillagers, deltaOf } from '../game/folk';
@@ -65,6 +67,16 @@ export function PlacePanel() {
 
   const days = grainDays(hero.grain, hero.followers.length, hero.retinue);
   const heads = 1 + hero.followers.length + hero.retinue;
+  /*
+   * 同一塊面板,兩個市集,兩個價。
+   *
+   * 把縣城的價做成 village 的一個變體(而不是另一套資料),
+   * 是為了讓它<b>跟著世界擺動</b>:商路一斷,城裡先慌,價差自己就拉開了。
+   */
+  const inCounty = place.id.startsWith('county');
+  const market: VillageState = inCounty
+    ? { ...village, grainPrice: countyPrice(village) }
+    : village;
 
   const close = () => { setLine(null); closePlace(); };
 
@@ -88,13 +100,13 @@ export function PlacePanel() {
       </div>
 
       <p style={{ margin: 0, fontSize: '.9rem', lineHeight: 1.75, minHeight: '1.75em', opacity: .9 }}>
-        {line ?? blurbFor(place.kind, village, hero.lodging)}
+        {line ?? blurbFor(place.kind, market, hero.lodging, inCounty)}
       </p>
 
       {place.kind === 'market' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
           <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', fontSize: '.82rem' }}>
-            <span style={{ opacity: .7 }}>米價一石 {village.grainPrice} 錢</span>
+            <span style={{ opacity: .7 }}>米價一石 {market.grainPrice} 錢</span>
             <span style={{ marginLeft: 'auto', opacity: .6 }}>一石夠一口人吃 {DAYS_PER_SHI} 天</span>
           </div>
           <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
@@ -133,29 +145,29 @@ export function PlacePanel() {
 
           <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
             <button
-              style={hero.gold >= grainCost(village, qty) ? btn : dim}
+              style={hero.gold >= grainCost(market, qty) ? btn : dim}
               onClick={() => {
-                const cost = grainCost(village, qty);
+                const cost = grainCost(market, qty);
                 if (!hero.spend(cost)) { setLine('錢不夠。'); return; }
                 hero.addGrain(qty);
                 setLine(`糴了 ${qty} 石,去了 ${cost} 錢。`);
                 note(day, `糴米 ${qty} 石 · ${cost} 錢`);
               }}
             >
-              糴米 {qty} 石 · {grainCost(village, qty)} 錢
+              糴米 {qty} 石 · {grainCost(market, qty)} 錢
             </button>
             <button
               style={hero.grain >= qty ? btn : dim}
               onClick={() => {
                 if (hero.grain < qty) { setLine('沒那麼多糧可賣。'); return; }
-                const got = grainSale(village, qty);
+                const got = grainSale(market, qty);
                 hero.addGrain(-qty);
                 hero.addGold(got);
                 setLine(`糶了 ${qty} 石,得 ${got} 錢。`);
                 note(day, `糶米 ${qty} 石 · ${got} 錢`);
               }}
             >
-              糶米 {qty} 石 · {grainSale(village, qty)} 錢
+              糶米 {qty} 石 · {grainSale(market, qty)} 錢
             </button>
           </div>
         </div>
@@ -253,6 +265,41 @@ export function PlacePanel() {
         </div>
       )}
 
+      {place.kind === 'inn' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+          <button style={hero.gold >= INN_PRICE ? btn : dim} onClick={() => {
+            if (!hero.spend(INN_PRICE)) { setLine('住不起。'); return; }
+            const toDawn = ((24 - hour) + 6.2) % 24 || 24;
+            advance(toDawn);
+            useHero.setState({ toil: 0 });
+            setLine('通鋪上翻了一夜身,天亮了。');
+            note(day, `客棧投宿 · ${INN_PRICE} 錢`);
+          }}>
+            投宿一宿 · {INN_PRICE} 錢
+            <span style={{ opacity: .55 }}> · 出門在外,總比露宿強</span>
+          </button>
+        </div>
+      )}
+
+      {place.kind === 'yamen' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+          <button style={hero.gold >= PETITION_COST ? btn : dim} onClick={() => {
+            const r = petition({
+              gold: hero.gold, merit: hero.merit, renown: hero.renown,
+              politics: hero.stats.politics, roll: Math.random,
+            });
+            if (!r.ok) { setLine(r.line); return; }
+            hero.spend(PETITION_COST);
+            hero.addMerit(r.merit);
+            if (r.merit) note(day, `縣衙投書 · 功績 +${r.merit}`, 'good');
+            setLine(r.line);
+          }}>
+            投書自薦 · {PETITION_COST} 錢
+            <span style={{ opacity: .55 }}> · 門吏要打點,成不成看你的名聲</span>
+          </button>
+        </div>
+      )}
+
       {place.kind === 'home' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
           <span style={{ fontSize: '.8rem', opacity: .7 }}>
@@ -310,9 +357,18 @@ export function PlacePanel() {
   );
 }
 
-function blurbFor(kind: string, village: VillageState, lodging: string): string {
+function blurbFor(
+  kind: string, village: VillageState, lodging: string, inCounty = false,
+): string {
+  if (kind === 'inn') return '堂上幾張桌子,樓上是通鋪。掌櫃抬眼看了看你的行頭。';
+  if (kind === 'yamen') return '衙門口的石獸叫日頭曬得發白。門吏靠在那裡,沒有要理你的意思。';
   if (kind === 'tavern') return tavernMood(village, livingVillagers());
   if (kind === 'market') {
+    if (inCounty) {
+      return village.grainPrice > 45
+        ? '城裡的糧行前頭排著長隊,米價牌上的數字一天改三回。'
+        : '城裡的市面比村裡熱鬧,價錢也硬。';
+    }
     return village.grainPrice > 45 ? '糧行前頭圍了一圈人,米價牌上的數字又改了。'
       : '糧行的夥計正在翻曬新米。';
   }

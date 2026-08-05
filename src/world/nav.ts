@@ -1,4 +1,4 @@
-import { walkable, setWorldChangeHook } from './field';
+import { walkable, deckAt, setWorldChangeHook } from './field';
 
 /**
  * 尋路。
@@ -38,17 +38,20 @@ export function invalidateNav() { grid = null; }
 setWorldChangeHook(invalidateNav);
 
 /**
- * 一格取九個點,只要有一個站得住,這一格就算通。
+ * 一格通不通:<b>中心站得住,或者格子裡有橋板</b>。
  *
- * 這一步是被橋逼出來的。橋板只有三步寬(z 方向),而格子四步一格 ——
- * 一格只取中心一個點的話,<b>整座橋可能剛好落在兩個取樣點中間</b>,
- * 於是導航圖上沒有橋,河對岸從此走不到,而畫面上什麼都看不出來:
- * 橋明明在那裡,人就是不肯走過去。
+ * 這條規則是兩次犯錯之間的那條線。
  *
- * 通則:<b>網格比最窄的通道還粗的時候,那條通道會安靜地消失。</b>
- * 要嘛把格子切細(這裡是四倍的建圖成本),要嘛在格子裡多取幾個點。
- * 取樣寬鬆會讓少數只有一角能走的格子被算成通的 —— 那沒關係,
- * 貼著障礙的閃避本來就交給 steerMove。
+ * 第一版只看中心一點 —— 橋板只有三步寬,格子四步一格,整座橋可能剛好落在
+ * 兩個取樣點中間。導航圖上沒有橋,河對岸從此走不到,而畫面上什麼都看不出來。
+ *
+ * 第二版改成「一格取九點,任一點能走就算通」。橋回來了,可是<b>山坡也一起
+ * 回來了</b>:陡坡上一格常常只有一角勉強站得住,圖上卻標成通的 ——
+ * 於是規劃出一條爬不上去的路,人走到半山腰就卡在那裡。這比沒有橋更難查,
+ * 因為路看起來完全合理。
+ *
+ * 通則:<b>放寬取樣要放得有理由,不能為了救一個特例而普遍放寬。</b>
+ * 這裡真正的特例是「橋」,而橋是明確登記過的(deck)—— 那就只放寬這一種。
  */
 function build() {
   const g = new Uint8Array(N * N);
@@ -57,10 +60,27 @@ function build() {
     for (let ix = 0; ix < N; ix++) {
       const cx = -HALF + ix * CELL + CELL / 2;
       const cz = -HALF + iz * CELL + CELL / 2;
-      let open = 0;
-      for (let sz = -1; sz <= 1 && !open; sz++) {
-        for (let sx = -1; sx <= 1 && !open; sx++) {
-          if (walkable(cx + sx * q, cz + sz * q)) open = 1;
+      /*
+       * 中心站得住還不夠,<b>四條邊的中點也要站得住</b>。
+       *
+       * 因為路是「一格走到下一格」的直線,而中心可走不代表那條直線可走:
+       * 兩格中心之間夾著一棵樹的時候,圖上是通的,腳下不是。
+       * 走位函式會在那裡左右試探 —— 這一幀偏左繞、下一幀從新位置偏右繞,
+       * 一來一回淨位移為零。畫面上人原地擺動,而且<b>重算幾次路都一樣</b>,
+       * 因為每次都算出同一條穿不過去的路。
+       *
+       * 檢查邊中點等於要求「這一格和鄰格之間真的走得通」。
+       * 代價是林子裡的路會繞遠一些 —— 那本來就是走林子該有的樣子。
+       */
+      let open = walkable(cx, cz)
+        && walkable(cx + CELL / 2, cz) && walkable(cx - CELL / 2, cz)
+        && walkable(cx, cz + CELL / 2) && walkable(cx, cz - CELL / 2) ? 1 : 0;
+      if (!open) {
+        // 只為橋放寬 —— 板子是明確登記的東西,不是「碰巧有一角能站」
+        for (let sz = -1; sz <= 1 && !open; sz++) {
+          for (let sx = -1; sx <= 1 && !open; sx++) {
+            if (deckAt(cx + sx * q, cz + sz * q) !== null) open = 1;
+          }
         }
       }
       g[iz * N + ix] = open;

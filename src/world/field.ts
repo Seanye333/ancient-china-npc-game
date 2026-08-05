@@ -274,12 +274,53 @@ export function blockerAt(x: number, z: number, pad = 0): Blocker | null {
 export function steerMove(
   x: number, z: number, wantX: number, wantZ: number, step: number,
 ): { x: number; z: number; yaw: number } {
-  for (const a of [0, 0.42, -0.42, 0.88, -0.88, 1.35, -1.35, 1.9, -1.9]) {
+  // 先往前試,不行就往兩邊偏,最後連回頭都試 ——
+  // 走進死胡同的時候,退出來是唯一的出路
+  for (const a of [0, 0.42, -0.42, 0.88, -0.88, 1.35, -1.35, 1.9, -1.9, 2.5, -2.5, Math.PI]) {
     const c = Math.cos(a), s = Math.sin(a);
     const dx = wantX * c - wantZ * s;
     const dz = wantX * s + wantZ * c;
     const nx = x + dx * step, nz = z + dz * step;
     if (walkable(nx, nz)) return { x: nx, z: nz, yaw: Math.atan2(dx, dz) };
+  }
+
+  /*
+   * 一個方向都走不通 —— 多半是<b>已經陷在某個圓裡</b>了。
+   *
+   * 這是這個函式先前<b>唯一沒有出路的狀態</b>:所有方向都不可走,
+   * 於是原地不動;而下一幀還是所有方向都不可走。人就永遠釘在那棵樹上,
+   * 畫面上看起來只是「他不走了」,任你重算幾次路都沒有用 ——
+   * 因為問題不在路,在腳。
+   *
+   * slideMove 一直有這一段(推出圓心),steerMove 沒有 —— 兩個走位函式,
+   * 一個有逃生口一個沒有,而自動走路用的正好是沒有的那個。
+   */
+  /*
+   * 一個方向都走不通。
+   *
+   * 先前這裡直接原地不動 —— 而下一幀還是所有方向都走不通,人就永遠釘在那裡,
+   * 畫面上只是「他不走了」,重算幾次路都沒有用:問題不在路,在腳。
+   *
+   * 卡死的形狀多半<b>不是「站在樹幹裡」,而是站在幾棵樹圍出來的口袋裡</b>:
+   * 腳下這一點可走,可是往任何方向挪四公分都會踩進某一棵的邊上。
+   * 樹夠密的時候,樹幹之間的空隙比人的半徑還小,這種口袋就會出現。
+   *
+   * 所以不去猜「是哪一棵擋著」,而是<b>往外找最近一個站得住的地方,朝它擠</b>。
+   * 這一步允許中途不可走(本來就是在硬擠),但只要三步之內存在活路,
+   * 人就出得去 —— 對所有卡法都成立,不必枚舉。
+   */
+  for (const r of [0.7, 1.3, 2.1, 3.2, 4.4]) {
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      const ex = x + Math.sin(a) * r;
+      const ez = z + Math.cos(a) * r;
+      if (!walkable(ex, ez)) continue;
+      const k = Math.max(step, 0.12) / r;
+      return {
+        x: x + (ex - x) * k, z: z + (ez - z) * k,
+        yaw: Math.atan2(ex - x, ez - z),
+      };
+    }
   }
   return { x, z, yaw: Math.atan2(wantX, wantZ) };
 }

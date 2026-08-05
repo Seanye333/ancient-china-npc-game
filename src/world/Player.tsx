@@ -73,7 +73,36 @@ export function Player() {
    * 而橋就在下游三十步。所以先問 nav 要一條路,再一個一個航點走過去。
    */
   const route = useRef<Array<[number, number]>>([]);
+  /**
+   * 卡住了就重算。
+   *
+   * 路是出發時算好的一整條,而路上會發生事情:你被一棵樹頂住、
+   * 有人擋在窄處、水漲了把灘地淹掉。<b>算好一條路然後閉著眼睛走完</b>
+   * 是這類系統最常見的破法 —— 走到半路卡住,就永遠卡在那裡,
+   * 而畫面上看起來只是「他不走了」。
+   *
+   * 所以盯著「有沒有在靠近下一個航點」。停滯超過一秒半就從當下重算一條。
+   */
+  const stall = useRef({ t: 0, d: Infinity });
   useEffect(() => {
+    // 診斷:走不動的時候要分得清是「沒路」「被擋住」還是「根本沒在走」
+    (window as unknown as Record<string, unknown>).__walkState = () => ({
+      at: [+me.current.x.toFixed(1), +me.current.z.toFixed(1)],
+      goto: goto.current,
+      route: route.current.length,
+      next: route.current[0] ?? null,
+      stall: +stall.current.t.toFixed(2),
+      walkableHere: walkable(me.current.x, me.current.z),
+      wounded: useHero.getState().wounded,
+      // 直接問走位函式:給它一個往下一個航點的方向,它挪得動嗎
+      probe: (() => {
+        const n = route.current[0] ?? [goto.current?.x ?? 0, goto.current?.z ?? 0];
+        const dx = n[0] - me.current.x, dz = n[1] - me.current.z;
+        const d = Math.hypot(dx, dz) || 1;
+        const got = steerMove(me.current.x, me.current.z, dx / d, dz / d, 0.04);
+        return +Math.hypot(got.x - me.current.x, got.z - me.current.z).toFixed(3);
+      })(),
+    });
     (window as unknown as Record<string, unknown>).__walkTo = (x: number, z: number) => {
       const m = me.current;
       const path = findPath(m.x, m.z, x, z);
@@ -100,6 +129,7 @@ export function Player() {
       const reachable = walkable(x, z);
       const last = route.current[route.current.length - 1];
       goto.current = reachable || !last ? { x, z } : { x: last[0], z: last[1] };
+      stall.current = { t: 0, d: Infinity };
       return route.current.length;
     };
   }, []);
@@ -160,10 +190,26 @@ export function Player() {
       const gx = aim[0] - m.x;
       const gz = aim[1] - m.z;
       const d = Math.hypot(gx, gz);
+
+      // 有沒有在靠近?沒有就是卡住了
+      if (d < stall.current.d - 0.05) {
+        stall.current.d = d;
+        stall.current.t = 0;
+      } else {
+        stall.current.t += step;
+        if (stall.current.t > 1.5) {
+          const again = findPath(m.x, m.z, goto.current.x, goto.current.z);
+          route.current = again ?? [];
+          stall.current.t = 0;
+          stall.current.d = Infinity;
+          // 重算完還是原地打轉的話,就別再耗著 —— 這一趟到不了
+          if (!again || !again.length) goto.current = null;
+        }
+      }
       if (next) {
         // 到點的判定要比橋板窄。判定半徑大過通道寬度的話,
         // 人會在還沒真正踏上橋的時候就認為「這個航點到了」
-        if (d < 1.4) route.current.shift();
+        if (d < 1.4) { route.current.shift(); stall.current.d = Infinity; }
         else tmp.want.set(gx, 0, gz).normalize();
       } else if (d < 0.7) {
         goto.current = null;

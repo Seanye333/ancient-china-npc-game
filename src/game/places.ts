@@ -1,5 +1,6 @@
 import { MARKET, DOCKS, fieldSites, houseSites, meanderAt } from '../world/sites';
 import { terrainHeight, rng } from '../world/field';
+import { COUNTY } from '../world/County';
 import type { JobKind } from './economy';
 
 /**
@@ -13,7 +14,7 @@ import type { JobKind } from './economy';
  * 這張表也是後面所有「場所」的掛鉤 —— 酒肆、賭坊、縣衙都照這個樣子加。
  */
 
-export type PlaceKind = 'market' | 'work' | 'home' | 'tavern';
+export type PlaceKind = 'market' | 'work' | 'home' | 'tavern' | 'inn' | 'yamen';
 
 export interface Place {
   id: string;
@@ -74,6 +75,24 @@ export function places(): Place[] {
     {
       id: 'tavern', kind: 'tavern', label: '酒肆', radius: 6,
       ...at(MARKET[0] + 7, MARKET[1] - 9 - 5),
+    },
+    /*
+     * 縣城 —— 半天路程外的另一個地方。
+     *
+     * 有了它,「離開」這件事才說得出口:押貨有地方可押、行商有第二個價、
+     * 官身有衙門可去。這三個場所是那三條線的接點。
+     */
+    {
+      id: 'county-market', kind: 'market', label: '縣城市集', radius: 8,
+      ...at(COUNTY.x, COUNTY.z + 2),
+    },
+    {
+      id: 'county-inn', kind: 'inn', label: '客棧', radius: 6,
+      ...at(COUNTY.x + 15, COUNTY.z - 4 + 6),
+    },
+    {
+      id: 'county-yamen', kind: 'yamen', label: '縣衙', radius: 7,
+      ...at(COUNTY.x, COUNTY.z - 26 + 12 + 9),
     },
     {
       id: 'home', kind: 'home', label: '落腳處', radius: 5,

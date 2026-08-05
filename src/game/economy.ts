@@ -210,3 +210,22 @@ export function stipendFor(rank: number): number {
 export function taxDue(lodging: Lodging): number {
   return 60 + (lodging === 'owned' ? 40 : 0);
 }
+
+/* ── 兩個地方,兩個價 ────────────────────────────── */
+
+/**
+ * 縣城的米價。
+ *
+ * 城裡人多、不種田,所以平時米比村裡貴一成半;可是商路一斷,
+ * 城裡反而先慌 —— 糧全靠運進來。於是<b>價差本身會隨世界擺動</b>,
+ * 而不是一個固定的搬運利潤:行商賺的是「看得準」,不是「跑得勤」。
+ *
+ * 這是第二個聚落最直接的用處:第一次有了「別處的價」。
+ */
+export function countyPrice(village: VillageState): number {
+  const scarcity = village.trade < 40 ? 1.35 : 1.15;
+  return Math.max(1, Math.round(village.grainPrice * scarcity));
+}
+
+/** 客棧一宿多少錢。比賃屋一旬還貴 —— 出門在外本來就燒錢。 */
+export const INN_PRICE = 6;

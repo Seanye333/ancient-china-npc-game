@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { beforeAll } from 'vitest';
 import { findPath, navOpen, navStats, invalidateNav } from './nav';
 import { meanderAt, MARKET, BRIDGE } from './sites';
-import { walkable, registerDecks } from './field';
+import { walkable, registerDecks, registerBlockers, clearBlockers, steerMove } from './field';
 
 /**
  * 橋的板子是 Settlement 掛載時才登記的,測試裡沒有 React,
@@ -87,5 +87,66 @@ describe('走得到嗎', () => {
   it('走不到的地方要老實回 null,不要繞地球一圈', () => {
     // 圖外面
     expect(findPath(MARKET[0], MARKET[1], 9999, 9999)).toBeNull();
+  });
+});
+
+describe('走位不會把人永遠釘住', () => {
+  /**
+   * steerMove 先前<b>唯一沒有出路的狀態</b>:所有方向都不可走,於是原地不動;
+   * 下一幀還是所有方向都不可走。人永遠釘在那棵樹上,而重算幾次路都沒有用 ——
+   * 問題不在路,在腳。
+   */
+  it('被幾棵樹圍在口袋裡的時候,也擠得出去', () => {
+    // 腳下這一點可走,四周一圈都是樹 —— 這才是真正卡死人的形狀,
+    // 而不是「站在樹幹正中央」
+    // 擺在村邊的乾地上 —— 第一版擺在世界原點,而原點正好在河裡,
+    // 於是四周本來就沒有一處站得住,測到的是「河」不是「口袋」
+    const [ox, oz] = [MARKET[0] + 24, MARKET[1] + 24];
+    const ring = [];
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      ring.push({
+        x: ox + Math.sin(a) * 1.1, z: oz + Math.cos(a) * 1.1,
+        solid: 0.8, view: 0.8, top: 4,
+      });
+    }
+    registerBlockers('test-pocket', ring);
+    let p = { x: ox, z: oz };
+    let moved = 0;
+    let frozen = 0;
+    for (let i = 0; i < 60; i++) {
+      const got = steerMove(p.x, p.z, 1, 0, 0.04);
+      const d = Math.hypot(got.x - p.x, got.z - p.z);
+      moved += d;
+      if (d < 1e-6) frozen++;
+      p = { x: got.x, z: got.z };
+    }
+    /*
+     * 驗的是<b>沒有被凍住</b>,不是「跑得多遠」。
+     * 這裡一直叫他往東走,而東邊就是那圈樹 —— 他當然會被擠出去又走回來。
+     * 真實情況下是上層重算路線把他帶開;走位函式的責任只有一條:
+     * 任何一幀都要能動。一動不動才是那個永遠好不了的狀態。
+     */
+    expect(frozen, `六十幀裡有 ${frozen} 幀完全動不了`).toBe(0);
+    expect(moved).toBeGreaterThan(1);
+    clearBlockers('test-pocket');
+  });
+
+  it('陷在障礙裡的時候,會把自己推出來', () => {
+    registerBlockers('test-stuck', [{
+      x: MARKET[0] + 24, z: MARKET[1] + 24, solid: 3, view: 3, top: 5,
+    }]);
+    // 正好站在圓心 —— 四面八方都是這個障礙
+    let p = { x: MARKET[0] + 24.1, z: MARKET[1] + 24.1 };
+    let moved = 0;
+    for (let i = 0; i < 40; i++) {
+      const got = steerMove(p.x, p.z, 1, 0, 0.2);
+      moved += Math.hypot(got.x - p.x, got.z - p.z);
+      p = { x: got.x, z: got.z };
+    }
+    expect(moved, '四十幀下來一動都沒動 —— 那就是被釘住了').toBeGreaterThan(1);
+    expect(Math.hypot(p.x - MARKET[0] - 24, p.z - MARKET[1] - 24), '沒有離開障礙的中心')
+      .toBeGreaterThan(1);
+    clearBlockers('test-stuck');
   });
 });
