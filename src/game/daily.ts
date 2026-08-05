@@ -11,6 +11,7 @@ import {
   useCalamity, calamityRoll, calamityDays, calamityBite, calamityWord, CALAMITY_LABEL,
 } from './calamity';
 import { useQuest } from './quest';
+import { moodOf, grumble, isGrieving } from './company';
 import { playerPos } from './interact';
 import { MARKET } from '../world/sites';
 import {
@@ -41,6 +42,9 @@ import type { Season } from '../world/worldTime';
  * 存檔存的是<b>結算之後</b>的狀態,那些日子早就結過了。
  */
 export const settleGuard = { skipUntil: -1 };
+
+/** 抱怨過一次的人。走之前一定先抱怨 —— 這張表就是那個「先」。 */
+const warnedOnce = new Set<string>();
 
 export interface DayReport {
   ate: number;
@@ -230,6 +234,41 @@ export function settleDay(day: number, season: Season): DayReport {
       folkStore.patch(p.id, { aged: deltaOf(p.id).aged + 1 });
     }
     journal.note(day, '又是一年。', 'plain');
+  }
+
+  /*
+   * 跟著你的人怎麼想。
+   *
+   * <b>要走之前一定先抱怨。</b>沒有預兆的離開會讓玩家覺得系統在耍他;
+   * 抱怨過一次再走,那才是他自己的決定。
+   */
+  {
+    const h = useHero.getState();
+    const people = makeVillagers(38);
+    for (const id of [...h.followers]) {
+      const npc = people.find((p) => p.id === id);
+      if (!npc) continue;
+      const grieving = isGrieving(id, day);
+      const m = moodOf({
+        npc, favor: h.favors[id] ?? 0, renown: h.renown,
+        hungryDays: report.starved ? 1 : 0, grieving,
+      });
+      if (!m.restless) continue;
+      const warned = warnedOnce.has(id);
+      if (!warned) {
+        warnedOnce.add(id);
+        journal.note(day, `${npc.name}${grumble({
+          npc, hungryDays: report.starved ? 1 : 0, grieving, renown: h.renown,
+        })}`, 'bad');
+        continue;
+      }
+      if (Math.random() < 0.4) {
+        h.dismiss(id);
+        warnedOnce.delete(id);
+        report.left.push(id);
+        journal.note(day, `${npc.name}走了。你留不住他。`, 'bad');
+      }
+    }
   }
 
   /* 流言傳一天 —— 你做的事沿著血緣走,不會停在當事人身上 */

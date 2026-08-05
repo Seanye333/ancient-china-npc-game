@@ -52,6 +52,8 @@ export function askToJoin(input: {
    * 官府記他的功,村裡沒人肯跟他走。
    */
   renown?: number;
+  /** 同鄉抵掉的人情。在一個離開出生地就失去一切的時代,這是一根能抓的繩子。 */
+  homeBonus?: number;
 }): Persuasion {
   const { npc, favor } = input;
   if (input.alreadyWith) {
@@ -72,7 +74,7 @@ export function askToJoin(input: {
   // 名聲壞的時候反過來加碼:壞名聲要用更多人情去補
   const charmOff = Math.max(0, (input.charisma - 50) / 12);
   const fameOff = (input.renown ?? 0) / 14;
-  const need = Math.max(2, joinThreshold(npc) - charmOff - fameOff);
+  const need = Math.max(2, joinThreshold(npc) - charmOff - fameOff - (input.homeBonus ?? 0));
   if (favor < need) {
     const short = Math.ceil(need - favor);
     return {
@@ -91,13 +93,15 @@ export function askToJoin(input: {
   return {
     ok: true,
     needMore: 0,
-    line: npc.temper === 'gruff'
-      ? '早想跟著你了。走!'
-      : npc.temper === 'warm'
-        ? '承蒙看得起。這條命，往後就交給你了。'
-        : npc.temper === 'shrewd'
-          ? '看你不像沒出息的。我押你一把。'
-          : '⋯⋯罷了。跟你走一趟。',
+    line: (input.homeBonus ?? 0) >= 4
+      ? '同鄉啊⋯⋯這地方我也待夠了。走!'
+      : npc.temper === 'gruff'
+        ? '早想跟著你了。走!'
+        : npc.temper === 'warm'
+          ? '承蒙看得起。這條命，往後就交給你了。'
+          : npc.temper === 'shrewd'
+            ? '看你不像沒出息的。我押你一把。'
+            : '⋯⋯罷了。跟你走一趟。',
   };
 }
 

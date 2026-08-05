@@ -5,6 +5,7 @@ import {
   renownWord, spreadRumor, stepRumors, rumors,
 } from './folk';
 import { askToJoin } from './recruiting';
+import { moodOf, grumble, homeOf, homeBonus } from './company';
 import { makeVillagers } from './npcs';
 
 /**
@@ -170,5 +171,55 @@ describe('流言沿著血緣走', () => {
     spreadRumor({ text: '一句話。', delta: 1, life: 2 });
     for (let i = 0; i < 5; i++) stepRumors(() => 0.5);
     expect(rumors.length).toBe(0);
+  });
+});
+
+describe('跟著你的人有自己的想法', () => {
+  const npc = makeVillagers(38).find((p) => p.temper === 'shrewd')!;
+
+  it('餓過的人心思會散,但直脾氣的忍得住', () => {
+    const gruff = makeVillagers(38).find((p) => p.temper === 'gruff')!;
+    const base = { favor: 5, renown: 0, hungryDays: 2, grieving: false };
+    expect(moodOf({ ...base, npc: gruff }).score)
+      .toBeGreaterThan(moodOf({ ...base, npc }).score);
+  });
+
+  it('家裡剛出事的人跟不動 —— 死的不是他,可是他心思不在這兒', () => {
+    const a = moodOf({ npc, favor: 6, renown: 0, hungryDays: 0, grieving: true });
+    const b = moodOf({ npc, favor: 6, renown: 0, hungryDays: 0, grieving: false });
+    expect(a.score).toBeLessThan(b.score);
+  });
+
+  it('名聲爛的人帶不住隊伍', () => {
+    const good = moodOf({ npc, favor: 4, renown: 40, hungryDays: 0, grieving: false });
+    const bad = moodOf({ npc, favor: 4, renown: -40, hungryDays: 0, grieving: false });
+    expect(good.score).toBeGreaterThan(bad.score);
+    expect(bad.restless).toBe(true);
+  });
+
+  it('每一種心情都說得出一句話', () => {
+    for (const r of [-60, -20, 0, 30, 80]) {
+      expect(moodOf({ npc, favor: 0, renown: r, hungryDays: 0, grieving: false }).word)
+        .toBeTruthy();
+    }
+    expect(grumble({ npc, hungryDays: 3, grieving: false, renown: 0 })).toContain('飯');
+  });
+});
+
+describe('同鄉', () => {
+  it('籍貫從 id 雜湊來,不動 makeVillagers 的亂數 —— 否則加一個欄位就換了一村人', () => {
+    const before = makeVillagers(38).map((p) => `${p.id}:${p.name}:${p.age}`).join('|');
+    makeVillagers(38).forEach((p) => homeOf(p.id));
+    const after = makeVillagers(38).map((p) => `${p.id}:${p.name}:${p.age}`).join('|');
+    expect(after).toBe(before);
+  });
+
+  it('外鄉的同鄉最親,本地的同鄉不算什麼', () => {
+    const foreign = makeVillagers(38).find((p) => homeOf(p.id) !== '河谷')!;
+    const local = makeVillagers(38).find((p) => homeOf(p.id) === '河谷')!;
+    expect(homeBonus(homeOf(foreign.id), foreign.id)).toBeGreaterThan(
+      homeBonus('河谷', local.id));
+    // 不是同鄉就沒有這一份
+    expect(homeBonus('不存在的地方', local.id)).toBe(0);
   });
 });

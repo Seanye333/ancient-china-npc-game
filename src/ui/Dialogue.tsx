@@ -7,6 +7,7 @@ import { lostSpot } from '../game/places';
 import { makeVillagers, smallTalk, addressYou, TRADE_LABEL, TEMPER_LABEL } from '../game/npcs';
 import { kinWord } from '../game/kin';
 import { deltaOf, isSick, spreadRumor } from '../game/folk';
+import { homeOf, homeBonus, moodOf, isGrieving } from '../game/company';
 import { useClock } from '../world/worldTime';
 import { partsFor } from '../game/calendar';
 import { useHero } from '../game/hero';
@@ -48,6 +49,7 @@ export function Dialogue() {
   // 而 hour 永遠小於 24,所以那個值只跟季節的英文字母數有關 ——
   // 換季才換活,一季之內怎麼等都是同一件。現在有真的曆法了
   const span = useClock((s) => partsFor(s.day).xunIndex);
+  const day = useClock((s) => s.day);
   const errand = useMemo(
     () => (npc ? errandFrom(npc, village, span, hero.merit, bands) : null),
     [npc, village, span, hero.merit, bands],
@@ -175,6 +177,9 @@ export function Dialogue() {
         <strong style={{ fontSize: '1.16rem', letterSpacing: '.04em' }}>{npc.name}</strong>
         <span style={{ fontSize: '.76rem', opacity: .6 }}>
           {TRADE_LABEL[npc.trade]} · {TEMPER_LABEL[npc.temper]} · {npc.age + deltaOf(npc.id).aged} 歲
+          {' · '}{homeOf(npc.id)}人{homeBonus(hero.hometown, npc.id) >= 4 && (
+            <span style={{ color: '#a8d4b4' }}> · 同鄉</span>
+          )}
           {' · '}{kinWord(npc.id)}
         </span>
         {isSick(npc.id) && (
@@ -183,7 +188,12 @@ export function Dialogue() {
         )}
         {joined && (
           <span style={{ fontSize: '.74rem', padding: '.05rem .4rem',
-                         border: '1px solid #7fb08a', color: '#a8d4b4' }}>隨行</span>
+                         border: '1px solid #7fb08a', color: '#a8d4b4' }}>
+            隨行 · {moodOf({
+              npc, favor, renown: hero.renown, hungryDays: 0,
+              grieving: isGrieving(npc.id, day),
+            }).word}
+          </span>
         )}
         <span style={{ fontSize: '.76rem', marginLeft: 'auto',
                        color: favor > 0 ? '#7fb08a' : favor < 0 ? '#d07862' : 'rgba(230,226,216,.45)' }}>
@@ -302,6 +312,7 @@ export function Dialogue() {
                 cap: retinueCap(rankForMerit(hero.merit), hero.stats.leadership),
                 alreadyWith: joined,
                 renown: hero.renown,
+                homeBonus: homeBonus(hero.hometown, npc.id),
               });
               if (res.ok) hero.recruit(npc.id);
               setLine(res.ok ? res.line
