@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { fighters, alive, useBattle } from '../game/combat';
-import { playerPos } from '../game/interact';
+import { playerPos, warpPlayer } from '../game/interact';
 import { useBands, bandWord } from '../game/bands';
+import { useQuest } from '../game/quest';
 import { useHero } from '../game/hero';
 import { useVillage } from '../game/village';
 import { makeVillagers } from '../game/npcs';
+import { walkable } from '../world/field';
+import { MARKET } from '../world/sites';
 
 /**
  * 打架的時候畫面上該有的字 —— 少得不能再少。
@@ -42,12 +45,19 @@ export function BattleHud() {
 
   if (tally) {
     const band = bands.find((b) => b.id === bandId);
+    // 有人託你辦這件事嗎?這一句決定了這場架算「功勞」還是「私鬥」
+    const commissioned = !!bandId && useQuest.getState().taken?.bandId === bandId;
     return (
       <Aftermath
         onClose={() => {
           if (tally.won && band) {
+            // 戰利品是你自己搶下來的,誰託的都一樣 —— 這是你的手掙的
             hero.addGold(Math.round(tally.foesDown * 7 + band.fierce * band.count * 5));
-            hero.addMerit(Math.round(band.count * 2 + band.fierce * 7));
+            // 但功績不是。<b>沒人託你,打贏了也只是私鬥</b>:
+            // 白身要的不是戰績,是有人記得這件事是你辦的 —— 大頭留到覆命才發
+            hero.addMerit(commissioned
+              ? Math.round(band.count * 0.6)
+              : Math.round(band.count * 1.2 + band.fierce * 3));
             // 剿了匪治安就該好轉 —— 你做的事要在世界上留下痕跡
             village.nudge({ order: village.order + 7 + Math.round(band.fierce * 6) });
           }
@@ -57,6 +67,9 @@ export function BattleHud() {
           }
           // 倒下的人不會再跟著你走 —— 這一步就是招募那條線的代價
           for (const id of tally.fell) hero.dismiss(id);
+          // 打輸了那夥人還在原地站著。不把你挪回路邊,收兵的視窗一關,
+          // 下一幀就又撞上去 —— 一路輸到死,而那不是玩家的選擇
+          if (!tally.won && band) warpPlayer(...retreatFrom(band.x, band.z));
           clear();
         }}
         won={tally.won}
@@ -65,6 +78,7 @@ export function BattleHud() {
         foesFled={tally.foesFled}
         fell={tally.fell}
         scattered={tally.scattered}
+        commissioned={commissioned}
         bandName={band?.name ?? '那夥人'}
       />
     );
@@ -124,6 +138,23 @@ export function BattleHud() {
 }
 
 /**
+ * 敗走之後醒過來的地方 —— 從賊窩往集市那頭退三十幾步,退到路上為止。
+ * 一格一格往回試,是因為<b>直接算一個點會把人扔進河裡或塞進山壁</b>。
+ */
+function retreatFrom(bx: number, bz: number): [number, number] {
+  const dx = MARKET[0] - bx;
+  const dz = MARKET[1] - bz;
+  const len = Math.hypot(dx, dz) || 1;
+  for (const back of [34, 40, 46, 52, 60]) {
+    const t = Math.min(back, len) / len;
+    const x = bx + dx * t;
+    const z = bz + dz * t;
+    if (walkable(x, z)) return [x, z];
+  }
+  return [MARKET[0], MARKET[1]];
+}
+
+/**
  * 收場。
  *
  * 這一頁的重點<b>不是戰利品,是誰沒回來</b>:名字要一個一個列出來。
@@ -131,7 +162,8 @@ export function BattleHud() {
  */
 function Aftermath(p: {
   won: boolean; playerDown: boolean; foesDown: number; foesFled: number;
-  fell: string[]; scattered: string[]; bandName: string; onClose: () => void;
+  fell: string[]; scattered: string[]; bandName: string; commissioned: boolean;
+  onClose: () => void;
 }) {
   const villagers = makeVillagers(38);
   const nameOf = (id: string) => villagers.find((v) => v.id === id)?.name ?? '同行';
@@ -161,6 +193,19 @@ function Aftermath(p: {
                  這片林子安靜下來了。`
               : '人手不夠,只能退。那夥人還在。'}
         </p>
+
+        {/* 打贏了卻沒人託你 —— 這句話是在教這個遊戲怎麼玩,
+            不是在扣你的東西:功勞要有人記,才叫功勞 */}
+        {p.won && !p.playerDown && !p.commissioned && (
+          <p style={{ margin: 0, fontSize: '.82rem', opacity: .6, lineHeight: 1.7 }}>
+            沒人託你辦這件事。錢是你自己搶下來的,可這一場,沒人會替你記上。
+          </p>
+        )}
+        {p.won && p.commissioned && (
+          <p style={{ margin: 0, fontSize: '.84rem', color: '#a8d4b4', lineHeight: 1.7 }}>
+            回去覆命罷 —— 有人等著這個消息。
+          </p>
+        )}
 
         {p.scattered.length > 0 && (
           <p style={{ margin: 0, fontSize: '.86rem', opacity: .7 }}>

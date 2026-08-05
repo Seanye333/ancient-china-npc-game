@@ -7,6 +7,7 @@ import { bodyGeom, headGeom, FIG_BODY_H, FIG_HR } from './figure';
 import { playerPos } from '../game/interact';
 import { useHero } from '../game/hero';
 import { useBands } from '../game/bands';
+import { useQuest } from '../game/quest';
 import { makeVillagers, might } from '../game/npcs';
 import {
   fighters, beginBattle, stepBattle, battleOver, playerStrike, useBattle,
@@ -112,6 +113,8 @@ export function Battle() {
         leadership: hero.stats.leadership,
       });
     };
+    // 驗收用:直接把一夥打散,不必真的走過去打一場
+    w.__routBand = (id: string) => useBands.getState().rout(id);
     w.__bands = () => useBands.getState().bands.map((b) => ({
       id: b.id, name: b.name, x: Math.round(b.x), z: Math.round(b.z),
       count: b.count, routed: b.routed,
@@ -172,9 +175,20 @@ export function Battle() {
     }
   });
 
+  /**
+   * 收場之後,世界要跟著改。
+   *
+   * <b>只有打贏才算散</b> —— 先前這裡不看勝負一律 rout(),於是你被打趴在地上,
+   * 那夥賊也跟著人間蒸發,連帶把「打輸了要再來一次」整條路砍掉。
+   * 打輸他們還在原地,這才是打輸該有的樣子。
+   */
   useEffect(() => {
-    if (!tally) return;
-    if (bandId) rout(bandId);
+    if (!tally || !bandId) return;
+    if (!tally.won) return;
+    rout(bandId);
+    // 若這正是你接下的活,回去就能覆命了
+    const q = useQuest.getState();
+    if (q.taken && q.taken.bandId === bandId) q.markCleared();
   }, [tally, bandId, rout]);
 
   if (!bandId) return null;
