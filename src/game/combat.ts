@@ -45,7 +45,17 @@ export interface Fighter {
   stance: Stance;
   /** 動作相位 0..1 — 給渲染做揮砍與踉蹌,邏輯不看它。 */
   phase: number;
+  /** 主角本人 —— 血厚一點、不會自己嚇跑、收場要單獨記一筆。 */
   isPlayer: boolean;
+  /**
+   * 位置與出手<b>由外面推</b>(真人在鍵盤那頭),模擬不要碰他。
+   *
+   * 和 isPlayer 分開,是因為這兩件事只是<b>平常</b>同時成立。合在一起寫的時候,
+   * 空跑的場子裡主角就成了一尊木頭:不動、不揮刀,還照樣吸引兩個賊來砍 ——
+   * 於是「白身帶兩個村民打兩個毛賊」量出 4% 勝率,而那個數字量的其實是
+   * 我的測試少了一個人,不是遊戲難。
+   */
+  driven: boolean;
   /** 最後一次挨打的時刻,用來閃紅。 */
   hurtAt: number;
 }
@@ -99,6 +109,8 @@ export interface Recruit {
   npcId?: string;
   war: number;
   isPlayer?: boolean;
+  /** 由外面推嗎。省略時等同 isPlayer —— 真人在鍵盤那頭是常態,空跑的場子才要另說。 */
+  driven?: boolean;
 }
 
 /**
@@ -129,6 +141,7 @@ export function beginBattle(input: {
       id: r.id, side: 'you', name: r.name, npcId: r.npcId,
       x, z, y: ground(x, z), yaw: toBand,
       war: r.war, morale: 30 + (input.leadership ?? 50) * 0.25, isPlayer: !!r.isPlayer,
+      driven: r.driven ?? !!r.isPlayer,
     }));
   });
 
@@ -143,7 +156,7 @@ export function beginBattle(input: {
     fighters.push(mk({
       id: `${band.id}-${i}`, side: 'foe', name: chief ? '賊首' : '山賊',
       chief, x, z, y: ground(x, z), yaw: toBand + Math.PI,
-      war, morale: 26 + band.fierce * 24 + (chief ? 18 : 0), isPlayer: false,
+      war, morale: 26 + band.fierce * 24 + (chief ? 18 : 0), isPlayer: false, driven: false,
     }));
   }
   useBattle.getState().open(band.id);
@@ -152,7 +165,7 @@ export function beginBattle(input: {
 function mk(p: {
   id: string; side: Side; name: string; npcId?: string; chief?: boolean;
   x: number; y: number; z: number; yaw: number;
-  war: number; morale: number; isPlayer: boolean;
+  war: number; morale: number; isPlayer: boolean; driven: boolean;
 }): Fighter {
   // 主角厚一點 —— 這個遊戲裡你可以輸,但不該在看清楚發生什麼之前就倒下
   const hp = 42 + p.war * 0.38 + (p.isPlayer ? 16 : 0);
@@ -213,7 +226,7 @@ export function stepBattle(
     // 沒空位:壓到戰團邊上候著,誰倒下就補上去
     if (!tgt) {
       const w = nearestFoe(f);
-      if (!w || f.isPlayer) continue;
+      if (!w || f.driven) continue;
       const wx = w.x - f.x, wz = w.z - f.z;
       const wd = Math.hypot(wx, wz);
       f.yaw = Math.atan2(wx, wz);
@@ -231,8 +244,8 @@ export function stepBattle(
 
     const dx = tgt.x - f.x, dz = tgt.z - f.z;
     const d = Math.hypot(dx, dz);
-    // 玩家自己走位,不由這裡推
-    if (!f.isPlayer) {
+    // 真人自己走位,不由這裡推
+    if (!f.driven) {
       f.yaw = Math.atan2(dx, dz);
       if (d > REACH) {
         const step = Math.min(MOVE * dt, d - REACH * 0.8);
