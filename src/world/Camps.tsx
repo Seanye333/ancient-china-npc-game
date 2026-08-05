@@ -1,4 +1,5 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { groundAt, slopeAt, rng } from './field';
@@ -88,6 +89,100 @@ export function Camps() {
           <meshStandardMaterial {...MATERIALS[key]} />
         </mesh>
       ))}
+      <CampSmoke />
     </>
+  );
+}
+
+/**
+ * 炊煙 —— 這是整個遊戲裡唯一的「任務標記」,而它不是 UI。
+ *
+ * 接了剿匪的活以後總得找得到地方。做法有兩種:在地圖上點一個黃色驚嘆號,
+ * 或者<b>讓那個地方本來就看得見</b>。七十步外的林子上頭飄著一道煙,
+ * 這件事村裡人人都知道 —— 差事說「西南約七十步」,你抬頭就能對上。
+ *
+ * 打散了的營地不冒煙。你做過的事在地平線上就看得出來,不必翻任何面板。
+ *
+ * 一個 InstancedMesh 吃下所有營地的所有煙團:朝向鏡頭靠每幀套上鏡頭的
+ * 四元數,不用 Billboard 元件 —— 那會讓每一團煙各自變成一個節點。
+ */
+const PUFFS = 7;
+
+function CampSmoke() {
+  const bands = useBands((s) => s.bands);
+  const live = useMemo(() => bands.filter((b) => !b.routed), [bands]);
+  const mesh = useRef<THREE.InstancedMesh>(null);
+
+  // 一團軟邊的圓斑。沒有它,煙就是一疊硬邊的方片
+  const alphaMap = useMemo(() => {
+    const s = 64;
+    const c = document.createElement('canvas');
+    c.width = c.height = s;
+    const g = c.getContext('2d')!;
+    const grad = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+    grad.addColorStop(0, '#fff');
+    grad.addColorStop(0.45, 'rgba(255,255,255,.55)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, s, s);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.NoColorSpace;
+    return t;
+  }, []);
+  useEffect(() => () => alphaMap.dispose(), [alphaMap]);
+
+  const tmp = useMemo(() => ({
+    obj: new THREE.Object3D(), col: new THREE.Color(),
+    dark: new THREE.Color('#4c453f'), pale: new THREE.Color('#c2c8cd'),
+  }), []);
+
+  useFrame(({ clock, camera }) => {
+    const im = mesh.current;
+    if (!im) return;
+    const t = clock.elapsedTime;
+    let i = 0;
+    for (const b of live) {
+      const gy = groundAt(b.x, b.z);
+      for (let p = 0; p < PUFFS; p++) {
+        // 每團煙各自從火塘升到散掉,再從頭來 —— 相位錯開才不是一串珠子
+        const phase = ((t * 0.13 + p / PUFFS + b.x * 0.017) % 1 + 1) % 1;
+        const rise = phase * 9.5;
+        tmp.obj.position.set(
+          b.x + Math.sin(t * 0.4 + p) * phase * 1.5,
+          gy + 0.9 + rise,
+          b.z + Math.cos(t * 0.33 + p * 1.7) * phase * 1.2,
+        );
+        tmp.obj.quaternion.copy(camera.quaternion);     // 永遠正對鏡頭
+        const s = 1.0 + phase * 3.6;
+        tmp.obj.scale.set(s, s, s);
+        tmp.obj.updateMatrix();
+        im.setMatrixAt(i, tmp.obj.matrix);
+        // 越升越淡:instanceColor 沒有 alpha,所以拿顏色往天色上靠來當淡出
+        im.setColorAt(i, tmp.col.copy(tmp.dark).lerp(tmp.pale, Math.min(1, phase * 1.35)));
+        i++;
+      }
+    }
+    im.count = i;
+    im.instanceMatrix.needsUpdate = true;
+    if (im.instanceColor) im.instanceColor.needsUpdate = true;
+  });
+
+  if (!live.length) return null;
+
+  return (
+    <instancedMesh
+      ref={mesh}
+      // key 帶上數量:一夥被打散,整個 buffer 要重配,不然舊的煙團會留在天上
+      key={live.length}
+      args={[undefined, undefined, live.length * PUFFS]}
+      frustumCulled={false}
+      renderOrder={2}
+    >
+      <planeGeometry args={[2.6, 2.6]} />
+      <meshBasicMaterial
+        alphaMap={alphaMap} transparent opacity={0.34}
+        depthWrite={false} toneMapped={false} fog
+      />
+    </instancedMesh>
   );
 }
