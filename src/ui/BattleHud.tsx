@@ -3,6 +3,9 @@ import type { CSSProperties } from 'react';
 import { fighters, alive, useBattle } from '../game/combat';
 import { playerPos, warpPlayer } from '../game/interact';
 import { useBands, bandWord } from '../game/bands';
+import { surrenderChance, surrenderCount } from '../game/raids';
+import { useClock } from '../world/worldTime';
+import { note } from '../game/journal';
 import { useQuest } from '../game/quest';
 import { useHero } from '../game/hero';
 import { useVillage } from '../game/village';
@@ -165,6 +168,7 @@ function Aftermath(p: {
   fell: string[]; scattered: string[]; bandName: string; commissioned: boolean;
   onClose: () => void;
 }) {
+  const [taken, setTaken] = useState<string | null>(null);
   const villagers = makeVillagers(38);
   const nameOf = (id: string) => villagers.find((v) => v.id === id)?.name ?? '同行';
 
@@ -224,6 +228,44 @@ function Aftermath(p: {
               <span key={id} style={{ fontSize: '.95rem', color: '#d8a898' }}>{nameOf(id)}</span>
             ))}
           </div>
+        )}
+
+        {/* 招安 —— 把丟下刀跑的收成自己的人。收下來的要吃飯,所以這是決定不是獎勵 */}
+        {p.won && p.foesFled > 0 && !taken && (
+          <button
+            onClick={() => {
+              const hero = useHero.getState();
+              const ok = Math.random() < surrenderChance({
+                foesDown: p.foesDown, foesFled: p.foesFled,
+                charisma: hero.stats.charisma, merit: hero.merit,
+              });
+              if (!ok) { setTaken('none'); return; }
+              const n = surrenderCount(p.foesFled, Math.random);
+              const got = hero.addRetinue(n);
+              setTaken(got.taken > 0 ? `${got.taken}` : 'full');
+              if (got.taken > 0) {
+                note(useClock.getState().day,
+                  `收了 ${got.taken} 個降人 —— 他們也要吃飯。`, 'good');
+              }
+            }}
+            style={{
+              padding: '.5rem 1rem', cursor: 'pointer', textAlign: 'left',
+              background: 'rgba(255,255,255,.06)', color: '#e6e2d8',
+              border: '1px solid rgba(200,164,90,.5)',
+              fontFamily: 'inherit', fontSize: '.88rem',
+            }}
+          >
+            招安 —— 喊住那幾個跑的
+            <span style={{ opacity: .55, fontSize: '.78rem' }}> · 收下來的人要吃你的糧</span>
+          </button>
+        )}
+        {taken && (
+          <p style={{ margin: 0, fontSize: '.85rem', lineHeight: 1.7,
+                      color: taken === 'none' || taken === 'full' ? '#d8a898' : '#a8d4b4' }}>
+            {taken === 'none' ? '那幾個頭也不回地跑進林子裡去了。'
+              : taken === 'full' ? '有人肯留下,可是你養不起了。'
+                : `${taken} 個放下刀,跟你回去。`}
+          </p>
         )}
 
         <button

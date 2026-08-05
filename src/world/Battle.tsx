@@ -7,6 +7,7 @@ import { bodyGeom, headGeom, FIG_BODY_H, FIG_HR } from './figure';
 import { playerPos } from '../game/interact';
 import { useHero } from '../game/hero';
 import { useBands } from '../game/bands';
+import { raidParties, useRaids } from '../game/raids';
 import { useQuest } from '../game/quest';
 import { makeVillagers, might } from '../game/npcs';
 import {
@@ -26,6 +27,20 @@ import {
  */
 
 const ENGAGE = 18;
+
+/** 我方出陣的人 —— 蹲窩的和攔路的兩處都要,抽出來免得各寫一份走樣。 */
+function ourSide(
+  hero: ReturnType<typeof useHero.getState>,
+  byId: Record<string, ReturnType<typeof makeVillagers>[number]>,
+) {
+  return [
+    { id: 'you', name: hero.name, war: hero.stats.war, isPlayer: true },
+    ...hero.followers.map((id) => ({
+      id: `mate-${id}`, npcId: id,
+      name: byId[id]?.name ?? '同行', war: byId[id] ? might(byId[id]) : 40,
+    })),
+  ];
+}
 
 const FOE_ROBE = '#4a3f42';
 const FOE_CHIEF_ROBE = '#5c3a33';
@@ -59,6 +74,8 @@ export function Battle() {
     return mergeGeometries([blade, guard, grip], false)!;
   }, []);
 
+  /** 這一場打的是「下山的那一夥」嗎 —— 收場的結算不一樣:窩還在,只是人少了。 */
+  const engagedRaid = useRef<{ partyId: string; bandId: string; name: string } | null>(null);
   const groups = useRef<Record<string, THREE.Group | null>>({});
   const blades = useRef<Record<string, THREE.Group | null>>({});
   const bodies = useRef<Record<string, THREE.Mesh | null>>({});
@@ -125,23 +142,34 @@ export function Battle() {
     const step = dt > 0.1 ? 0.1 : dt;
     const st = useBattle.getState();
 
-    // 還沒開打:看看有沒有撞上哪一夥
+    // 還沒開打:看看有沒有撞上哪一夥。
+    // 兩種:蹲在窩裡的,和下了山在路上走的 —— 後者才是「治安差」真正的樣子
     if (!st.bandId) {
+      for (const r of raidParties) {
+        if (r.fighting) continue;
+        if (Math.hypot(r.x - playerPos.x, r.z - playerPos.z) > ENGAGE) continue;
+        const hero = useHero.getState();
+        beginBattle({
+          ours: ourSide(hero, byId),
+          band: { id: r.id, x: r.x, z: r.z, fierce: r.fierce, count: r.count },
+          at: { x: playerPos.x, z: playerPos.z }, ground: groundAt,
+          leadership: hero.stats.leadership,
+        });
+        // 掛旗子而不是刪掉 —— 刪了的話你打輸,他們就憑空消失,
+        // 攔路失敗反而幫村子解了圍
+        r.fighting = true;
+        useRaids.getState().bump();
+        engagedRaid.current = { partyId: r.id, bandId: r.bandId, name: r.name };
+        return;
+      }
       for (const b of bands) {
         if (b.routed) continue;
         if (Math.hypot(b.x - playerPos.x, b.z - playerPos.z) > ENGAGE) continue;
         const hero = useHero.getState();
-        const ours = [
-          {
-            id: 'you', name: hero.name, war: hero.stats.war, isPlayer: true,
-          },
-          ...hero.followers.map((id) => ({
-            id: `mate-${id}`, npcId: id,
-            name: byId[id]?.name ?? '同行', war: byId[id] ? might(byId[id]) : 40,
-          })),
-        ];
+        engagedRaid.current = null;
         beginBattle({
-          ours, band: { id: b.id, x: b.x, z: b.z, fierce: b.fierce, count: b.count },
+          ours: ourSide(hero, byId),
+          band: { id: b.id, x: b.x, z: b.z, fierce: b.fierce, count: b.count },
           at: { x: playerPos.x, z: playerPos.z }, ground: groundAt,
           leadership: hero.stats.leadership,
         });
@@ -184,6 +212,31 @@ export function Battle() {
    */
   useEffect(() => {
     if (!tally || !bandId) return;
+
+    /*
+     * 打的是下山那一夥:窩還在,但出來的這幾個是從窩裡出來的,窩就該少這麼多人。
+     * 直接 rout 整個營地會讓「攔路」比「端窩」還划算,那說不通。
+     * 打輸了他們接著往村子走 —— 你攔不住,村子就得挨這一下。
+     */
+    const raid = engagedRaid.current;
+    if (raid) {
+      engagedRaid.current = null;
+      const i = raidParties.findIndex((r) => r.id === raid.partyId);
+      if (tally.won) {
+        if (i >= 0) raidParties.splice(i, 1);
+        const gone = tally.foesDown + tally.foesFled;
+        useBands.setState((s) => ({
+          bands: s.bands.map((b) => (b.id === raid.bandId
+            ? { ...b, count: Math.max(0, b.count - gone), routed: b.count - gone <= 0 }
+            : b)),
+        }));
+      } else if (i >= 0) {
+        raidParties[i].fighting = false;
+      }
+      useRaids.getState().bump();
+      return;
+    }
+
     if (!tally.won) return;
     rout(bandId);
     // 若這正是你接下的活,回去就能覆命了

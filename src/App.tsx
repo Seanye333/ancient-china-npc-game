@@ -17,6 +17,7 @@ import { Player } from './world/Player';
 import { Interaction } from './world/Interaction';
 import { Followers } from './world/Followers';
 import { Camps } from './world/Camps';
+import { Raiders } from './world/Raiders';
 import { Battle } from './world/Battle';
 import { Dialogue } from './ui/Dialogue';
 import { BattleHud } from './ui/BattleHud';
@@ -140,6 +141,7 @@ function CamBridge() {
     };
     // 驗收腳本要問時間、存讀檔、走到某個場所 —— 都是原型階段的把手
     (window as unknown as Record<string, unknown>).__clock = () => useClock.getState();
+    (window as unknown as Record<string, unknown>).__villageState = () => useVillage.getState();
     (window as unknown as Record<string, unknown>).__save = () => saveGame();
     (window as unknown as Record<string, unknown>).__load = () => loadGame();
     (window as unknown as Record<string, unknown>).__journal = () =>
@@ -383,6 +385,7 @@ export default function App() {
           <Crowd />
           <Player />
           <Camps />
+          <Raiders />
           <Followers />
           <Battle />
           <Interaction />

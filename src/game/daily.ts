@@ -5,6 +5,8 @@ import { useJournal } from './journal';
 import { makeVillagers } from './npcs';
 import { DAYS_PER_SHI, mouths, RENT_PER_XUN, LODGING_LABEL } from './economy';
 import { DAYS_PER_XUN, partsFor } from './calendar';
+import { raidParties, useRaids, raidChance, raidSize, alreadyOut } from './raids';
+import { groundAt } from '../world/field';
 import type { Season } from '../world/worldTime';
 
 /**
@@ -94,12 +96,35 @@ export function settleDay(day: number, season: Season): DayReport {
     journal.note(day, '傷好了些。');
   }
 
-  /* 村子與賊窩自己往前走。先前這一段每天都該跑,實際上一次都沒跑過 */
-  useVillage.getState().tick(season);
+  /*
+   * 村子每<b>旬</b>推一次,不是每天。
+   *
+   * village.ts 的註解白紙黑字寫著「世界的節奏 —— 每旬推一次」,而它的數字
+   * 也是按旬寫的:冬天收成 -12、秋天治安 -3.5。先前那段程式因為 day 恆為 0
+   * 從來沒跑過,所以沒人發現差別;曆法一接上,照天推就是六天把一村的收成
+   * 歸零 —— 世界不是變嚴酷,是<b>時間單位錯了十倍</b>。
+   */
+  if (day % DAYS_PER_XUN === 0) useVillage.getState().tick(season);
   const before = useBands.getState().bands.filter((b) => b.routed).length;
   useBands.getState().regrow();
   const after = useBands.getState().bands.filter((b) => b.routed).length;
   if (after < before) journal.note(day, '聽說那邊的窩棚又冒起煙了。', 'bad');
+
+  /* 有沒有人下山 —— 治安差、秋收前後最凶 */
+  const village = useVillage.getState();
+  for (const b of useBands.getState().bands) {
+    if (alreadyOut(b.id)) continue;
+    if (Math.random() > raidChance(b, village, season)) continue;
+    const count = raidSize(b, Math.random);
+    raidParties.push({
+      id: `${b.id}-${day}`, bandId: b.id, name: b.name,
+      count, fierce: b.fierce,
+      x: b.x, y: groundAt(b.x, b.z), z: b.z, yaw: 0,
+      phase: 'out', linger: 0, since: day,
+    });
+    useRaids.getState().bump();
+    journal.note(day, `${b.name}的人出了窩,往村子這邊來了。`, 'bad');
+  }
 
   /* 旬首報一次日子,讓玩家對得上曆法 */
   const p = partsFor(day);

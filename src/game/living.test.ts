@@ -146,9 +146,19 @@ describe('過一天要結的帳', () => {
     expect(useHero.getState().lodging).toBe('none');
   });
 
+  it('村子每旬推一次,不是每天 —— 按天推就是六天把一村收成歸零', () => {
+    const before = useVillage.getState().harvest;
+    // 一旬之內不動
+    for (let d = 1; d <= 9; d++) settleDay(d, 'winter');
+    expect(useVillage.getState().harvest).toBe(before);
+    // 跨過旬首才結
+    settleDay(10, 'winter');
+    expect(useVillage.getState().harvest).toBeLessThan(before);
+  });
+
   it('村子自己往前走 —— 這一段從前一次都沒跑過', () => {
     const before = useVillage.getState().order;
-    for (let d = 1; d <= 6; d++) settleDay(d, 'autumn');
+    for (let d = 1; d <= 30; d++) settleDay(d, 'autumn');
     // 秋天盜匪最凶,治安該往下走
     expect(useVillage.getState().order).toBeLessThan(before);
   });
