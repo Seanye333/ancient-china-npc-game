@@ -9,6 +9,8 @@ await page.goto('http://localhost:5178/', { waitUntil: 'load', timeout: 60000 })
 await page.bringToFront();
 await page.waitForFunction(() => typeof window.__raids === 'function', null, { timeout: 60000 });
 await page.waitForTimeout(2500);
+// 標題頁蓋在世界上面 —— 驗收腳本要先開局,否則點不到任何東西
+await page.evaluate(() => window.__begin && window.__begin());
 await page.evaluate(() => {
   localStorage.clear();
   window.__village(8);                       // 治安崩了

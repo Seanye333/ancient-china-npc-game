@@ -21,6 +21,8 @@ await page.bringToFront();
 // 等鉤子掛好,不要等一個猜出來的秒數 —— 掛慢了就會拿到 undefined is not a function
 await page.waitForFunction(() => typeof window.__bands === 'function', null, { timeout: 60000 });
 await page.waitForTimeout(3000);
+// 標題頁蓋在世界上面 —— 驗收腳本要先開局,否則點不到任何東西
+await page.evaluate(() => window.__begin && window.__begin());
 
 const step = (s) => console.log(`\n── ${s}`);
 

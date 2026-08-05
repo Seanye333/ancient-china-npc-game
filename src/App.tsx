@@ -25,6 +25,7 @@ import { BattleHud } from './ui/BattleHud';
 import { QuestHud } from './ui/QuestHud';
 import { PlacePanel } from './ui/PlacePanel';
 import { Journal } from './ui/Journal';
+import { Title } from './ui/Title';
 import { Lanterns } from './world/Lanterns';
 import { Weather } from './world/Weather';
 import { Tavern } from './world/Interior';
@@ -41,6 +42,7 @@ import { useInteract } from './game/interact';
 import { placeById } from './game/places';
 import { useJournal } from './game/journal';
 import { renownWord } from './game/folk';
+import { originById } from './game/origin';
 
 /**
  * 隨時間變的一切 — 太陽、天空、霧、曝光,全部從 skyFor() 拿同一份參數。
@@ -358,6 +360,30 @@ function HeroBar() {
 }
 
 export default function App() {
+  /**
+   * 開場那一頁只是<b>蓋在世界上面的一層</b>,世界本身一開始就掛著。
+   *
+   * 這件事看起來只是實作細節,其實是刻意的:世界先跑起來,
+   * 按下「開始」不會有載入畫面,而且所有驗收腳本的 window 把手
+   * 在標題頁時就已經存在 —— 否則加一個開場等於一次弄壞六支腳本。
+   */
+  const [started, setStarted] = useState(false);
+  useEffect(() => {
+    // 世界在標題頁不該偷偷走掉幾天
+    if (!started) useClock.setState({ auto: false });
+    (window as unknown as Record<string, unknown>).__begin = (originId?: string) => {
+      if (originId) {
+        const o = originById(originId);
+        useHero.setState({
+          name: '無名', hometown: o.hometown, stats: { ...o.stats },
+          gold: o.gold, grain: o.grain, renown: o.renown, lodging: o.lodging,
+        });
+      }
+      useClock.setState({ auto: true });
+      setStarted(true);
+    };
+  }, [started]);
+
   // Esc 一律先關掉最上層的東西 —— 場所面板現在也在那一疊裡
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -425,6 +451,7 @@ export default function App() {
 
         <CamBridge />
       </Canvas>
+      {!started && <Title onStart={() => setStarted(true)} />}
       <Dialogue />
       <PlacePanel />
       <BattleHud />
