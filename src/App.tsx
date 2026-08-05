@@ -1,5 +1,4 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Sky, Cloud, Clouds } from '@react-three/drei';
 import {
@@ -26,24 +25,21 @@ import { QuestHud } from './ui/QuestHud';
 import { PlacePanel } from './ui/PlacePanel';
 import { Journal } from './ui/Journal';
 import { Title } from './ui/Title';
+import { Hud } from './ui/Hud';
+import { HeroBar } from './ui/HeroBar';
 import { Lanterns } from './world/Lanterns';
 import { Weather } from './world/Weather';
 import { Tavern } from './world/Interior';
-import {
-  skyFor, useClock, SEASONS, SEASON_LABEL, WEATHERS, WEATHER_LABEL,
-} from './world/worldTime';
-import { useHero, rankForMerit, rankLabel, nextRankMerit, retinueCap } from './game/hero';
-import { useVillage, orderWord, harvestWord } from './game/village';
-import { settleDay, grainDays, settleGuard } from './game/daily';
-import { saveGame, loadGame, hasSave, wipeSave } from './game/save';
-import { LODGING_LABEL } from './game/economy';
-import { dateWord, shichenWord } from './game/calendar';
+import { skyFor, useClock } from './world/worldTime';
+import { useHero } from './game/hero';
+import { useVillage } from './game/village';
+import { settleDay, settleGuard } from './game/daily';
+import { saveGame, loadGame } from './game/save';
 import { useInteract } from './game/interact';
 import { placeById } from './game/places';
 import { useJournal } from './game/journal';
-import { renownWord } from './game/folk';
 import { originById } from './game/origin';
-import { updateAmbience, setMuted, isMuted, audioReady } from './game/audio';
+import { updateAmbience, isMuted, audioReady } from './game/audio';
 
 /**
  * 隨時間變的一切 — 太陽、天空、霧、曝光,全部從 skyFor() 拿同一份參數。
@@ -142,8 +138,9 @@ function TimedScene() {
 
 /** 截圖腳本用的相機把手。原型階段直接掛 window,正式版不會留。 */
 function CamBridge() {
-  const { camera, controls } = useThree() as unknown as {
+  const { camera, controls, gl } = useThree() as unknown as {
     camera: THREE.PerspectiveCamera;
+    gl: THREE.WebGLRenderer;
     controls: { target: THREE.Vector3; update: () => void } | null;
   };
   useEffect(() => {
@@ -155,6 +152,7 @@ function CamBridge() {
     };
     // 驗收腳本要問時間、存讀檔、走到某個場所 —— 都是原型階段的把手
     (window as unknown as Record<string, unknown>).__clock = () => useClock.getState();
+    (window as unknown as Record<string, unknown>).__renderInfo = () => gl.info.render.calls;
     (window as unknown as Record<string, unknown>).__audio = () => ({
       ready: audioReady(), muted: isMuted(),
     });
@@ -184,197 +182,12 @@ function CamBridge() {
       }
       camera.lookAt(...target);
     };
-  }, [camera, controls]);
+  }, [camera, controls, gl]);
   return null;
 }
 
-function Hud() {
-  const hour = useClock((s) => s.hour);
-  const season = useClock((s) => s.season);
-  const auto = useClock((s) => s.auto);
-  const setHour = useClock((s) => s.setHour);
-  const setSeason = useClock((s) => s.setSeason);
-  const weather = useClock((s) => s.weather);
-  const setWeather = useClock((s) => s.setWeather);
-  const toggleAuto = useClock((s) => s.toggleAuto);
-  const [fps, setFps] = useState(0);
-  const [saved, setSaved] = useState<string | null>(null);
-  useEffect(() => {
-    if (!saved) return;
-    const t = setTimeout(() => setSaved(null), 2200);
-    return () => clearTimeout(t);
-  }, [saved]);
-  useEffect(() => {
-    let n = 0; let last = performance.now(); let raf = 0;
-    const loop = () => {
-      n++;
-      const now = performance.now();
-      if (now - last > 500) { setFps(Math.round((n * 1000) / (now - last))); n = 0; last = now; }
-      raf = requestAnimationFrame(loop);
-    };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
-  }, []);
 
-  const hh = Math.floor(hour);
-  const mm = Math.floor((hour - hh) * 60);
-  const btn = (active: boolean): CSSProperties => ({
-    padding: '.3rem .7rem',
-    background: active ? '#c8a45a' : 'rgba(255,255,255,.10)',
-    color: active ? '#1a1206' : '#e6e2d8',
-    border: '1px solid rgba(255,255,255,.18)',
-    cursor: 'pointer',
-    fontSize: '.82rem',
-    fontFamily: 'inherit',
-  });
 
-  return (
-    <div style={{
-      position: 'fixed', top: 16, right: 16, width: 236, padding: '.9rem 1rem',
-      background: 'rgba(14,17,22,.78)', backdropFilter: 'blur(8px)',
-      border: '1px solid rgba(255,255,255,.14)',
-      color: '#e6e2d8', fontFamily: '"PingFang SC","Hiragino Sans GB",system-ui,sans-serif',
-      display: 'flex', flexDirection: 'column', gap: '.6rem', userSelect: 'none',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: '.5rem' }}>
-        <span style={{ fontSize: '1.5rem', fontVariantNumeric: 'tabular-nums' }}>
-          {String(hh).padStart(2, '0')}:{String(mm).padStart(2, '0')}
-        </span>
-        <span style={{ fontSize: '.74rem', opacity: 0.6, letterSpacing: '.12em' }}>時辰</span>
-        <button style={{ ...btn(auto), marginLeft: 'auto' }} onClick={toggleAuto}>
-          {auto ? '運行中' : '靜止'}
-        </button>
-      </div>
-      <input
-        type="range" min={0} max={24} step={0.1} value={hour}
-        onChange={(e) => setHour(parseFloat(e.target.value))}
-        style={{ width: '100%', accentColor: '#c8a45a' }}
-        aria-label="時辰"
-      />
-      <div style={{ display: 'flex', gap: '.3rem' }}>
-        {SEASONS.map((s) => (
-          <button key={s} style={{ ...btn(season === s), flex: 1 }} onClick={() => setSeason(s)}>
-            {SEASON_LABEL[s]}
-          </button>
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: '.3rem' }}>
-        {WEATHERS.map((w) => (
-          <button key={w} style={{ ...btn(weather === w), flex: 1 }} onClick={() => setWeather(w)}>
-            {WEATHER_LABEL[w]}
-          </button>
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: '.3rem' }}>
-        <button style={{ ...btn(false), flex: 1 }} onClick={() => setSaved(saveGame() ? '存了' : '存不了')}>
-          存檔
-        </button>
-        <button style={{ ...btn(false), flex: 1, opacity: hasSave() ? 1 : .45 }}
-          onClick={() => setSaved(loadGame() ? '讀了' : '沒有存檔')}>
-          讀檔
-        </button>
-        <button style={{ ...btn(false), padding: '.3rem .5rem' }}
-          onClick={() => { wipeSave(); setSaved('清了'); }}>
-          清
-        </button>
-        <button style={{ ...btn(false), padding: '.3rem .5rem' }}
-          onClick={() => { setMuted(!isMuted()); setSaved(isMuted() ? '靜音' : '有聲'); }}>
-          {audioReady() && !isMuted() ? '♪' : '×'}
-        </button>
-      </div>
-      <div style={{
-        fontFamily: 'ui-monospace,SFMono-Regular,Menlo,monospace',
-        fontSize: '.7rem', opacity: 0.55, letterSpacing: '.08em',
-        display: 'flex', justifyContent: 'space-between',
-      }}>
-        <span>{fps} FPS</span>
-        <span>{saved ?? '河谷 · 卯至戌'}</span>
-      </div>
-    </div>
-  );
-}
-
-/** 主角欄 — 你是誰、爬到哪、養得起幾個人。沒有這一條,玩家不知道自己在玩什麼。 */
-function HeroBar() {
-  const merit = useHero((s) => s.merit);
-  const gold = useHero((s) => s.gold);
-  const retinue = useHero((s) => s.retinue);
-  const followers = useHero((s) => s.followers);
-  const lead = useHero((s) => s.stats.leadership);
-  const wounded = useHero((s) => s.wounded);
-  const grain = useHero((s) => s.grain);
-  const renown = useHero((s) => s.renown);
-  const lodging = useHero((s) => s.lodging);
-  const day = useClock((s) => s.day);
-  const hour = useClock((s) => s.hour);
-  const village = useVillage();
-  const days = grainDays(grain, followers.length, retinue);
-  const rank = rankForMerit(merit);
-  const label = rankLabel(rank);
-  const next = nextRankMerit(rank);
-  const cap = retinueCap(rank, lead);
-
-  const cell: CSSProperties = {
-    display: 'flex', flexDirection: 'column', gap: '.1rem', minWidth: '3.4rem',
-  };
-  const k: CSSProperties = {
-    fontSize: '.62rem', letterSpacing: '.14em', opacity: 0.55,
-  };
-  const v: CSSProperties = { fontSize: '.98rem', fontVariantNumeric: 'tabular-nums' };
-
-  return (
-    <div style={{
-      position: 'fixed', left: 16, bottom: 16, padding: '.8rem 1.1rem',
-      background: 'rgba(14,17,22,.78)', backdropFilter: 'blur(8px)',
-      border: '1px solid rgba(255,255,255,.14)',
-      color: '#e6e2d8', fontFamily: '"PingFang SC","Hiragino Sans GB",system-ui,sans-serif',
-      display: 'flex', gap: '1.4rem', alignItems: 'flex-end', userSelect: 'none',
-    }}>
-      <div style={cell}>
-        <span style={k}>身份</span>
-        <span style={{ ...v, fontSize: '1.25rem' }}>{label.zh}</span>
-      </div>
-      <div style={cell}>
-        <span style={k}>功績</span>
-        <span style={v}>{merit}{next !== null && <span style={{ opacity: .5 }}> / {next}</span>}</span>
-      </div>
-      {/* 官府記的功和鄉里傳的名是兩回事 —— 兩個都擺出來,玩家才看得出差別 */}
-      <div style={cell}>
-        <span style={k}>鄉望</span>
-        <span style={{ ...v, fontSize: '.86rem' }}>{renownWord(renown)}</span>
-      </div>
-      <div style={cell}>
-        <span style={k}>隨行</span>
-        <span style={v}>{followers.length + retinue}<span style={{ opacity: .5 }}> / {cap}</span></span>
-      </div>
-      <div style={cell}>
-        <span style={k}>錢</span>
-        <span style={v}>{gold}</span>
-      </div>
-      <div style={cell}>
-        <span style={k}>糧</span>
-        <span style={{ ...v, color: days <= 3 ? '#d07862' : undefined }}>
-          {grain.toFixed(1)}<span style={{ opacity: .5, fontSize: '.72rem' }}> 石 · {days} 天</span>
-        </span>
-      </div>
-      {wounded > 0 && (
-        <div style={cell}>
-          <span style={k}>傷</span>
-          <span style={{ ...v, color: '#d07862' }}>{wounded}</span>
-        </div>
-      )}
-      <div style={cell}>
-        <span style={k}>村況</span>
-        <span style={{ ...v, fontSize: '.86rem' }}>{village.order}<span style={{ opacity: .5 }}> 治安</span></span>
-      </div>
-      <div style={{ ...k, alignSelf: 'flex-end', marginLeft: '.4rem', lineHeight: 1.5 }}>
-        {dateWord(day)} · {shichenWord(hour)} · {LODGING_LABEL[lodging]}<br />
-        {orderWord(village.order)} · {harvestWord(village.harvest)} · 米 {village.grainPrice}
-        <span style={{ opacity: .7 }}> · WASD 走 · E 搭話 · F 場所 · J 日誌</span>
-      </div>
-    </div>
-  );
-}
 
 export default function App() {
   /**
