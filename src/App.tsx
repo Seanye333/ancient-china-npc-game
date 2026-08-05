@@ -20,6 +20,7 @@ import { Camps } from './world/Camps';
 import { Battle } from './world/Battle';
 import { Dialogue } from './ui/Dialogue';
 import { BattleHud } from './ui/BattleHud';
+import { QuestHud } from './ui/QuestHud';
 import { Lanterns } from './world/Lanterns';
 import { Weather } from './world/Weather';
 import { Tavern } from './world/Interior';
@@ -338,6 +339,7 @@ export default function App() {
       </Canvas>
       <Dialogue />
       <BattleHud />
+      <QuestHud />
       <HeroBar />
       <Hud />
     </>

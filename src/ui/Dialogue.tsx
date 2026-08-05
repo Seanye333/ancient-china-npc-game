@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
-import { useInteract } from '../game/interact';
+import { useInteract, playerPos } from '../game/interact';
+import { useBands, bandWord } from '../game/bands';
+import { useQuest, wayWord } from '../game/quest';
 import { makeVillagers, smallTalk, addressYou, TRADE_LABEL, TEMPER_LABEL } from '../game/npcs';
 import { useClock } from '../world/worldTime';
 import { useHero } from '../game/hero';
@@ -8,7 +10,7 @@ import { useVillage } from '../game/village';
 import { askToJoin, joinThreshold } from '../game/recruiting';
 import { retinueCap, rankForMerit } from '../game/hero';
 import {
-  errandFrom, odds, resolve, ERRAND_LABEL, ERRAND_BLURB, type Errand,
+  errandFrom, odds, resolve, reward, errandBlurb, ERRAND_LABEL, type Errand,
 } from '../game/errands';
 
 /**
@@ -26,6 +28,8 @@ export function Dialogue() {
   const weather = useClock((s) => s.weather);
   const village = useVillage();
   const hero = useHero();
+  const bands = useBands((s) => s.bands);
+  const quest = useQuest();
   const [line, setLine] = useState<string | null>(null);
   const [shown, setShown] = useState<Errand | null>(null);
 
@@ -38,9 +42,11 @@ export function Dialogue() {
   // 同一個人同一旬的活是固定的 —— 反覆搭話刷不出更好的差事
   const span = Math.floor(hour / 24) + season.length;   // 原型階段的「旬」
   const errand = useMemo(
-    () => (npc ? errandFrom(npc, village, span, hero.merit) : null),
-    [npc, village, span, hero.merit],
+    () => (npc ? errandFrom(npc, village, span, hero.merit, bands) : null),
+    [npc, village, span, hero.merit, bands],
   );
+  // 差事指的那一夥 —— 有它,「西邊林子裡那夥人」才是地圖上一個真的地方
+  const target = errand?.bandId ? bands.find((b) => b.id === errand.bandId) ?? null : null;
 
   useEffect(() => { setLine(null); setShown(null); }, [talkingTo]);
 
@@ -49,11 +55,15 @@ export function Dialogue() {
     (window as unknown as Record<string, unknown>).__errands = () => {
       const v = useVillage.getState();
       const m = useHero.getState().merit;
+      // 賊窩要一起傳進去 —— 少了它,剿匪的活會整批消失,而畫面上什麼都看不出來
+      const bs = useBands.getState().bands;
       const list = makeVillagers(38)
-        .map((n) => ({ n, e: errandFrom(n, v, span, m) }))
+        .map((n) => ({ n, e: errandFrom(n, v, span, m, bs) }))
         .filter((x) => x.e);
       return { total: 38, withWork: list.length,
                ids: list.map((x) => x.n.id),
+               bandits: list.filter((x) => x.e!.kind === 'bandits')
+                 .map((x) => `${x.n.id}:${x.n.name}→${x.e!.bandId}`),
                sample: list.slice(0, 4).map((x) => `${x.n.name}:${x.e!.kind}`) };
     };
   }, [span]);
@@ -75,6 +85,34 @@ export function Dialogue() {
     background: 'rgba(255,255,255,.08)', color: '#e6e2d8',
     border: '1px solid rgba(255,255,255,.2)',
     cursor: 'pointer', fontSize: '.86rem', fontFamily: 'inherit', textAlign: 'left',
+  };
+
+  /**
+   * 接一件要自己走出去辦的活。
+   *
+   * 這裡<b>什麼都不結算</b> —— 按下「我去」只是把一句話變成一個地方。
+   * 成敗留給你的腿和你的刀,不留給 Math.random。
+   */
+  const walkOut = (e: Errand) => {
+    if (!npc || !target) return;
+    quest.accept({
+      errand: e, patronName: npc.name, bandId: target.id, cleared: false,
+    });
+    setShown(null);
+    setLine(`${target.name}就在${wayWord(playerPos.x, playerPos.z, target.x, target.z)}。`
+      + `${e.wantMen > men ? '你這點人手⋯⋯多喊幾個一道去罷。' : '早去早回。'}`);
+  };
+
+  /** 覆命。事情已經在世界上辦完了,這裡只發該發的。 */
+  const reportBack = () => {
+    if (!npc || !quest.taken) return;
+    const r = reward(quest.taken.errand, hero.merit);
+    hero.addGold(r.gold);
+    hero.addMerit(r.merit);
+    hero.addFavor(npc.id, r.favor);
+    if (r.order) village.nudge({ order: village.order + r.order });
+    quest.drop();
+    setLine(`「這事你真辦成了。」 · 得錢 ${r.gold} · 功績 +${r.merit} · 人情 +${r.favor}`);
   };
 
   const takeIt = (e: Errand) => {
@@ -101,6 +139,8 @@ export function Dialogue() {
   const p = errand ? odds(errand, hero.stats, men) : 0;
   const pct = Math.round(p * 100);
   const short = errand ? errand.wantMen > men : false;
+  /** 手上這件活是不是這個人託的 —— 覆命只能找託你的那個人。 */
+  const mine = quest.taken?.errand.patronId === npc.id;
 
   return (
     <div style={{
@@ -129,7 +169,7 @@ export function Dialogue() {
       </div>
 
       <p style={{ margin: 0, fontSize: '.95rem', lineHeight: 1.75, minHeight: '1.75em' }}>
-        {line ?? (shown ? ERRAND_BLURB[shown.kind] : opening)}
+        {line ?? (shown ? errandBlurb(shown, target, playerPos) : opening)}
       </p>
 
       {/* 攤開賭注 —— 藏起來的風險不叫風險 */}
@@ -147,27 +187,62 @@ export function Dialogue() {
             </span>
             <span style={{ marginLeft: 'auto' }}>酬 {shown.pay}</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
-            <span style={{ fontSize: '.78rem', opacity: .7 }}>勝算 {pct}%</span>
-            <div style={{ flex: 1, height: 4, background: 'rgba(255,255,255,.14)' }}>
-              <div style={{
-                width: `${pct}%`, height: '100%',
-                background: pct >= 70 ? '#6b9e63' : pct >= 45 ? '#c8a45a' : '#b25a48',
-              }} />
+          {/*
+            要自己走出去辦的活<b>不給勝算</b>。
+            那條槽是抽象結算的儀表:它在告訴你「這次擲骰的期望值」。
+            剿匪已經不擲骰了,再擺一條就是騙人 —— 你的勝算是你帶了幾個人、
+            走過去的時候他們還剩幾個、以及你的手。
+          */}
+          {shown.bandId ? (
+            <div style={{ fontSize: '.78rem', opacity: .72, lineHeight: 1.7 }}>
+              {target ? `${target.name} · ${bandWord(target)} · ${wayWord(playerPos.x, playerPos.z, target.x, target.z)}` : ''}
+              <br />這一趟得自己走過去。成不成,看你帶了幾個人。
             </div>
-          </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
+              <span style={{ fontSize: '.78rem', opacity: .7 }}>勝算 {pct}%</span>
+              <div style={{ flex: 1, height: 4, background: 'rgba(255,255,255,.14)' }}>
+                <div style={{
+                  width: `${pct}%`, height: '100%',
+                  background: pct >= 70 ? '#6b9e63' : pct >= 45 ? '#c8a45a' : '#b25a48',
+                }} />
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+        {/* 覆命擺在最前面 —— 走了一趟回來,第一句話不該是「再說兩句」 */}
+        {!shown && mine && quest.taken!.cleared && (
+          <button style={{ ...btn, borderColor: '#7fb08a', color: '#a8d4b4' }}
+                  onClick={reportBack}>
+            回來覆命
+          </button>
+        )}
+        {!shown && mine && !quest.taken!.cleared && (
+          <button style={{ ...btn, opacity: .85 }} onClick={() => {
+            hero.addFavor(npc.id, -2);
+            quest.drop();
+            setLine(npc.temper === 'gruff' ? '「⋯⋯罷了。我另尋人便是。」'
+              : '「不打緊,是我強人所難了。」（他嘴上這麼說）');
+          }}>
+            這事我辦不了
+          </button>
+        )}
         {!shown && (
           <button style={btn} onClick={() => setLine(smallTalk(npc, ctx))}>再說兩句</button>
         )}
-        {!shown && errand && (
+        {!shown && errand && !(errand.bandId && quest.taken) && (
           <button style={{ ...btn, borderColor: '#c8a45a', color: '#f0d9a0' }}
                   onClick={() => { setShown(errand); setLine(null); }}>
             有事要辦?
           </button>
+        )}
+        {!shown && errand?.bandId && quest.taken && !mine && (
+          <span style={{ ...btn, cursor: 'default', opacity: .5, borderStyle: 'dashed' }}>
+            手上還有{quest.taken.patronName}託的事
+          </span>
         )}
         {!shown && (
           <button style={btn} onClick={() => {
@@ -214,7 +289,7 @@ export function Dialogue() {
         {shown && (
           <>
             <button style={{ ...btn, borderColor: '#c8a45a', color: '#f0d9a0' }}
-                    onClick={() => takeIt(shown)}>
+                    onClick={() => (shown.bandId ? walkOut(shown) : takeIt(shown))}>
               我去
             </button>
             <button style={btn} onClick={() => { setShown(null); setLine('改日再說罷。'); }}>

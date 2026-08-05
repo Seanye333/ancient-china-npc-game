@@ -11,6 +11,18 @@ import { create } from 'zustand';
 /** 玩家座標 — 高頻,由 Player 每幀寫入,互動偵測每 0.15 秒讀一次。 */
 export const playerPos = { x: 0, y: 0, z: 0, yaw: 0 };
 
+/**
+ * 把人挪到別處去 —— 目前只有一個用途:打輸了以後「再睜眼時人已經在路邊」。
+ *
+ * 非有不可,因為<b>打輸了那夥賊還在原地</b>。不把你挪開,收兵的視窗一關,
+ * 你還站在他們臉上,下一幀就再打一場,一路輸到死。
+ * 走 playerPos 沒用 —— 那是每幀被 Player 覆寫的鏡子,不是本體。
+ */
+export const warp = { x: 0, z: 0, pending: false };
+export function warpPlayer(x: number, z: number) {
+  warp.x = x; warp.z = z; warp.pending = true;
+}
+
 /** 一個可互動的對象在世界上的位置 —— 由 Crowd 每幀維護。 */
 export interface Presence {
   id: string;
