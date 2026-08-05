@@ -1,0 +1,251 @@
+import { useEffect, useMemo, useRef } from 'react';
+import { useFrame, useThree } from '@react-three/fiber';
+import * as THREE from 'three';
+import { terrainHeight, groundAt, slideMove, steerMove, viewBlocked } from './field';
+import { bodyGeom, headGeom, FIG_BODY_H } from './figure';
+import { meanderAt } from './sites';
+import { useHero } from '../game/hero';
+import { playerPos, useInteract } from '../game/interact';
+import { fighters, alive } from '../game/combat';
+
+/**
+ * 你 — 這個世界裡第一個由玩家推動的人。
+ *
+ * 身體和路人共用同一副幾何(figure.ts),只是驅動的來源不同:
+ * 他們由作息狀態機推,你由鍵盤推。這件事本身就是設計 ——
+ * <b>主角不該是一個特別的物種</b>,他只是這條街上碰巧被你控制的那個人。
+ *
+ * 移動刻意做得慢(2.6 m/s,跑起來 4.2):這個遊戲的尺度是一個縣,
+ * 不是一個大陸。走得太快,村子就變成地圖上的一個點。
+ */
+
+const WALK = 2.6;
+const RUN = 4.2;
+/** 鏡頭距離與高度 — 這個遊戲的尺度是一個縣,鏡頭拉太遠人就變成點。 */
+const CAM_DIST = 6.2;
+const CAM_HEIGHT = 3.2;
+/** 打起來要看得見整個戰團 —— 貼在肩後只看得到自己的後腦勺。 */
+const FIGHT_DIST = 8.4;
+const FIGHT_HEIGHT = 4.6;
+
+/** 鏡頭解算的結果 — 截圖腳本要能問「鏡頭現在是不是埋在樹裡」。 */
+const cam = { dist: 0, lift: 0, yaw: 0, buried: false };
+if (typeof window !== 'undefined') {
+  (window as unknown as Record<string, unknown>).__cam = () => ({ ...cam });
+}
+
+export function Player() {
+  const { camera } = useThree();
+  const wounded = useHero((s) => s.wounded);
+  // 說話的時候人得站住 —— 邊走邊聊會把對方甩在身後
+  const talking = useInteract((s) => s.talkingTo);
+
+  const geom = useMemo(() => ({
+    body: bodyGeom(new THREE.Color('#3f5568')),
+    head: headGeom(false),
+  }), []);
+
+  const bodyRef = useRef<THREE.Mesh>(null);
+  const headRef = useRef<THREE.Mesh>(null);
+
+  // 玩家的位置活在 ref 裡,不進 zustand —— 每幀寫 store 會讓整棵樹重繪
+  const me = useRef({
+    x: meanderAt(2) + 14, z: 2, y: 0, yaw: 0, step: 0,
+  });
+  useEffect(() => {
+    me.current.y = terrainHeight(me.current.x, me.current.z);
+  }, []);
+
+  /**
+   * 自動走向一點 — 目前給截圖腳本用,將來就是「點地面走過去」。
+   * 直線 + slideMove 已經夠這個尺度的世界用:村子沒有迷宮,
+   * 沿障礙滑一下就繞得過去。
+   */
+  const goto = useRef<{ x: number; z: number } | null>(null);
+  useEffect(() => {
+    (window as unknown as Record<string, unknown>).__walkTo =
+      (x: number, z: number) => { goto.current = { x, z }; };
+  }, []);
+
+  const keys = useRef<Record<string, boolean>>({});
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => { keys.current[e.code] = true; };
+    const up = (e: KeyboardEvent) => { keys.current[e.code] = false; };
+    const blur = () => { keys.current = {}; };
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    window.addEventListener('blur', blur);
+    return () => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+      window.removeEventListener('blur', blur);
+    };
+  }, []);
+
+  const tmp = useMemo(() => ({
+    fwd: new THREE.Vector3(), right: new THREE.Vector3(),
+    want: new THREE.Vector3(), camWant: new THREE.Vector3(),
+    look: new THREE.Vector3(),
+  }), []);
+
+  useFrame((_, dt) => {
+    const k = keys.current;
+    const m = me.current;
+    const step = dt > 0.1 ? 0.1 : dt;      // 分頁切回來時別瞬移
+
+    // 方向以鏡頭為準 —— 按前進就是往螢幕裡走,不是往世界的 +Z
+    tmp.fwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
+    tmp.fwd.y = 0; tmp.fwd.normalize();
+    tmp.right.set(1, 0, 0).applyQuaternion(camera.quaternion);
+    tmp.right.y = 0; tmp.right.normalize();
+
+    tmp.want.set(0, 0, 0);
+    if (k.KeyW || k.ArrowUp) tmp.want.add(tmp.fwd);
+    if (k.KeyS || k.ArrowDown) tmp.want.sub(tmp.fwd);
+    if (k.KeyD || k.ArrowRight) tmp.want.add(tmp.right);
+    if (k.KeyA || k.ArrowLeft) tmp.want.sub(tmp.right);
+
+    // 鍵盤沒輸入時才吃自動導航 —— 玩家一按鍵就該立刻奪回控制權
+    if (tmp.want.lengthSq() < 1e-4 && goto.current) {
+      const gx = goto.current.x - m.x;
+      const gz = goto.current.z - m.z;
+      if (Math.hypot(gx, gz) < 0.7) goto.current = null;
+      else tmp.want.set(gx, 0, gz).normalize();
+    } else if (tmp.want.lengthSq() > 1e-4) {
+      goto.current = null;
+    }
+
+    // 倒在地上的人不會走路
+    const downed = fighters.some((f) => f.isPlayer && f.stance === 'down');
+    const moving = tmp.want.lengthSq() > 1e-4 && wounded === 0 && !talking && !downed;
+    if (moving) {
+      tmp.want.normalize();
+      const speed = (k.ShiftLeft || k.ShiftRight) ? RUN : WALK;
+      if (goto.current) {
+        // 自動走:遇到樹叢會自己繞 —— 直線走法過不了凹角
+        const got = steerMove(m.x, m.z, tmp.want.x, tmp.want.z, speed * step);
+        m.x = got.x; m.z = got.z; m.yaw = got.yaw;
+      } else {
+        // 你自己按的方向照走,擋住就沿著障礙滑 —— 河是河,山是牆
+        const nx = m.x + tmp.want.x * speed * step;
+        const nz = m.z + tmp.want.z * speed * step;
+        const got = slideMove(m.x, m.z, nx, nz);
+        m.x = got.x; m.z = got.z;
+        m.yaw = Math.atan2(tmp.want.x, tmp.want.z);
+      }
+      m.y = groundAt(m.x, m.z);
+      m.step += speed * step * 3.1;
+    }
+
+    // 共享座標給互動偵測 — 走模組級可變引用,不進 zustand(每幀 set 會全樹重繪)
+    playerPos.x = m.x; playerPos.y = m.y; playerPos.z = m.z; playerPos.yaw = m.yaw;
+
+    const bob = moving ? Math.abs(Math.sin(m.step)) * 0.055 : Math.sin(m.step * 0.2) * 0.012;
+    const sway = moving ? Math.sin(m.step * 0.5) * 0.055 : 0;
+
+    if (bodyRef.current) {
+      bodyRef.current.position.set(m.x, m.y + bob, m.z);
+      bodyRef.current.rotation.set(0, m.yaw, sway);
+    }
+    if (headRef.current) {
+      headRef.current.position.set(m.x, m.y + bob + FIG_BODY_H * 0.99, m.z);
+      headRef.current.rotation.set(0, m.yaw, sway * 0.6);
+    }
+
+    /**
+     * 鏡頭跟隨。第三人稱最常見的破綻就是鏡頭埋進東西裡,所以這裡不是
+     * 「擺在肩後」那麼簡單,而是一個三段的求解:
+     *
+     * 一、<b>先往兩邊繞</b>。正後方被一棵樹卡住,不代表側後方也不行 ——
+     *     繞開比硬擠有效得多,這是這段最管用的一條。
+     * 二、<b>再抬高</b>,從樹梢屋脊上看過去。但人若正站在樹冠底下就不能抬:
+     *     爬過樹梢只會看到一片樹頂,人整個被葉子蓋住。
+     * 三、<b>最後才收近</b>。收近是下策,收到極限就是貼著後腦勺。
+     *
+     * 打架時整體往後往上讓一步,視線擺在你和最近那個敵人中間 ——
+     * 那時候你要判斷的是「誰能砍到我」,不是「我朝哪走」。
+     */
+    let foe: { x: number; z: number } | null = null;
+    if (fighters.length) {
+      let bd = Infinity;
+      for (const f of fighters) {
+        if (f.side !== 'foe' || !alive(f)) continue;
+        const d = Math.hypot(f.x - m.x, f.z - m.z);
+        if (d < bd) { bd = d; foe = { x: f.x, z: f.z }; }
+      }
+    }
+    const baseDist = foe ? FIGHT_DIST : CAM_DIST;
+    const baseHigh = foe ? FIGHT_HEIGHT : CAM_HEIGHT;
+    const underCanopy = viewBlocked(m.x, m.z, m.y + 2.2);
+
+    const sightClear = (yaw: number, dist: number, lift: number) => {
+      const cx = m.x - Math.sin(yaw) * dist;
+      const cz = m.z - Math.cos(yaw) * dist;
+      const camY = m.y + baseHigh + lift;
+      if (terrainHeight(cx, cz) >= camY - 0.8) return false;
+      // 沿視線取樣,而不是只看端點 —— 只看端點鏡頭會從樹幹中間穿過去
+      for (let t = 0.26; t <= 1.001; t += 0.12) {
+        if (viewBlocked(
+          m.x - Math.sin(yaw) * dist * t,
+          m.z - Math.cos(yaw) * dist * t,
+          m.y + 1.25 + (camY - m.y - 1.25) * t,
+        )) return false;
+      }
+      return true;
+    };
+
+    // 繞的幅度收在 ±100° 內:WASD 是相對鏡頭的,轉太多會讓人分不清前後
+    const SWEEP = [0, 0.42, -0.42, 0.85, -0.85, 1.25, -1.25, 1.75, -1.75];
+    const LADDER: Array<[number, number]> = underCanopy
+      ? [[1, 0], [0.78, 0], [0.58, 0.5], [0.42, 0.8], [0.3, 0.9]]
+      : [[1, 0], [0.94, 0.9], [0.88, 1.8], [0.82, 2.7], [0.6, 3.4], [0.42, 3.4], [0.3, 3.4]];
+
+    let yaw = m.yaw, dist = baseDist * LADDER[LADDER.length - 1][0];
+    let lift = LADDER[LADDER.length - 1][1];
+    let found = false;
+    for (const [dk, lk] of LADDER) {
+      for (const da of SWEEP) {
+        if (!sightClear(m.yaw + da, baseDist * dk, lk)) continue;
+        yaw = m.yaw + da; dist = baseDist * dk; lift = lk;
+        found = true;
+        break;
+      }
+      if (found) break;
+    }
+
+    const cx = m.x - Math.sin(yaw) * dist;
+    const cz = m.z - Math.cos(yaw) * dist;
+    tmp.camWant.set(
+      cx,
+      // 地面若比主角高(走進谷底),鏡頭跟著抬,免得被前方的坡切掉
+      Math.max(m.y, terrainHeight(cx, cz)) + baseHigh + lift,
+      cz,
+    );
+    cam.dist = dist; cam.lift = lift; cam.yaw = yaw - m.yaw;
+    camera.position.lerp(tmp.camWant, 1 - Math.pow(0.0016, step));
+    // 平滑是奢侈品,埋在牆裡不是:鏡頭真的插進東西裡就當場歸位,不要慢慢挪。
+    // (探測給的位置是清的,插進去只會是追不上的那幾幀。)
+    if (viewBlocked(camera.position.x, camera.position.z, camera.position.y)) {
+      camera.position.copy(tmp.camWant);
+    }
+    cam.buried = viewBlocked(camera.position.x, camera.position.z, camera.position.y);
+    if (foe) {
+      // 看向你和敵人之間偏你這一側 —— 完全取中會讓主角滑到畫面邊上
+      tmp.look.set(m.x + (foe.x - m.x) * 0.32, m.y + 1.25, m.z + (foe.z - m.z) * 0.32);
+    } else {
+      tmp.look.set(m.x, m.y + 1.25, m.z);
+    }
+    camera.lookAt(tmp.look);
+  });
+
+  return (
+    <>
+      <mesh ref={bodyRef} geometry={geom.body} castShadow>
+        <meshStandardMaterial vertexColors roughness={0.74} />
+      </mesh>
+      <mesh ref={headRef} geometry={geom.head} castShadow>
+        <meshStandardMaterial vertexColors roughness={0.62} />
+      </mesh>
+    </>
+  );
+}
