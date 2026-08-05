@@ -124,6 +124,8 @@ export function BattleHud() {
 
   if (near) {
     const d = Math.round(Math.hypot(near.x - playerPos.x, near.z - playerPos.z));
+    const hr = useClock.getState().hour;
+    const night = hr < 5.6 || hr > 19.2;
     return (
       <div style={{ ...wrap, top: 26, textAlign: 'center' }}>
         <div style={{
@@ -132,6 +134,7 @@ export function BattleHud() {
         }}>
           <strong style={{ letterSpacing: '.06em' }}>{near.name}</strong>
           <span style={{ opacity: .6 }}> · {bandWord(near)} · {d} 步</span>
+          {night && <span style={{ color: '#d08a72' }}> · 天黑了,他們老遠就看得見你</span>}
         </div>
       </div>
     );

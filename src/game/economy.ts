@@ -144,3 +144,33 @@ export function restQuality(l: Lodging): { healChance: number; risk: number } {
     default: return { healChance: 0.35, risk: 0.18 };
   }
 }
+
+/* ── 官身的俸與百姓的稅 ────────────────────────────── */
+
+/**
+ * 一旬的俸祿。
+ *
+ * 品階在這之前只是兩個上限數字(帶幾個人、接多難的活)。
+ * 有了俸,它才第一次<b>按時給你東西</b> —— 也才第一次值得去爭。
+ * 白身沒有俸:白身本來就不在官府的簿子上。
+ */
+export function stipendFor(rank: number): number {
+  if (rank >= 11) return 0;        // 白身
+  if (rank >= 10) return 18;       // 部曲
+  if (rank >= 8) return 60;
+  if (rank >= 6) return 150;
+  return 320;
+}
+
+/**
+ * 一年一次的算賦(人頭錢)。
+ *
+ * 這是這個遊戲裡唯一一筆<b>你什麼都沒做也要付</b>的錢 ——
+ * 也正因為如此,它是「白身」這個身分最誠實的一面:
+ * 官府不管你今年過得怎麼樣,秋後就是要來收。
+ *
+ * 有屋要多收一份;帶著的人不算你的,他們各自有各自的戶籍。
+ */
+export function taxDue(lodging: Lodging): number {
+  return 120 + (lodging === 'owned' ? 80 : 0);
+}

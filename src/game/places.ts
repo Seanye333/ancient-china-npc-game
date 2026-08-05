@@ -68,6 +68,13 @@ export function places(): Place[] {
     // 第一版隨手挑了市集旁邊十六步的一個點,結果那裡是別人家的牆裡:
     // 玩家一路走過去,走到門邊就再也過不去了。門前那一步是現成的,
     // 房子生成的時候就算好了(NPC 進出也走那裡),用它才不會撞牆
+    // 酒肆 —— Interior.tsx 蓋在市集東南七步、往北九步的地方。
+    // 座標抄一份是有風險的,但那棟房子的位置本來就是寫死的常數,
+    // 真要動的時候兩處會一起動
+    {
+      id: 'tavern', kind: 'tavern', label: '酒肆', radius: 6,
+      ...at(MARKET[0] + 7, MARKET[1] - 9 - 5),
+    },
     {
       id: 'home', kind: 'home', label: '落腳處', radius: 5,
       ...at(home.door[0], home.door[1]),

@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react';
 import { useInteract } from '../game/interact';
 import { placeById } from '../game/places';
 import { useHero } from '../game/hero';
-import { useVillage } from '../game/village';
+import { useVillage, type VillageState } from '../game/village';
 import { useClock } from '../world/worldTime';
 import { useJournal } from '../game/journal';
 import {
@@ -13,6 +13,14 @@ import {
 import { grainDays } from '../game/daily';
 import { useQuest } from '../game/quest';
 import { DAYS_PER_XUN, shichenWord } from '../game/calendar';
+import {
+  DRINK_PRICE, NEWS_PRICE, DRINK_TOIL, newsFrom, hirePrice, canHire, tavernMood,
+} from '../game/tavern';
+import { useBands } from '../game/bands';
+import { raidParties } from '../game/raids';
+import { livingVillagers, deltaOf } from '../game/folk';
+import { playerPos } from '../game/interact';
+import { retinueCap, rankForMerit } from '../game/hero';
 
 /**
  * 場所面板 —— 錢第一次有地方去的那個介面。
@@ -79,7 +87,7 @@ export function PlacePanel() {
       </div>
 
       <p style={{ margin: 0, fontSize: '.9rem', lineHeight: 1.75, minHeight: '1.75em', opacity: .9 }}>
-        {line ?? blurbFor(place.kind, village.grainPrice, hero.lodging)}
+        {line ?? blurbFor(place.kind, village, hero.lodging)}
       </p>
 
       {place.kind === 'market' && (
@@ -161,6 +169,63 @@ export function PlacePanel() {
         </div>
       )}
 
+      {place.kind === 'tavern' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+          <button style={hero.gold >= DRINK_PRICE ? btn : dim} onClick={() => {
+            if (!hero.spend(DRINK_PRICE)) { setLine('連一碗酒的錢都沒有。'); return; }
+            hero.addToil(-DRINK_TOIL);
+            advance(1);
+            setLine('一碗濁酒下去,骨頭鬆了些。');
+          }}>
+            喝一碗 · {DRINK_PRICE} 錢<span style={{ opacity: .55 }}> · 解乏</span>
+          </button>
+
+          <button style={hero.gold >= NEWS_PRICE ? btn : dim} onClick={() => {
+            if (!hero.spend(NEWS_PRICE)) { setLine('買不起這句話。'); return; }
+            advance(0.5);
+            // 打聽來的必須是真的 —— 假情報比沒情報更糟,玩家會學會不聽
+            setLine(newsFrom({
+              bands: useBands.getState().bands,
+              raids: raidParties.map((r) => ({ name: r.name, x: r.x, z: r.z })),
+              village,
+              at: { x: playerPos.x, z: playerPos.z },
+              sickNames: livingVillagers()
+                .filter((n) => deltaOf(n.id).sick > 0).map((n) => n.name),
+            }));
+          }}>
+            打聽 · {NEWS_PRICE} 錢<span style={{ opacity: .55 }}> · 這一帶出了什麼事</span>
+          </button>
+
+          {(() => {
+            const men = hero.followers.length + hero.retinue;
+            const cap = retinueCap(rankForMerit(hero.merit), hero.stats.leadership);
+            const price = hirePrice(village, men);
+            const gate = canHire(hero.merit);
+            return (
+              <button
+                style={gate.ok && hero.gold >= price && men < cap ? btn : dim}
+                onClick={() => {
+                  if (!gate.ok) { setLine(gate.why); return; }
+                  if (men >= cap) { setLine('你已經帶不動更多人了。'); return; }
+                  if (!hero.spend(price)) { setLine('錢不夠。'); return; }
+                  const got = hero.addRetinue(1);
+                  advance(1);
+                  setLine(got.taken
+                    ? '一個漢子放下碗,跟你走了。他從今天起吃你的糧。'
+                    : '沒人肯來。');
+                  if (got.taken) note(day, `雇了一個鄉勇 · ${price} 錢`);
+                }}
+              >
+                雇一個鄉勇 · {price} 錢
+                <span style={{ opacity: .55 }}>
+                  {gate.ok ? ` · 他要吃你的糧（${men}/${cap}）` : ' · 白身雇不動人'}
+                </span>
+              </button>
+            );
+          })()}
+        </div>
+      )}
+
       {place.kind === 'home' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
           <span style={{ fontSize: '.8rem', opacity: .7 }}>
@@ -218,9 +283,10 @@ export function PlacePanel() {
   );
 }
 
-function blurbFor(kind: string, price: number, lodging: string): string {
+function blurbFor(kind: string, village: VillageState, lodging: string): string {
+  if (kind === 'tavern') return tavernMood(village, livingVillagers());
   if (kind === 'market') {
-    return price > 45 ? '糧行前頭圍了一圈人,米價牌上的數字又改了。'
+    return village.grainPrice > 45 ? '糧行前頭圍了一圈人,米價牌上的數字又改了。'
       : '糧行的夥計正在翻曬新米。';
   }
   if (kind === 'work') return '把式們蹲在邊上等活。有人抬眼看了看你。';

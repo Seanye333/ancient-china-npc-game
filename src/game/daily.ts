@@ -10,7 +10,10 @@ import { relatives } from './kin';
 import { useQuest } from './quest';
 import { playerPos } from './interact';
 import { MARKET } from '../world/sites';
-import { DAYS_PER_SHI, mouths, RENT_PER_XUN, LODGING_LABEL } from './economy';
+import {
+  DAYS_PER_SHI, mouths, RENT_PER_XUN, LODGING_LABEL, stipendFor, taxDue,
+} from './economy';
+import { rankForMerit } from './hero';
 import { DAYS_PER_XUN, DAYS_PER_YEAR, partsFor } from './calendar';
 import { raidParties, useRaids, raidChance, raidSize, alreadyOut } from './raids';
 import { groundAt } from '../world/field';
@@ -96,6 +99,42 @@ export function settleDay(day: number, season: Season): DayReport {
       report.evicted = true;
       now.setLodging('none');
       journal.note(day, '房錢交不出,被請了出去。今晚睡哪還沒著落。', 'bad');
+    }
+  }
+
+  /* 官身按旬領俸 —— 品階第一次按時給你東西,而不只是兩個上限數字 */
+  if (day > 0 && day % DAYS_PER_XUN === 0) {
+    const pay = stipendFor(rankForMerit(useHero.getState().merit));
+    if (pay > 0) {
+      useHero.getState().addGold(pay);
+      journal.note(day, `領了這一旬的俸,${pay} 錢。`, 'good');
+    }
+  }
+
+  /*
+   * 秋後收算賦。
+   *
+   * 這是唯一一筆你什麼都沒做也要付的錢 —— 也正因如此,
+   * 它是「白身」這個身分最誠實的一面:官府不管你今年過得怎麼樣。
+   * 交不出來就得拿糧抵,糧也沒有就去服徭役,那是實打實的幾旬時間。
+   */
+  if (day > 0 && day % DAYS_PER_YEAR === Math.floor(DAYS_PER_YEAR * 0.75)) {
+    const h = useHero.getState();
+    const due = taxDue(h.lodging);
+    if (h.spend(due)) {
+      journal.note(day, `稅吏上門,算賦 ${due} 錢。`, 'bad');
+    } else {
+      const shi = Math.ceil((due - h.gold) / Math.max(1, useVillage.getState().grainPrice));
+      if (h.grain >= shi) {
+        h.addGold(-h.gold);
+        h.addGrain(-shi);
+        journal.note(day, `錢不夠,拿 ${shi} 石糧抵了算賦。`, 'bad');
+      } else {
+        h.addGold(-h.gold);
+        h.hurt(2);
+        useHero.setState((s) => ({ renown: s.renown - 3 }));
+        journal.note(day, '算賦交不出,被拉去服了兩旬徭役。', 'bad');
+      }
     }
   }
 

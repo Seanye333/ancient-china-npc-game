@@ -9,6 +9,7 @@ import { useHero } from '../game/hero';
 import { useBands } from '../game/bands';
 import { raidParties, useRaids } from '../game/raids';
 import { useQuest } from '../game/quest';
+import { useClock } from './worldTime';
 import { makeVillagers, might } from '../game/npcs';
 import {
   fighters, beginBattle, stepBattle, battleOver, playerStrike, useBattle,
@@ -27,6 +28,14 @@ import {
  */
 
 const ENGAGE = 18;
+/**
+ * 天黑以後他們遠遠就盯上你了。
+ *
+ * 這是「夜裡在野外是危險的」最便宜也最誠實的做法:不加一套夜間事件,
+ * 只把察覺的距離拉開。於是「天要黑了,還去不去那趟」變成一個真的問題,
+ * 而不是一句氣氛描寫。
+ */
+const ENGAGE_NIGHT = 30;
 
 /** 我方出陣的人 —— 蹲窩的和攔路的兩處都要,抽出來免得各寫一份走樣。 */
 function ourSide(
@@ -145,9 +154,12 @@ export function Battle() {
     // 還沒開打:看看有沒有撞上哪一夥。
     // 兩種:蹲在窩裡的,和下了山在路上走的 —— 後者才是「治安差」真正的樣子
     if (!st.bandId) {
+      const hr = useClock.getState().hour;
+      const night = hr < 5.6 || hr > 19.2;
+      const reach = night ? ENGAGE_NIGHT : ENGAGE;
       for (const r of raidParties) {
         if (r.fighting) continue;
-        if (Math.hypot(r.x - playerPos.x, r.z - playerPos.z) > ENGAGE) continue;
+        if (Math.hypot(r.x - playerPos.x, r.z - playerPos.z) > reach) continue;
         const hero = useHero.getState();
         beginBattle({
           ours: ourSide(hero, byId),
@@ -164,7 +176,7 @@ export function Battle() {
       }
       for (const b of bands) {
         if (b.routed) continue;
-        if (Math.hypot(b.x - playerPos.x, b.z - playerPos.z) > ENGAGE) continue;
+        if (Math.hypot(b.x - playerPos.x, b.z - playerPos.z) > reach) continue;
         const hero = useHero.getState();
         engagedRaid.current = null;
         beginBattle({
