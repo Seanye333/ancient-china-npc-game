@@ -6,6 +6,7 @@ import { ROBES, bodyGeom, headGeom, FIG_BODY_H } from './figure';
 import { houseSites, fieldSites, meanderAt, DOCKS, BRIDGE, MARKET } from './sites';
 import { useClock } from './worldTime';
 import { makeVillagers } from '../game/npcs';
+import { useFolk } from '../game/folk';
 import { presences } from '../game/interact';
 import { useHero } from '../game/hero';
 
@@ -60,6 +61,18 @@ export function Crowd() {
   const hour = useClock((s) => s.hour);
   // 跟了你走的人不再過村裡的日子 —— 否則同一個人會出現兩次
   const followers = useHero((s) => s.followers);
+  /**
+   * 死了的人不再出門,病著的也不出門。
+   *
+   * 這一句是「村子會空」這件事唯一看得見的地方:荒年病死幾個人以後,
+   * 街上真的會少幾個攤子。數字掉下去而街景不變的話,那些數字就是假的。
+   */
+  const deltas = useFolk((s) => s.deltas);
+  const absent = useMemo(
+    () => new Set(Object.entries(deltas)
+      .filter(([, d]) => d.dead || d.sick > 0).map(([id]) => id)),
+    [deltas],
+  );
 
   const agents = useMemo<Agent[]>(() => {
     const rand = rng(70707);
@@ -196,7 +209,7 @@ export function Crowd() {
     // 即時位置表 — 互動偵測要讀,但這是高頻資料,不進 store
     presences.length = 0;
     for (const a of agents) {
-      if (followers.includes(a.npcId)) continue;
+      if (followers.includes(a.npcId) || absent.has(a.npcId)) continue;
       presences.push({ id: a.npcId, x: a.x, y: a.y, z: a.z, visible: a.visible });
     }
 
@@ -207,7 +220,7 @@ export function Crowd() {
       if (!bm || !hm) return;
       v.idx.forEach((ai, slot) => {
         const a = agents[ai];
-        if (!a.visible || followers.includes(a.npcId)) {                       // 進了屋就縮到零,不必再算
+        if (!a.visible || followers.includes(a.npcId) || absent.has(a.npcId)) {  // 進了屋、病了、歿了就縮到零
           tmp.m.compose(tmp.p.set(a.x, a.y - 40, a.z), tmp.q.identity(), tmp.hide);
           bm.setMatrixAt(slot, tmp.m);
           hm.setMatrixAt(slot, tmp.m);

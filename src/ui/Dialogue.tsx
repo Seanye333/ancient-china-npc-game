@@ -4,6 +4,8 @@ import { useInteract, playerPos } from '../game/interact';
 import { useBands, bandWord } from '../game/bands';
 import { useQuest, wayWord } from '../game/quest';
 import { makeVillagers, smallTalk, addressYou, TRADE_LABEL, TEMPER_LABEL } from '../game/npcs';
+import { kinWord } from '../game/kin';
+import { deltaOf, isSick, spreadRumor } from '../game/folk';
 import { useClock } from '../world/worldTime';
 import { partsFor } from '../game/calendar';
 import { useHero } from '../game/hero';
@@ -159,8 +161,13 @@ export function Dialogue() {
       <div style={{ display: 'flex', alignItems: 'baseline', gap: '.6rem', flexWrap: 'wrap' }}>
         <strong style={{ fontSize: '1.16rem', letterSpacing: '.04em' }}>{npc.name}</strong>
         <span style={{ fontSize: '.76rem', opacity: .6 }}>
-          {TRADE_LABEL[npc.trade]} · {TEMPER_LABEL[npc.temper]} · {npc.age} 歲
+          {TRADE_LABEL[npc.trade]} · {TEMPER_LABEL[npc.temper]} · {npc.age + deltaOf(npc.id).aged} 歲
+          {' · '}{kinWord(npc.id)}
         </span>
+        {isSick(npc.id) && (
+          <span style={{ fontSize: '.74rem', padding: '.05rem .4rem',
+                         border: '1px solid #b25a48', color: '#d8a898' }}>病中</span>
+        )}
         {joined && (
           <span style={{ fontSize: '.74rem', padding: '.05rem .4rem',
                          border: '1px solid #7fb08a', color: '#a8d4b4' }}>隨行</span>
@@ -251,6 +258,11 @@ export function Dialogue() {
         {!shown && (
           <button style={btn} onClick={() => {
             hero.addFavor(npc.id, 1);
+            // 幫人是掙鄉里口碑最實在的路 —— 官府一個字不會寫,可是全村都知道
+            useHero.setState((s) => ({ renown: s.renown + 1 }));
+            spreadRumor({
+              text: `他替${npc.name}搭了把手。`, delta: 0.6, life: 3, aboutId: npc.id,
+            });
             setLine(npc.temper === 'gruff' ? '不必客氣。有事說一聲便是。'
               : '有心了。日後有事,盡管來尋我。');
           }}>
@@ -272,6 +284,7 @@ export function Dialogue() {
                 headcount: men,
                 cap: retinueCap(rankForMerit(hero.merit), hero.stats.leadership),
                 alreadyWith: joined,
+                renown: hero.renown,
               });
               if (res.ok) hero.recruit(npc.id);
               setLine(res.ok ? res.line

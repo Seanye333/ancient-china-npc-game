@@ -3,8 +3,12 @@ import { useVillage } from './village';
 import { useBands } from './bands';
 import { useJournal } from './journal';
 import { makeVillagers } from './npcs';
+import {
+  useFolk, deltaOf, livingVillagers, sickChance, deathChance, stepRumors, spreadRumor,
+} from './folk';
+import { relatives } from './kin';
 import { DAYS_PER_SHI, mouths, RENT_PER_XUN, LODGING_LABEL } from './economy';
-import { DAYS_PER_XUN, partsFor } from './calendar';
+import { DAYS_PER_XUN, DAYS_PER_YEAR, partsFor } from './calendar';
 import { raidParties, useRaids, raidChance, raidSize, alreadyOut } from './raids';
 import { groundAt } from '../world/field';
 import type { Season } from '../world/worldTime';
@@ -68,6 +72,8 @@ export function settleDay(day: number, season: Season): DayReport {
       const name = villagers.find((v) => v.id === id)?.name ?? '同行';
       report.left.push(id);
       journal.note(day, `${name}餓了兩頓,跟你告了辭。`, 'bad');
+      // 這種事村裡傳得最快 —— 跟著他的人吃不上飯,誰還敢跟你走
+      spreadRumor({ text: `${name}跟著他,連飯都吃不上。`, delta: -1.5, life: 4, aboutId: id });
     }
     if (hero.retinue > 0 && Math.random() < 0.5) {
       const gone = Math.max(1, Math.round(hero.retinue * 0.3));
@@ -109,6 +115,48 @@ export function settleDay(day: number, season: Season): DayReport {
   useBands.getState().regrow();
   const after = useBands.getState().bands.filter((b) => b.routed).length;
   if (after < before) journal.note(day, '聽說那邊的窩棚又冒起煙了。', 'bad');
+
+  /*
+   * 村裡的人也在過日子:老、病、死。
+   *
+   * 這一段是為了讓治安與收成<b>連到人身上</b> —— 一個過得去的村子死人少,
+   * 一個崩掉的村子會空。數字掉到一半以下的時候,你會先在日誌上看見誰家沒了人,
+   * 然後才發現街上少了一個攤子。
+   */
+  const v0 = useVillage.getState();
+  const winter = season === 'winter';
+  const folkStore = useFolk.getState();
+  for (const p of livingVillagers()) {
+    const d = deltaOf(p.id);
+    if (d.sick > 0) {
+      if (Math.random() < deathChance(p.age, d.sick)) {
+        folkStore.patch(p.id, { dead: true, sick: 0, diedOn: day });
+        journal.note(day, `${p.name}沒能熬過去。`, 'bad');
+        // 死了要有人記得 —— 親眷會低落一陣子,而這是流言傳得最快的時候
+        for (const kid of relatives(p.id)) folkStore.bumpRegard(kid, -1);
+        const v = useVillage.getState();
+        v.nudge({ order: v.order - 1 });
+        continue;
+      }
+      folkStore.patch(p.id, { sick: Math.random() < 0.22 ? 0 : d.sick + 1 });
+      continue;
+    }
+    if (Math.random() < sickChance(p.age, v0.harvest, winter)) {
+      folkStore.patch(p.id, { sick: 1 });
+      journal.note(day, `${p.name}病倒了。`, 'bad');
+    }
+  }
+
+  /* 過年長一歲 —— 這個世界的人不會永遠二十五 */
+  if (day > 0 && day % DAYS_PER_YEAR === 0) {
+    for (const p of livingVillagers()) {
+      folkStore.patch(p.id, { aged: deltaOf(p.id).aged + 1 });
+    }
+    journal.note(day, '又是一年。', 'plain');
+  }
+
+  /* 流言傳一天 —— 你做的事沿著血緣走,不會停在當事人身上 */
+  stepRumors(Math.random);
 
   /* 有沒有人下山 —— 治安差、秋收前後最凶 */
   const village = useVillage.getState();

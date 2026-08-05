@@ -39,6 +39,7 @@ import { dateWord, shichenWord } from './game/calendar';
 import { useInteract } from './game/interact';
 import { placeById } from './game/places';
 import { useJournal } from './game/journal';
+import { renownWord } from './game/folk';
 
 /**
  * 隨時間變的一切 — 太陽、天空、霧、曝光,全部從 skyFor() 拿同一份參數。
@@ -282,6 +283,7 @@ function HeroBar() {
   const lead = useHero((s) => s.stats.leadership);
   const wounded = useHero((s) => s.wounded);
   const grain = useHero((s) => s.grain);
+  const renown = useHero((s) => s.renown);
   const lodging = useHero((s) => s.lodging);
   const day = useClock((s) => s.day);
   const hour = useClock((s) => s.hour);
@@ -315,6 +317,11 @@ function HeroBar() {
       <div style={cell}>
         <span style={k}>功績</span>
         <span style={v}>{merit}{next !== null && <span style={{ opacity: .5 }}> / {next}</span>}</span>
+      </div>
+      {/* 官府記的功和鄉里傳的名是兩回事 —— 兩個都擺出來,玩家才看得出差別 */}
+      <div style={cell}>
+        <span style={k}>鄉望</span>
+        <span style={{ ...v, fontSize: '.86rem' }}>{renownWord(renown)}</span>
       </div>
       <div style={cell}>
         <span style={k}>隨行</span>

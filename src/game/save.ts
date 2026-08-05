@@ -3,6 +3,7 @@ import { useVillage } from './village';
 import { useBands } from './bands';
 import { useQuest } from './quest';
 import { useJournal } from './journal';
+import { useFolk } from './folk';
 import { useClock } from '../world/worldTime';
 import { settleGuard } from './daily';
 
@@ -33,6 +34,8 @@ interface SaveData {
   bands: Array<{ id: string; routed: boolean; count: number; fierce: number }>;
   quest: unknown;
   journal: unknown;
+  /** 村民後來怎麼了 —— 不存的話讀檔以後死人會復活。 */
+  folk: unknown;
 }
 
 function heroSlice() {
@@ -62,6 +65,7 @@ export function saveGame(): boolean {
       })),
       quest: useQuest.getState().taken,
       journal: useJournal.getState().entries,
+      folk: useFolk.getState().deltas,
     };
     localStorage.setItem(KEY, JSON.stringify(data));
     return true;
@@ -91,6 +95,7 @@ export function loadGame(): boolean {
     useVillage.setState(data.village);
     useQuest.setState({ taken: data.quest as never });
     useJournal.setState({ entries: (data.journal as never) ?? [], unread: 0 });
+    useFolk.setState({ deltas: (data.folk as never) ?? {} });
     useBands.setState((s) => ({
       bands: s.bands.map((b) => {
         const saved = data.bands.find((x) => x.id === b.id);

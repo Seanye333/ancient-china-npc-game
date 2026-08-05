@@ -46,6 +46,12 @@ export function askToJoin(input: {
   headcount: number;
   cap: number;
   alreadyWith: boolean;
+  /**
+   * 鄉里口碑。和官府的功績是兩回事 ——
+   * <b>招人看的是名,不是功</b>:一個剿了三夥賊卻讓跟他的人餓肚子的人,
+   * 官府記他的功,村裡沒人肯跟他走。
+   */
+  renown?: number;
 }): Persuasion {
   const { npc, favor } = input;
   if (input.alreadyWith) {
@@ -62,19 +68,23 @@ export function askToJoin(input: {
     };
   }
 
-  // 人望能抵一點人情,但抵不了太多 —— 嘴甜不能代替做過的事
+  // 嘴甜和名聲都能抵一點人情,但抵不了太多 —— 都代替不了你替他做過的事。
+  // 名聲壞的時候反過來加碼:壞名聲要用更多人情去補
   const charmOff = Math.max(0, (input.charisma - 50) / 12);
-  const need = Math.max(2, joinThreshold(npc) - charmOff);
+  const fameOff = (input.renown ?? 0) / 14;
+  const need = Math.max(2, joinThreshold(npc) - charmOff - fameOff);
   if (favor < need) {
     const short = Math.ceil(need - favor);
     return {
       ok: false,
       needMore: short,
-      line: npc.temper === 'timid'
-        ? '我上有老下有小,這種事⋯⋯還是算了。'
-        : npc.temper === 'shrewd'
-          ? '無緣無故的,我憑什麼跟你走?'
-          : '你我不過幾面之緣,再說罷。',
+      line: (input.renown ?? 0) <= -8
+        ? '你的事我聽說了。恕不奉陪。'
+        : npc.temper === 'timid'
+          ? '我上有老下有小,這種事⋯⋯還是算了。'
+          : npc.temper === 'shrewd'
+            ? '無緣無故的,我憑什麼跟你走?'
+            : '你我不過幾面之緣,再說罷。',
     };
   }
 
