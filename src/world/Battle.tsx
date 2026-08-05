@@ -1,0 +1,273 @@
+import { useEffect, useMemo, useRef } from 'react';
+import { useFrame } from '@react-three/fiber';
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { groundAt, slideMove } from './field';
+import { bodyGeom, headGeom, FIG_BODY_H, FIG_HR } from './figure';
+import { playerPos } from '../game/interact';
+import { useHero } from '../game/hero';
+import { useBands } from '../game/bands';
+import { makeVillagers, might } from '../game/npcs';
+import {
+  fighters, beginBattle, stepBattle, battleOver, playerStrike, useBattle,
+  alive, type Fighter,
+} from '../game/combat';
+
+/**
+ * 打起來的樣子。
+ *
+ * 這裡只負責<b>把 combat.ts 算出來的事畫出來</b> —— 誰在走、誰在揮、誰倒了。
+ * 沒有一條血條浮在頭上:傷勢用姿態講(踉蹌、單膝、趴下),
+ * 因為這場架的重點是「畫面上還站著幾個人」,不是誰剩幾點血。
+ *
+ * 接戰的距離刻意給得寬(18 步):遠遠看見那夥人動起來、朝你走過來的那幾秒,
+ * 是這個系統唯一的前搖。少了它,遭遇戰會像被偷襲。
+ */
+
+const ENGAGE = 18;
+
+const FOE_ROBE = '#4a3f42';
+const FOE_CHIEF_ROBE = '#5c3a33';
+
+export function Battle() {
+  const bands = useBands((s) => s.bands);
+  const rout = useBands((s) => s.rout);
+  const bandId = useBattle((s) => s.bandId);
+  const tally = useBattle((s) => s.tally);
+  const finish = useBattle((s) => s.finish);
+
+  const villagers = useMemo(() => makeVillagers(38), []);
+  const byId = useMemo(
+    () => Object.fromEntries(villagers.map((v) => [v.id, v])), [villagers],
+  );
+
+  const geoms = useMemo(() => ({
+    foe: { body: bodyGeom(new THREE.Color(FOE_ROBE)), head: headGeom(false) },
+    chief: { body: bodyGeom(new THREE.Color(FOE_CHIEF_ROBE)), head: headGeom(true) },
+    mate: { body: bodyGeom(new THREE.Color('#6b5741')), head: headGeom(false) },
+  }), []);
+
+  // 刀 = 柄 + 護手 + 身。三塊而已,但少了護手就只是一根白棍子
+  const bladeGeom = useMemo(() => {
+    const blade = new THREE.BoxGeometry(0.05, 0.56, 0.115);
+    blade.translate(0, 0.42, 0.012);
+    const guard = new THREE.BoxGeometry(0.14, 0.045, 0.14);
+    guard.translate(0, 0.14, 0);
+    const grip = new THREE.BoxGeometry(0.045, 0.16, 0.05);
+    grip.translate(0, 0.05, 0);
+    return mergeGeometries([blade, guard, grip], false)!;
+  }, []);
+
+  const groups = useRef<Record<string, THREE.Group | null>>({});
+  const blades = useRef<Record<string, THREE.Group | null>>({});
+  const bodies = useRef<Record<string, THREE.Mesh | null>>({});
+
+  // 空白鍵出手 —— 綁 window,canvas 不吃鍵盤焦點
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== 'Space') return;
+      e.preventDefault();
+      playerStrike('you');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // 原型階段的探針:截圖腳本要能問「場上還剩幾個人、誰在幹嘛」
+  useEffect(() => {
+    const w = window as unknown as Record<string, unknown>;
+    w.__battle = () => ({
+      bandId: useBattle.getState().bandId,
+      tally: useBattle.getState().tally,
+      ours: fighters.filter((f) => f.side === 'you' && alive(f)).length,
+      foes: fighters.filter((f) => f.side === 'foe' && alive(f)).length,
+      me: fighters.find((f) => f.isPlayer)
+        ? { hp: Math.round(fighters.find((f) => f.isPlayer)!.hp), stance: fighters.find((f) => f.isPlayer)!.stance }
+        : null,
+      list: fighters.map((f) => ({ id: f.id, side: f.side, hp: Math.round(f.hp), stance: f.stance })),
+    });
+    w.__strike = () => playerStrike('you');
+    // 走向還站著的敵人 —— 診斷用,也是將來「鎖定目標」的雛形
+    w.__closeIn = () => {
+      const foe = fighters.find((f) => f.side === 'foe' && alive(f));
+      if (!foe) return null;
+      (window as unknown as Record<string, (x: number, z: number) => void>)
+        .__walkTo(foe.x, foe.z);
+      return [Math.round(foe.x), Math.round(foe.z)];
+    };
+    // 就地開一場 —— 平衡與畫面驗收不必每次都走半張地圖過去
+    w.__forceBattle = (x: number, z: number, count: number, fierce: number) => {
+      const hero = useHero.getState();
+      beginBattle({
+        ours: [
+          { id: 'you', name: hero.name, war: hero.stats.war, isPlayer: true },
+          ...hero.followers.map((id) => ({
+            id: `mate-${id}`, npcId: id,
+            name: byId[id]?.name ?? '同行', war: byId[id] ? might(byId[id]) : 40,
+          })),
+        ],
+        band: { id: 'spar', x, z, fierce, count },
+        at: { x: playerPos.x, z: playerPos.z },
+        ground: groundAt,
+        leadership: hero.stats.leadership,
+      });
+    };
+    w.__bands = () => useBands.getState().bands.map((b) => ({
+      id: b.id, name: b.name, x: Math.round(b.x), z: Math.round(b.z),
+      count: b.count, routed: b.routed,
+    }));
+  }, []);
+
+  useFrame((_, dt) => {
+    const step = dt > 0.1 ? 0.1 : dt;
+    const st = useBattle.getState();
+
+    // 還沒開打:看看有沒有撞上哪一夥
+    if (!st.bandId) {
+      for (const b of bands) {
+        if (b.routed) continue;
+        if (Math.hypot(b.x - playerPos.x, b.z - playerPos.z) > ENGAGE) continue;
+        const hero = useHero.getState();
+        const ours = [
+          {
+            id: 'you', name: hero.name, war: hero.stats.war, isPlayer: true,
+          },
+          ...hero.followers.map((id) => ({
+            id: `mate-${id}`, npcId: id,
+            name: byId[id]?.name ?? '同行', war: byId[id] ? might(byId[id]) : 40,
+          })),
+        ];
+        beginBattle({
+          ours, band: { id: b.id, x: b.x, z: b.z, fierce: b.fierce, count: b.count },
+          at: { x: playerPos.x, z: playerPos.z }, ground: groundAt,
+          leadership: hero.stats.leadership,
+        });
+        break;
+      }
+      return;
+    }
+    if (st.tally) return;      // 打完了,等玩家收場
+
+    // 玩家那一格由鍵盤推,這裡只把座標同步進戰鬥模型
+    const me = fighters.find((f) => f.isPlayer);
+    if (me && me.stance !== 'down') {
+      me.x = playerPos.x; me.z = playerPos.z; me.y = playerPos.y; me.yaw = playerPos.yaw;
+    }
+
+    stepBattle(step, groundAt, slideMove);
+
+    const over = battleOver();
+    if (over) finish(over);
+  });
+
+  // 每幀把算好的位置搬到 three 的物件上
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime;
+    for (const f of fighters) {
+      const g = groups.current[f.id];
+      if (!g) continue;
+      if (f.isPlayer) { g.visible = false; continue; }   // 玩家由 Player.tsx 畫
+      g.visible = true;
+      poseInto(g, bodies.current[f.id], blades.current[f.id], f, t);
+    }
+  });
+
+  useEffect(() => {
+    if (!tally) return;
+    if (bandId) rout(bandId);
+  }, [tally, bandId, rout]);
+
+  if (!bandId) return null;
+
+  return (
+    <>
+      {fighters.map((f) => {
+        const g = f.isPlayer ? geoms.mate
+          : f.side === 'foe' ? (f.chief ? geoms.chief : geoms.foe) : geoms.mate;
+        return (
+          <group key={f.id} ref={(o) => { groups.current[f.id] = o; }}>
+            <mesh ref={(o) => { bodies.current[f.id] = o; }} geometry={g.body} castShadow>
+              <meshStandardMaterial vertexColors roughness={0.74} />
+            </mesh>
+            <mesh geometry={g.head} position={[0, FIG_BODY_H * 0.99, 0]} castShadow>
+              <meshStandardMaterial vertexColors roughness={0.62} />
+            </mesh>
+            <group ref={(o) => { blades.current[f.id] = o; }}
+                   position={[FIG_HR * 0.95, FIG_BODY_H * 0.44, 0]}>
+              <mesh geometry={bladeGeom} castShadow>
+                <meshStandardMaterial color={f.side === 'foe' ? '#7d7a72' : '#9aa0a6'}
+                                      roughness={0.42} metalness={0.55} />
+              </mesh>
+            </group>
+          </group>
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * 姿態 — 這是整個戰鬥唯一的「動畫」。
+ *
+ * 沒有骨架,能動的只有整個身子的傾斜、上下、以及刀的角度。
+ * 但這幾樣已經夠讀:前傾+刀掄下去是砍,後仰是挨打,躺平是倒了。
+ * <b>剪影讀得出來就夠了</b> —— 這個世界的人本來就是靠剪影認的。
+ */
+function poseInto(
+  g: THREE.Group, body: THREE.Mesh | null, blade: THREE.Group | null,
+  f: Fighter, t: number,
+) {
+  g.position.set(f.x, f.y, f.z);
+  g.rotation.set(0, f.yaw, 0);
+
+  const hurtFlash = t - f.hurtAt < 0.18;
+
+  switch (f.stance) {
+    case 'down': {
+      // 倒下 — 往前撲,不是原地消失
+      g.rotation.x = -Math.PI * 0.46;
+      g.position.y = f.y + 0.12;
+      if (blade) blade.rotation.set(0, 0, -1.4);
+      break;
+    }
+    case 'striking': {
+      // 掄過頂再劈下來
+      const p = f.phase;
+      const arc = p < 0.42 ? -1.9 + p * 1.2 : -1.4 + (p - 0.42) * 5.4;
+      if (blade) blade.rotation.set(arc, 0, 0.2);
+      g.rotation.x = Math.sin(Math.min(1, p * 1.6) * Math.PI) * 0.22;
+      g.position.y = f.y;
+      break;
+    }
+    case 'reeling': {
+      g.rotation.x = -Math.sin(f.phase * Math.PI) * 0.34;
+      g.position.y = f.y;
+      if (blade) blade.rotation.set(-0.6, 0, 0.9);
+      break;
+    }
+    case 'fleeing': {
+      g.position.y = f.y + Math.abs(Math.sin(f.phase * Math.PI * 2)) * 0.075;
+      g.rotation.x = 0.14;
+      if (blade) blade.rotation.set(-1.2, 0, 0.4);
+      break;
+    }
+    case 'closing': {
+      g.position.y = f.y + Math.abs(Math.sin(f.phase * Math.PI * 2)) * 0.05;
+      g.rotation.x = 0.06;
+      if (blade) blade.rotation.set(-0.9 + Math.sin(t * 3 + f.x) * 0.06, 0, 0.25);
+      break;
+    }
+    default: {
+      // 對峙 — 刀舉著,身子輕微晃,別像個立牌
+      g.position.y = f.y + Math.sin(t * 2.2 + f.z) * 0.012;
+      g.rotation.x = 0.03;
+      if (blade) blade.rotation.set(-1.35 + Math.sin(t * 2.6 + f.x) * 0.08, 0, 0.22);
+    }
+  }
+
+  if (body) {
+    const m = body.material as THREE.MeshStandardMaterial;
+    // 挨打閃一下 —— 沒有血條,這是唯一的「中了」回饋
+    m.emissive.setRGB(hurtFlash ? 0.45 : 0, 0, 0);
+  }
+}
