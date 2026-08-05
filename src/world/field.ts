@@ -140,8 +140,19 @@ export interface Deck {
 
 const decks = new Map<string, Deck[]>();
 
-export function registerDecks(key: string, list: Deck[]) { decks.set(key, list); }
-export function clearDecks(key: string) { decks.delete(key); }
+// 板子與障礙一動,導航圖就得重建 —— 橋是後來才登記的,
+// 而導航圖是第一次要用時才建的,兩者的順序不保證
+export function registerDecks(key: string, list: Deck[]) { decks.set(key, list); onWorldChange(); }
+export function clearDecks(key: string) { decks.delete(key); onWorldChange(); }
+
+/**
+ * 世界的形狀變了要通知誰。
+ *
+ * 用回呼而不是直接 import nav,是為了不讓 field(誰都在用的底層)
+ * 反過來相依於 nav。
+ */
+let onWorldChange: () => void = () => {};
+export function setWorldChangeHook(fn: () => void) { onWorldChange = fn; }
 
 /** 這一點上有板子嗎,有的話板面多高。 */
 export function deckAt(x: number, z: number): number | null {
@@ -216,10 +227,11 @@ function reindex() {
 export function registerBlockers(key: string, list: Blocker[]) {
   groups.set(key, list);
   reindex();
+  onWorldChange();
 }
 
 export function clearBlockers(key: string) {
-  if (groups.delete(key)) reindex();
+  if (groups.delete(key)) { reindex(); onWorldChange(); }
 }
 
 function near(x: number, z: number): Blocker[] | undefined {

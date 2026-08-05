@@ -43,6 +43,7 @@ import { useJournal } from './game/journal';
 import { originById } from './game/origin';
 import { updateAmbience, isMuted, audioReady } from './game/audio';
 import { useEnding } from './game/ending';
+import { findPath, navStats, navOpen } from './world/nav';
 import { lifeTally } from './game/daily';
 
 /**
@@ -157,6 +158,10 @@ function CamBridge() {
     // 驗收腳本要問時間、存讀檔、走到某個場所 —— 都是原型階段的把手
     (window as unknown as Record<string, unknown>).__clock = () => useClock.getState();
     (window as unknown as Record<string, unknown>).__renderInfo = () => gl.info.render.calls;
+    (window as unknown as Record<string, unknown>).__nav = (
+      x0: number, z0: number, x1: number, z1: number,
+    ) => ({ path: findPath(x0, z0, x1, z1), stats: navStats() });
+    (window as unknown as Record<string, unknown>).__navOpen = (x: number, z: number) => navOpen(x, z);
     (window as unknown as Record<string, unknown>).__audio = () => ({
       ready: audioReady(), muted: isMuted(),
     });

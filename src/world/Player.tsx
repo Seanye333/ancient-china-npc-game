@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { terrainHeight, groundAt, slideMove, steerMove, viewBlocked } from './field';
 import { bodyGeom, headGeom, FIG_BODY_H } from './figure';
 import { setSightTarget } from './Vegetation';
+import { findPath } from './nav';
 import { stepSound } from '../game/audio';
 import { meanderAt } from './sites';
 import { useHero } from '../game/hero';
@@ -64,9 +65,35 @@ export function Player() {
    * 沿障礙滑一下就繞得過去。
    */
   const goto = useRef<{ x: number; z: number } | null>(null);
+  /**
+   * 還沒走到的航點。
+   *
+   * 直線走法在村子裡夠用,過河不行:谷中間橫著一條河,只有一座橋。
+   * 直線會把你帶到岸邊,然後在那裡左右試探到天荒地老 ——
+   * 而橋就在下游三十步。所以先問 nav 要一條路,再一個一個航點走過去。
+   */
+  const route = useRef<Array<[number, number]>>([]);
   useEffect(() => {
-    (window as unknown as Record<string, unknown>).__walkTo =
-      (x: number, z: number) => { goto.current = { x, z }; };
+    (window as unknown as Record<string, unknown>).__walkTo = (x: number, z: number) => {
+      const m = me.current;
+      const path = findPath(m.x, m.z, x, z);
+      /*
+       * <b>整條路都要留著,不能砍掉最後一個航點。</b>
+       *
+       * 我原本以為最後那個航點就是目標本身,砍掉省事 —— 其實不是:
+       * 它是「進場點」,而目標常常和它差著幾步(目標落在走不到的格子上時,
+       * A* 會退到附近一格)。砍掉以後,人走完倒數第二個航點就直奔目標,
+       * 那一段是沒有驗算過的直線。
+       *
+       * 這個 bug 的樣子特別有欺騙性:過河的路規劃得完全正確
+       * ——(10,6) 直直往西到 (-70,6),正好壓在橋上——
+       * 可是砍掉終點以後,人從 (10,6) 斜著奔向 (-69,4),
+       * 而橋只有三步寬,一走上去就滑下水了。路是對的,走法是錯的。
+       */
+      route.current = path ?? [];
+      goto.current = { x, z };
+      return route.current.length;
+    };
   }, []);
 
   const keys = useRef<Record<string, boolean>>({});
@@ -119,12 +146,25 @@ export function Player() {
 
     // 鍵盤沒輸入時才吃自動導航 —— 玩家一按鍵就該立刻奪回控制權
     if (tmp.want.lengthSq() < 1e-4 && goto.current) {
-      const gx = goto.current.x - m.x;
-      const gz = goto.current.z - m.z;
-      if (Math.hypot(gx, gz) < 0.7) goto.current = null;
-      else tmp.want.set(gx, 0, gz).normalize();
+      // 先走航點,航點走完了才直奔目標
+      const next = route.current[0];
+      const aim = next ?? [goto.current.x, goto.current.z];
+      const gx = aim[0] - m.x;
+      const gz = aim[1] - m.z;
+      const d = Math.hypot(gx, gz);
+      if (next) {
+        // 到點的判定要比橋板窄。判定半徑大過通道寬度的話,
+        // 人會在還沒真正踏上橋的時候就認為「這個航點到了」
+        if (d < 1.4) route.current.shift();
+        else tmp.want.set(gx, 0, gz).normalize();
+      } else if (d < 0.7) {
+        goto.current = null;
+      } else {
+        tmp.want.set(gx, 0, gz).normalize();
+      }
     } else if (tmp.want.lengthSq() > 1e-4) {
       goto.current = null;
+      route.current.length = 0;
     }
 
     // 倒在地上的人不會走路
