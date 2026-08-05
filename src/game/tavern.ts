@@ -16,8 +16,8 @@ import { wayWord } from './quest';
  * 假情報比沒有情報更糟:玩家會學會不聽。
  */
 
-export const DRINK_PRICE = 4;
-export const NEWS_PRICE = 9;
+export const DRINK_PRICE = 2;
+export const NEWS_PRICE = 5;
 
 /** 一碗酒能解多少乏。喝多了不會更好 —— 這不是回血藥。 */
 export const DRINK_TOIL = 3;
@@ -74,7 +74,7 @@ export function newsFrom(input: {
 export function hirePrice(village: VillageState, already: number): number {
   const hard = 1.3 - village.order / 160;          // 治安差 = 人便宜
   const scarce = 1 + already * 0.09;               // 帶得越多,肯來的越少
-  return Math.max(8, Math.round(26 * hard * scarce));
+  return Math.max(6, Math.round(22 * hard * scarce));
 }
 
 /**

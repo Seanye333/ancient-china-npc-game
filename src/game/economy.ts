@@ -18,8 +18,15 @@ import type { Season } from '../world/worldTime';
  *     去碼頭扛一天包就沒法去剿匪 —— 這才是白身真正的難處。
  */
 
-/** 一石米夠一個人吃幾天。漢代口糧約每月一石半,取整成一石三十日。 */
-export const DAYS_PER_SHI = 30;
+/**
+ * 一石米夠一個人吃幾天。
+ *
+ * 漢代口糧約每月一石半到兩石,所以一石大概十八天 —— 第一版寫成三十天,
+ * 等於把口糧砍掉四成。差別不只是數字:糧價佔收入的比重從一成七變成三成五,
+ * 而<b>那個比重才是「荒年」有沒有份量的關鍵</b>。
+ * 米價翻倍的時候,前者只削掉你三成盈餘,後者直接削掉一半。
+ */
+export const DAYS_PER_SHI = 18;
 
 /** 你和你帶的人今天要吃掉幾天份的口糧。 */
 export function mouths(followers: number, retinue: number): number {
@@ -59,12 +66,32 @@ export interface DayJob {
   closed?: string;
 }
 
+/**
+ * 工錢。
+ *
+ * 這幾個數字是<b>空跑一年調出來的</b>,不是憑感覺定的 —— 見 economy.sim.test.ts。
+ * 第一版一趟給九到十一錢,聽起來很寒酸,實際上是一天的工能買一個月的糧:
+ * 空跑一年攢下一萬三千錢,而一間屋子六百二。錢完全沒有意義,
+ * 「過冬」這個主題根本不存在,饑荒零挨餓,帶三個人也零挨餓。
+ *
+ * 現在照著一條規矩定:<b>一天做滿工,大約是兩三天的口糧</b>。
+ * 於是一個人餓不死,帶三個人就得靠差事,而不是靠出賣力氣。
+ */
 const JOB_BASE: Record<JobKind, { label: string; hours: number; pay: number; toil: number }> = {
-  field: { label: '下田幫工', hours: 5, pay: 9, toil: 3 },
-  dock: { label: '碼頭扛包', hours: 4, pay: 11, toil: 4 },
-  market: { label: '市集跑腿', hours: 3, pay: 6, toil: 1 },
-  wood: { label: '上山砍柴', hours: 5, pay: 8, toil: 3 },
+  field: { label: '下田幫工', hours: 5, pay: 2, toil: 4 },
+  dock: { label: '碼頭扛包', hours: 4, pay: 2, toil: 5 },
+  market: { label: '市集跑腿', hours: 3, pay: 1, toil: 2 },
+  wood: { label: '上山砍柴', hours: 5, pay: 2, toil: 4 },
 };
+
+/**
+ * 一趟活是<b>半天</b>,而且累。
+ *
+ * 這件事比工錢多少更要緊:第一版一趟只花三到五個時辰、累個三四分,
+ * 於是一天做得完三趟 —— 空跑出來一年一萬三千錢,而一間屋子六百二。
+ * 現在體力才是真正的上限,一天做兩趟就直不起腰,
+ * 一天的工大約換三四天的口糧,這才是「白身」該有的匯率。
+ */
 
 /**
  * 今天有什麼活可做。
@@ -127,8 +154,17 @@ export const LODGING_LABEL: Record<Lodging, string> = {
 };
 
 /** 賃屋一旬的租金。買屋要一次拿出這麼多。 */
-export const RENT_PER_XUN = 26;
+export const RENT_PER_XUN = 10;
 export const HOUSE_PRICE = 620;
+
+/**
+ * 養一個人一旬要多少錢 —— <b>他不只吃你的糧,還要月錢</b>。
+ *
+ * 少了這一條,「帶人」的代價只有糧,而糧便宜到帶十個人也吃不垮你。
+ * 加上月錢以後,人手才真的是一筆要按時付的帳:
+ * 打工養不起隊伍,只有差事養得起 —— 這正是這個遊戲想說的話。
+ */
+export const UPKEEP_PER_MAN = 8;
 
 /**
  * 睡一覺回幾分。
@@ -172,5 +208,5 @@ export function stipendFor(rank: number): number {
  * 有屋要多收一份;帶著的人不算你的,他們各自有各自的戶籍。
  */
 export function taxDue(lodging: Lodging): number {
-  return 120 + (lodging === 'owned' ? 80 : 0);
+  return 60 + (lodging === 'owned' ? 40 : 0);
 }

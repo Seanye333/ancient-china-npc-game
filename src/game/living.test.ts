@@ -62,9 +62,10 @@ describe('糧按人頭吃', () => {
   it('帶的人越多,同樣一堆糧撐得越短', () => {
     expect(mouths(0, 0)).toBe(1);
     expect(mouths(2, 3)).toBe(6);
-    expect(grainDays(3, 0, 0)).toBe(90);
-    expect(grainDays(3, 2, 0)).toBe(30);
-    expect(grainDays(3, 2, 3)).toBe(15);
+    // 一石十八天(漢代口糧約一月一石半到兩石)
+    expect(grainDays(3, 0, 0)).toBe(54);
+    expect(grainDays(3, 2, 0)).toBe(18);
+    expect(grainDays(3, 2, 3)).toBe(9);
   });
 
   it('躉買比零買便宜,賣出去要折價 —— 攢一筆一次買足才是划算的決定', () => {

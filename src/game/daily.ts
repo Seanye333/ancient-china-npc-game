@@ -15,7 +15,7 @@ import { moodOf, grumble, isGrieving } from './company';
 import { playerPos } from './interact';
 import { MARKET } from '../world/sites';
 import {
-  DAYS_PER_SHI, mouths, RENT_PER_XUN, LODGING_LABEL, stipendFor, taxDue,
+  DAYS_PER_SHI, mouths, RENT_PER_XUN, LODGING_LABEL, stipendFor, taxDue, UPKEEP_PER_MAN,
 } from './economy';
 import { rankForMerit } from './hero';
 import { DAYS_PER_XUN, DAYS_PER_YEAR, partsFor } from './calendar';
@@ -106,6 +106,27 @@ export function settleDay(day: number, season: Season): DayReport {
       report.evicted = true;
       now.setLodging('none');
       journal.note(day, '房錢交不出,被請了出去。今晚睡哪還沒著落。', 'bad');
+    }
+  }
+
+  /*
+   * 月錢 —— 跟著你的人不只吃你的糧,還要按旬拿錢。
+   *
+   * 少了這一條,「帶人」的代價只有糧,而糧便宜到帶十個人也吃不垮你。
+   * 給不出月錢,人會走 —— 而且會先抱怨(company.ts 那條路)。
+   */
+  if (day > 0 && day % DAYS_PER_XUN === 0) {
+    const h = useHero.getState();
+    const men = h.followers.length + h.retinue;
+    if (men > 0) {
+      const owe = men * UPKEEP_PER_MAN;
+      if (h.spend(owe)) {
+        journal.note(day, `發了這一旬的月錢,${owe} 錢。`);
+      } else {
+        journal.note(day, `月錢發不出來。跟著你的人臉色都不好看。`, 'bad');
+        for (const id of h.followers) useFolk.getState().bumpRegard(id, -2);
+        useHero.setState((s) => ({ renown: s.renown - 1 }));
+      }
     }
   }
 
