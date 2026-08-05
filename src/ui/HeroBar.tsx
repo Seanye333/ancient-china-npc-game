@@ -6,6 +6,7 @@ import { grainDays } from '../game/daily';
 import { LODGING_LABEL } from '../game/economy';
 import { dateWord, shichenWord } from '../game/calendar';
 import { renownWord } from '../game/folk';
+import { useCalamity, CALAMITY_LABEL } from '../game/calamity';
 
 /** 主角欄 — 你是誰、爬到哪、養得起幾個人。沒有這一條,玩家不知道自己在玩什麼。 */
 export function HeroBar() {
@@ -21,6 +22,7 @@ export function HeroBar() {
   const day = useClock((s) => s.day);
   const hour = useClock((s) => s.hour);
   const village = useVillage();
+  const calamity = useCalamity((s) => s.active);
   const days = grainDays(grain, followers.length, retinue);
   const rank = rankForMerit(merit);
   const label = rankLabel(rank);
@@ -80,6 +82,12 @@ export function HeroBar() {
         <span style={k}>村況</span>
         <span style={{ ...v, fontSize: '.86rem' }}>{village.order}<span style={{ opacity: .5 }}> 治安</span></span>
       </div>
+      {calamity && (
+        <div style={cell}>
+          <span style={k}>災</span>
+          <span style={{ ...v, color: '#d07862' }}>{CALAMITY_LABEL[calamity.kind]}</span>
+        </div>
+      )}
       <div style={{ ...k, alignSelf: 'flex-end', marginLeft: '.4rem', lineHeight: 1.5 }}>
         {dateWord(day)} · {shichenWord(hour)} · {LODGING_LABEL[lodging]}<br />
         {orderWord(village.order)} · {harvestWord(village.harvest)} · 米 {village.grainPrice}

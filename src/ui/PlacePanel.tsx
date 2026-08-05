@@ -21,6 +21,7 @@ import { raidParties } from '../game/raids';
 import { livingVillagers, deltaOf } from '../game/folk';
 import { playerPos } from '../game/interact';
 import { retinueCap, rankForMerit } from '../game/hero';
+import { useCalamity, reliefRenown, reliefOrder } from '../game/calamity';
 
 /**
  * 場所面板 —— 錢第一次有地方去的那個介面。
@@ -104,6 +105,32 @@ export function PlacePanel() {
                 onClick={() => setQty(n)}>{n}</button>
             ))}
           </div>
+          {/*
+            賑濟 —— 散糧換不到一個銅錢,換到的是全村都知道你在最難的時候
+            拿出了東西。對一個要靠人過日子的白身來說,那比糧值錢。
+          */}
+          <button
+            style={hero.grain >= qty ? { ...btn, borderColor: '#7fb08a' } : dim}
+            onClick={() => {
+              if (hero.grain < qty) { setLine('你自己都不夠吃。'); return; }
+              const cal = useCalamity.getState().active;
+              const fame = reliefRenown(qty, !!cal);
+              hero.addGrain(-qty);
+              useHero.setState((s) => ({ renown: s.renown + fame }));
+              village.nudge({ order: village.order + reliefOrder(qty) });
+              setLine(cal
+                ? `${qty} 石糧散了出去。有人跪下磕頭,你沒攔住。`
+                : `${qty} 石糧散給了幾戶揭不開鍋的。`);
+              note(day, `賑濟 ${qty} 石 · 鄉望 +${fame}`, 'good');
+            }}
+          >
+            賑濟 {qty} 石
+            <span style={{ opacity: .55 }}>
+              {' · '}鄉望 +{reliefRenown(qty, !!useCalamity.getState().active)}
+              {useCalamity.getState().active ? '（災年,人記得住）' : ''}
+            </span>
+          </button>
+
           <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
             <button
               style={hero.gold >= grainCost(village, qty) ? btn : dim}

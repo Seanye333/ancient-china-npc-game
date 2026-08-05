@@ -7,6 +7,9 @@ import {
   useFolk, deltaOf, livingVillagers, sickChance, deathChance, stepRumors, spreadRumor,
 } from './folk';
 import { relatives } from './kin';
+import {
+  useCalamity, calamityRoll, calamityDays, calamityBite, calamityWord, CALAMITY_LABEL,
+} from './calamity';
 import { useQuest } from './quest';
 import { playerPos } from './interact';
 import { MARKET } from '../world/sites';
@@ -165,8 +168,40 @@ export function settleDay(day: number, season: Season): DayReport {
    * 一個崩掉的村子會空。數字掉到一半以下的時候,你會先在日誌上看見誰家沒了人,
    * 然後才發現街上少了一個攤子。
    */
+  /*
+   * 天災。
+   *
+   * 這個世界原本只有一種壞事:賊。可是漢末真正把人逼上山的從來不是賊,
+   * 是旱澇蝗疫 —— 賊是結果不是原因。災一起,收成掉得比平時快,
+   * 病倒的人多,而米價會一格一格往上爬。
+   */
+  const cal = useCalamity.getState();
+  if (!cal.active && day > 0 && day % DAYS_PER_XUN === 0) {
+    const kind = calamityRoll(season, useVillage.getState().harvest, Math.random);
+    if (kind) {
+      const c = { kind, since: day, daysLeft: calamityDays(kind, Math.random) };
+      cal.begin(c);
+      journal.note(day, `${CALAMITY_LABEL[kind]}。${calamityWord(c)}`, 'bad');
+    }
+  }
+  const active = useCalamity.getState().active;
+  if (active) {
+    const bite = calamityBite(active.kind);
+    const v = useVillage.getState();
+    v.nudge({
+      harvest: v.harvest + bite.harvest,
+      order: v.order + bite.order,
+      trade: v.trade + bite.trade,
+    });
+    useCalamity.getState().step();
+    if (useCalamity.getState().active === null) {
+      journal.note(day, `${CALAMITY_LABEL[active.kind]}過去了。`, 'good');
+    }
+  }
+
   const v0 = useVillage.getState();
   const winter = season === 'winter';
+  const sickMul = active ? calamityBite(active.kind).sickMul : 1;
   const folkStore = useFolk.getState();
   for (const p of livingVillagers()) {
     const d = deltaOf(p.id);
@@ -183,7 +218,7 @@ export function settleDay(day: number, season: Season): DayReport {
       folkStore.patch(p.id, { sick: Math.random() < 0.22 ? 0 : d.sick + 1 });
       continue;
     }
-    if (Math.random() < sickChance(p.age, v0.harvest, winter)) {
+    if (Math.random() < sickChance(p.age, v0.harvest, winter) * sickMul) {
       folkStore.patch(p.id, { sick: 1 });
       journal.note(day, `${p.name}病倒了。`, 'bad');
     }
