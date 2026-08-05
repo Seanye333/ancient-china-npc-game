@@ -21,6 +21,8 @@ import { Battle } from './world/Battle';
 import { Dialogue } from './ui/Dialogue';
 import { BattleHud } from './ui/BattleHud';
 import { QuestHud } from './ui/QuestHud';
+import { PlacePanel } from './ui/PlacePanel';
+import { Journal } from './ui/Journal';
 import { Lanterns } from './world/Lanterns';
 import { Weather } from './world/Weather';
 import { Tavern } from './world/Interior';
@@ -29,7 +31,13 @@ import {
 } from './world/worldTime';
 import { useHero, rankForMerit, rankLabel, nextRankMerit, retinueCap } from './game/hero';
 import { useVillage, orderWord, harvestWord } from './game/village';
-import { useBands } from './game/bands';
+import { settleDay, grainDays, settleGuard } from './game/daily';
+import { saveGame, loadGame, hasSave, wipeSave } from './game/save';
+import { LODGING_LABEL } from './game/economy';
+import { dateWord, shichenWord } from './game/calendar';
+import { useInteract } from './game/interact';
+import { placeById } from './game/places';
+import { useJournal } from './game/journal';
 
 /**
  * 隨時間變的一切 — 太陽、天空、霧、曝光,全部從 skyFor() 拿同一份參數。
@@ -37,21 +45,33 @@ import { useBands } from './game/bands';
  */
 /** 村子的處境每過一天推一次 —— 世界得自己往前走,不是等玩家去戳。 */
 function VillageClock() {
-  const hour = useClock((s) => s.hour);
+  const day = useClock((s) => s.day);
   const season = useClock((s) => s.season);
-  const tick = useVillage((s) => s.tick);
-  // 打散的賊窩過些時日會有人回來 —— 剿匪不是一勞永逸,不然世界會越玩越空
-  const regrow = useBands((s) => s.regrow);
   const lastDay = useRef(-1);
   // 原型階段的除錯鉤子 — 讓截圖腳本壓治安,好把剿匪的活逼出來
   useEffect(() => {
     (window as unknown as Record<string, unknown>).__village =
       (order: number) => useVillage.getState().nudge({ order });
   }, []);
+  /**
+   * 過一天結一次帳。
+   *
+   * 從前這裡寫的是 `Math.floor(hour / 24)`,而 hour 每次都對 24 取餘 ——
+   * 那個式子<b>永遠是 0</b>,所以開場結了一次以後就再也沒結過:
+   * 村況不動、賊窩不長、傷永遠不好。畫面上什麼都看不出來,
+   * 因為那時候根本沒有東西顯示日期。
+   */
   useEffect(() => {
-    const day = Math.floor(hour / 24);
-    if (day !== lastDay.current) { lastDay.current = day; tick(season); regrow(); }
-  }, [hour, season, tick, regrow]);
+    if (day === lastDay.current) return;
+    // 讀檔跳過來的日子早就結過了,不能再結一遍
+    if (day <= settleGuard.skipUntil) { lastDay.current = day; return; }
+    const from = lastDay.current < 0 ? day : lastDay.current + 1;
+    lastDay.current = day;
+    // 一次跨多天(睡覺、趕路)也要一天一天結,不能只結最後一天。
+    // 上限擋住病態情況 —— 一次補三十天以上多半是別處出了錯,不該讓它把糧吃光
+    for (let d = from; d <= day && d > day - 30; d++) settleDay(d, season);
+    saveGame();      // 一天存一次。這個遊戲沒有「讀檔重來」的樂趣,只有「別弄丟」
+  }, [day, season]);
   return null;
 }
 
@@ -118,6 +138,20 @@ function CamBridge() {
       useClock.getState().setHour(h);
       useClock.getState().setSeason(se);
     };
+    // 驗收腳本要問時間、存讀檔、走到某個場所 —— 都是原型階段的把手
+    (window as unknown as Record<string, unknown>).__clock = () => useClock.getState();
+    (window as unknown as Record<string, unknown>).__save = () => saveGame();
+    (window as unknown as Record<string, unknown>).__load = () => loadGame();
+    (window as unknown as Record<string, unknown>).__journal = () =>
+      useJournal.getState().entries.map((e) => `${e.day}: ${e.text}`);
+    (window as unknown as Record<string, unknown>).__nearPlace = () =>
+      useInteract.getState().nearPlace;
+    (window as unknown as Record<string, unknown>).__walkToPlace = (id: string) => {
+      const p = placeById(id);
+      if (p) (window as unknown as Record<string, (x: number, z: number) => void>)
+        .__walkTo(p.x, p.z);
+      return !!p;
+    };
     (window as unknown as Record<string, unknown>).__setWeather = (
       w: 'clear' | 'rain' | 'snow',
     ) => useClock.getState().setWeather(w);
@@ -145,6 +179,12 @@ function Hud() {
   const setWeather = useClock((s) => s.setWeather);
   const toggleAuto = useClock((s) => s.toggleAuto);
   const [fps, setFps] = useState(0);
+  const [saved, setSaved] = useState<string | null>(null);
+  useEffect(() => {
+    if (!saved) return;
+    const t = setTimeout(() => setSaved(null), 2200);
+    return () => clearTimeout(t);
+  }, [saved]);
   useEffect(() => {
     let n = 0; let last = performance.now(); let raf = 0;
     const loop = () => {
@@ -206,13 +246,26 @@ function Hud() {
           </button>
         ))}
       </div>
+      <div style={{ display: 'flex', gap: '.3rem' }}>
+        <button style={{ ...btn(false), flex: 1 }} onClick={() => setSaved(saveGame() ? '存了' : '存不了')}>
+          存檔
+        </button>
+        <button style={{ ...btn(false), flex: 1, opacity: hasSave() ? 1 : .45 }}
+          onClick={() => setSaved(loadGame() ? '讀了' : '沒有存檔')}>
+          讀檔
+        </button>
+        <button style={{ ...btn(false), padding: '.3rem .5rem' }}
+          onClick={() => { wipeSave(); setSaved('清了'); }}>
+          清
+        </button>
+      </div>
       <div style={{
         fontFamily: 'ui-monospace,SFMono-Regular,Menlo,monospace',
         fontSize: '.7rem', opacity: 0.55, letterSpacing: '.08em',
         display: 'flex', justifyContent: 'space-between',
       }}>
         <span>{fps} FPS</span>
-        <span>河谷 · 卯至戌</span>
+        <span>{saved ?? '河谷 · 卯至戌'}</span>
       </div>
     </div>
   );
@@ -226,7 +279,12 @@ function HeroBar() {
   const followers = useHero((s) => s.followers);
   const lead = useHero((s) => s.stats.leadership);
   const wounded = useHero((s) => s.wounded);
+  const grain = useHero((s) => s.grain);
+  const lodging = useHero((s) => s.lodging);
+  const day = useClock((s) => s.day);
+  const hour = useClock((s) => s.hour);
   const village = useVillage();
+  const days = grainDays(grain, followers.length, retinue);
   const rank = rankForMerit(merit);
   const label = rankLabel(rank);
   const next = nextRankMerit(rank);
@@ -264,6 +322,12 @@ function HeroBar() {
         <span style={k}>錢</span>
         <span style={v}>{gold}</span>
       </div>
+      <div style={cell}>
+        <span style={k}>糧</span>
+        <span style={{ ...v, color: days <= 3 ? '#d07862' : undefined }}>
+          {grain.toFixed(1)}<span style={{ opacity: .5, fontSize: '.72rem' }}> 石 · {days} 天</span>
+        </span>
+      </div>
       {wounded > 0 && (
         <div style={cell}>
           <span style={k}>傷</span>
@@ -275,14 +339,26 @@ function HeroBar() {
         <span style={{ ...v, fontSize: '.86rem' }}>{village.order}<span style={{ opacity: .5 }}> 治安</span></span>
       </div>
       <div style={{ ...k, alignSelf: 'flex-end', marginLeft: '.4rem', lineHeight: 1.5 }}>
-        WASD 走 · Shift 跑 · E 搭話<br />
+        {dateWord(day)} · {shichenWord(hour)} · {LODGING_LABEL[lodging]}<br />
         {orderWord(village.order)} · {harvestWord(village.harvest)} · 米 {village.grainPrice}
+        <span style={{ opacity: .7 }}> · WASD 走 · E 搭話 · F 場所 · J 日誌</span>
       </div>
     </div>
   );
 }
 
 export default function App() {
+  // Esc 一律先關掉最上層的東西 —— 場所面板現在也在那一疊裡
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== 'Escape') return;
+      const st = useInteract.getState();
+      if (st.atPlace) st.closePlace();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
     <>
       <Canvas
@@ -338,8 +414,10 @@ export default function App() {
         <CamBridge />
       </Canvas>
       <Dialogue />
+      <PlacePanel />
       <BattleHud />
       <QuestHud />
+      <Journal />
       <HeroBar />
       <Hud />
     </>
