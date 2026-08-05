@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { terrainHeight, groundAt, slideMove, steerMove, viewBlocked } from './field';
+import { terrainHeight, groundAt, slideMove, steerMove, viewBlocked, walkable } from './field';
 import { bodyGeom, headGeom, FIG_BODY_H } from './figure';
 import { setSightTarget } from './Vegetation';
 import { findPath } from './nav';
@@ -91,7 +91,15 @@ export function Player() {
        * 而橋只有三步寬,一走上去就滑下水了。路是對的,走法是錯的。
        */
       route.current = path ?? [];
-      goto.current = { x, z };
+      /*
+       * 目標本身站不住的時候(賊窩中央、河裡、屋子裡),A* 會退到附近一格 ——
+       * 那就<b>以那一格為終點</b>,不要再往真目標走最後那一段。
+       * 不這樣做的話,人會走到柵欄外面,然後對著柵欄磨到天荒地老:
+       * 路走完了,而「還沒到」永遠成立。
+       */
+      const reachable = walkable(x, z);
+      const last = route.current[route.current.length - 1];
+      goto.current = reachable || !last ? { x, z } : { x: last[0], z: last[1] };
       return route.current.length;
     };
   }, []);

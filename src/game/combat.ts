@@ -64,6 +64,19 @@ export interface Fighter {
 export const fighters: Fighter[] = [];
 
 /**
+ * 上一次有人挨刀是什麼時候。
+ *
+ * 用來拆<b>僵局</b>:兩邊都還站著,可是誰也打不到誰 —— 最後一個賊縮在柵欄後面,
+ * 我方三個人在外頭繞,而戰鬥沒有尋路(只有貼著障礙滑),於是永遠不會結束。
+ * 這種局面在畫面上看起來就是「大家站著發呆」,而且不會自己好。
+ *
+ * 真人遇到這種情況會走開。所以超過一段時間沒人挨到一刀,士氣就開始垮 ——
+ * 這一場架自己就散了。比起特判「誰卡住了」,這個做法對所有卡法都成立。
+ */
+let lastBlow = 0;
+const STALE_AFTER = 25;
+
+/**
  * 打鬥的節奏參數 —— 調這裡就能改「一場架有多長」。
  *
  * 這幾個數字是<b>空跑一千場調出來的</b>,不是看畫面調的:
@@ -128,6 +141,7 @@ export function beginBattle(input: {
 }) {
   rand = input.rng ?? Math.random;
   clock = 0;
+  lastBlow = 0;
   fighters.length = 0;
 
   const { band, at, ground } = input;
@@ -326,6 +340,7 @@ function resolveStrike(f: Fighter) {
   if (rand() > chance) return;
 
   const dmg = (6.5 + f.war * 0.10) * (0.75 + rand() * 0.6);
+  lastBlow = clock;
   tgt.hp -= dmg;
   tgt.hurtAt = clock;
   if (tgt.hp <= 0) {
@@ -378,7 +393,11 @@ function reapAndRally() {
     // 注意算的是「正在打我的人」而不是「附近的人」:
     // 照附近算的話,對面老遠看見你們四個站成一排就掉頭跑了,架根本打不起來。
     const pinned = attackersOn(f, '');
-    const nerve = f.morale
+    // 僵住太久,膽氣就一路垮下去 —— 打不到人的架,誰都不會一直站在那裡
+    const stale = clock - lastBlow > STALE_AFTER
+      ? (clock - lastBlow - STALE_AFTER) * 6
+      : 0;
+    const nerve = -stale + f.morale
       + (hurt < 0.32 ? -30 : hurt < 0.55 ? -14 : 0)
       - Math.max(0, pinned - 1) * 9
       + f.war * 0.15;

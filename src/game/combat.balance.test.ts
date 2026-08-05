@@ -204,3 +204,32 @@ describe('收場的帳要對得上', () => {
     useBattle.getState().clear();
   });
 });
+
+describe('架總會打完', () => {
+  /**
+   * 僵局。兩邊都還站著,可是誰也打不到誰 —— 最後一個賊縮在柵欄後面,
+   * 我方在外頭繞。戰鬥沒有尋路(只有貼著障礙滑),所以這種局面不會自己好,
+   * 在畫面上就是一群人站著發呆,而且永遠不結束。
+   *
+   * 這條測試用「誰都碰不到誰」的極端情形去逼它:所有人都被釘在原地。
+   */
+  it('誰也打不到誰的時候,這場架會自己散掉', () => {
+    beginBattle({
+      ours: [{ id: 'u0', name: 'a', war: 50 }, { id: 'u1', name: 'b', war: 50 }],
+      band: { id: 'b', x: 0, z: 60, fierce: 0.5, count: 2 },   // 隔得老遠
+      at: { x: 0, z: 0 }, ground: flat,
+      // 誰都動不了 —— 移動函式把所有人釘回原地
+      rng: seeded(4242),
+    });
+    const frozen = (x: number, z: number) => ({ x, z });
+    let over: BattleTally | null = null;
+    let t = 0;
+    while (!over && t < 200) {
+      stepBattle(1 / 30, flat, frozen);
+      t += 1 / 30;
+      over = battleOver();
+    }
+    expect(over, `兩百秒還沒打完 —— 這就是那個永遠不結束的局面`).not.toBeNull();
+    useBattle.getState().clear();
+  });
+});
