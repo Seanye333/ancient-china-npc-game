@@ -3,9 +3,10 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { terrainHeight, groundAt, slideMove, steerMove, viewBlocked } from './field';
 import { bodyGeom, headGeom, FIG_BODY_H } from './figure';
+import { setSightTarget } from './Vegetation';
 import { meanderAt } from './sites';
 import { useHero } from '../game/hero';
-import { playerPos, useInteract } from '../game/interact';
+import { playerPos, useInteract, warp } from '../game/interact';
 import { fighters, alive } from '../game/combat';
 
 /**
@@ -85,13 +86,23 @@ export function Player() {
   const tmp = useMemo(() => ({
     fwd: new THREE.Vector3(), right: new THREE.Vector3(),
     want: new THREE.Vector3(), camWant: new THREE.Vector3(),
-    look: new THREE.Vector3(),
+    look: new THREE.Vector3(), sight: new THREE.Vector3(),
   }), []);
 
   useFrame((_, dt) => {
     const k = keys.current;
     const m = me.current;
     const step = dt > 0.1 ? 0.1 : dt;      // 分頁切回來時別瞬移
+
+    // 被挪走了(目前只有打輸這一種)。鏡頭要當場跟上 ——
+    // 讓它慢慢 lerp 過去的話,玩家會被拖著飛過半張地圖,那不叫轉場,叫穿幫
+    let snapCam = false;
+    if (warp.pending) {
+      m.x = warp.x; m.z = warp.z; m.y = groundAt(m.x, m.z);
+      warp.pending = false;
+      goto.current = null;
+      snapCam = true;
+    }
 
     // 方向以鏡頭為準 —— 按前進就是往螢幕裡走,不是往世界的 +Z
     tmp.fwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
@@ -178,20 +189,30 @@ export function Player() {
     const baseHigh = foe ? FIGHT_HEIGHT : CAM_HEIGHT;
     const underCanopy = viewBlocked(m.x, m.z, m.y + 2.2);
 
-    const sightClear = (yaw: number, dist: number, lift: number) => {
+    /**
+     * 這個位置有多糟 —— 0 = 乾淨,數字越大擋得越多。
+     *
+     * 從前這裡回傳的是「清或不清」,於是全部都不清的時候(在林子裡打架就是
+     * 這樣)只能退到梯級的最後一階,也就是貼著後腦勺 —— 那是<b>所有壞位置裡
+     * 最壞的一個</b>。改成計分以後,退無可退時退到「擋得最少」的那個,
+     * 通常是站遠一點、隔著幾片會自己淡掉的葉子看過去。
+     */
+    const sightScore = (yaw: number, dist: number, lift: number) => {
       const cx = m.x - Math.sin(yaw) * dist;
       const cz = m.z - Math.cos(yaw) * dist;
       const camY = m.y + baseHigh + lift;
-      if (terrainHeight(cx, cz) >= camY - 0.8) return false;
+      // 埋進山裡是硬傷,和葉子不同級 —— 給一個大到蓋過一切的分數
+      if (terrainHeight(cx, cz) >= camY - 0.8) return 99;
+      let hit = 0;
       // 沿視線取樣,而不是只看端點 —— 只看端點鏡頭會從樹幹中間穿過去
       for (let t = 0.26; t <= 1.001; t += 0.12) {
         if (viewBlocked(
           m.x - Math.sin(yaw) * dist * t,
           m.z - Math.cos(yaw) * dist * t,
           m.y + 1.25 + (camY - m.y - 1.25) * t,
-        )) return false;
+        )) hit++;
       }
-      return true;
+      return hit;
     };
 
     // 繞的幅度收在 ±100° 內:WASD 是相對鏡頭的,轉太多會讓人分不清前後
@@ -200,17 +221,18 @@ export function Player() {
       ? [[1, 0], [0.78, 0], [0.58, 0.5], [0.42, 0.8], [0.3, 0.9]]
       : [[1, 0], [0.94, 0.9], [0.88, 1.8], [0.82, 2.7], [0.6, 3.4], [0.42, 3.4], [0.3, 3.4]];
 
-    let yaw = m.yaw, dist = baseDist * LADDER[LADDER.length - 1][0];
-    let lift = LADDER[LADDER.length - 1][1];
-    let found = false;
+    let yaw = m.yaw, dist = baseDist, lift = 0;
+    let best = Infinity;
     for (const [dk, lk] of LADDER) {
       for (const da of SWEEP) {
-        if (!sightClear(m.yaw + da, baseDist * dk, lk)) continue;
-        yaw = m.yaw + da; dist = baseDist * dk; lift = lk;
-        found = true;
-        break;
+        const score = sightScore(m.yaw + da, baseDist * dk, lk);
+        // 全清就用它 —— 梯級是照「越前面越好」排的,不必再比下去
+        if (score < best) {
+          best = score; yaw = m.yaw + da; dist = baseDist * dk; lift = lk;
+        }
+        if (best === 0) break;
       }
-      if (found) break;
+      if (best === 0) break;
     }
 
     const cx = m.x - Math.sin(yaw) * dist;
@@ -222,13 +244,21 @@ export function Player() {
       cz,
     );
     cam.dist = dist; cam.lift = lift; cam.yaw = yaw - m.yaw;
-    camera.position.lerp(tmp.camWant, 1 - Math.pow(0.0016, step));
+    if (snapCam) camera.position.copy(tmp.camWant);
+    else camera.position.lerp(tmp.camWant, 1 - Math.pow(0.0016, step));
     // 平滑是奢侈品,埋在牆裡不是:鏡頭真的插進東西裡就當場歸位,不要慢慢挪。
-    // (探測給的位置是清的,插進去只會是追不上的那幾幀。)
-    if (viewBlocked(camera.position.x, camera.position.z, camera.position.y)) {
+    // 但這只在<b>目標位置本身是乾淨的</b>時候才成立(best === 0)——
+    // 林子裡連目標位置都擋著,這時再每幀歸位就成了原地抽搐,
+    // 而近處的葉子已經會自己淡開,慢慢挪過去反而看得清楚。
+    if (best === 0 && viewBlocked(camera.position.x, camera.position.z, camera.position.y)) {
       camera.position.copy(tmp.camWant);
     }
     cam.buried = viewBlocked(camera.position.x, camera.position.z, camera.position.y);
+
+    // 告訴植被視線落在哪 —— 擋在這條線上的樹會自己讓開(見 Vegetation 的 setSightTarget)。
+    // 要先把鏡頭矩陣更新到位,否則餵過去的是上一幀的視空間
+    camera.updateMatrixWorld();
+    setSightTarget(tmp.sight.set(m.x, m.y + 1.15, m.z).applyMatrix4(camera.matrixWorldInverse));
     if (foe) {
       // 看向你和敵人之間偏你這一側 —— 完全取中會讓主角滑到畫面邊上
       tmp.look.set(m.x + (foe.x - m.x) * 0.32, m.y + 1.25, m.z + (foe.z - m.z) * 0.32);
