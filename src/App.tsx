@@ -44,6 +44,8 @@ import { originById } from './game/origin';
 import { updateAmbience, isMuted, audioReady } from './game/audio';
 import { useEnding } from './game/ending';
 import { findPath, navStats, navOpen } from './world/nav';
+import { water } from './world/field';
+import { useCalamity } from './game/calamity';
 import { lifeTally } from './game/daily';
 
 /**
@@ -162,6 +164,9 @@ function CamBridge() {
       x0: number, z0: number, x1: number, z1: number,
     ) => ({ path: findPath(x0, z0, x1, z1), stats: navStats() });
     (window as unknown as Record<string, unknown>).__navOpen = (x: number, z: number) => navOpen(x, z);
+    (window as unknown as Record<string, unknown>).__water = () => water.offset;
+    (window as unknown as Record<string, unknown>).__flood = () => useCalamity.getState()
+      .begin({ kind: 'flood', since: useClock.getState().day, daysLeft: 40 });
     (window as unknown as Record<string, unknown>).__audio = () => ({
       ready: audioReady(), muted: isMuted(),
     });

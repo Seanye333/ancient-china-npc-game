@@ -57,6 +57,19 @@ export function riverMask(x: number, z: number): number {
 
 export const WATER_Y = -0.85;
 
+/**
+ * 水位的偏移 —— 水患漲、大旱落。
+ *
+ * 這一項讓天災第一次<b>在腳下</b>成立:先前水患只是收成那一欄掉得快一些,
+ * 河面一動不動。現在河會漫上灘地,而漫過的地方是真的走不過去
+ * (walkable 吃的是同一個數)。
+ *
+ * 幅度刻意壓得很小(±0.4 步):再大就會淹到村子,把玩家困住 ——
+ * 天災該讓人難過,不該讓人動不了。
+ */
+export const water = { offset: 0 };
+export function waterLevel(): number { return WATER_Y + water.offset; }
+
 export function terrainHeight(x: number, z: number): number {
   const v = valleyMask(x, z);
   const ridges = fbm(x * 0.0068, z * 0.0068, 5);
@@ -118,7 +131,7 @@ export function walkable(x: number, z: number): boolean {
   if (blocked(x, z, 0.34)) return false;      // 樹幹擋人 — 身體半徑算進去
   if (deckAt(x, z) !== null) return true;     // 橋面、埠板:走上去就是了
   const h = terrainHeight(x, z);
-  if (h < WATER_Y - WADE_DEPTH) return false;
+  if (h < waterLevel() - WADE_DEPTH) return false;
   return slopeAt(x, z) < MAX_WALK_SLOPE;
 }
 

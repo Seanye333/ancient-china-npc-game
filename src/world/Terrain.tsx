@@ -1,6 +1,8 @@
 import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
-import { terrainHeight, slopeAt, riverMask, WATER_Y } from './field';
+import { useRef } from 'react';
+import { useFrame } from '@react-three/fiber';
+import { terrainHeight, slopeAt, riverMask, WATER_Y, water } from './field';
 import { SEASONS, paletteFor, useClock, type Season } from './worldTime';
 
 const SIZE = 520;
@@ -79,6 +81,14 @@ export function Terrain() {
 
 /** 水面 — 只在河心那條帶露出來,冬天結一層薄冰。 */
 export function River() {
+  // 水面跟著水位走 —— 漲落是慢的,所以插值也給得慢
+  const riverRef = useRef<THREE.Mesh>(null);
+  useFrame((_, dt) => {
+    const r = riverRef.current;
+    if (!r) return;
+    r.position.y += (WATER_Y + water.offset - r.position.y) * Math.min(1, dt * 0.6);
+  });
+
   const season = useClock((s) => s.season);
   const geom = useMemo(() => {
     const g = new THREE.PlaneGeometry(SIZE, SIZE, 140, 140);
@@ -94,7 +104,7 @@ export function River() {
 
   const frozen = season === 'winter';
   return (
-    <mesh geometry={geom} position={[0, WATER_Y, 0]} receiveShadow>
+    <mesh ref={riverRef} geometry={geom} position={[0, WATER_Y, 0]} receiveShadow>
       <meshStandardMaterial
         color={frozen ? '#8fa6ae' : '#3b5a67'}
         roughness={frozen ? 0.42 : 0.12}

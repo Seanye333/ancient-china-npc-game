@@ -282,8 +282,10 @@ export function Battle() {
             <mesh geometry={g.head} position={[0, FIG_BODY_H * 0.99, 0]} castShadow>
               <meshStandardMaterial vertexColors roughness={0.62} />
             </mesh>
+            {/* 掛在手上 —— 手的位置在 figure.ts 裡是 (0.92r, 0.32h, -0.12r),
+                先前刀擺在 0.44h,離手約一掌高,近看就看得出來 */}
             <group ref={(o) => { blades.current[f.id] = o; }}
-                   position={[FIG_HR * 0.95, FIG_BODY_H * 0.44, 0]}>
+                   position={[FIG_HR * 0.92, FIG_BODY_H * 0.32, -FIG_HR * 0.12]}>
               <mesh geometry={bladeGeom} castShadow>
                 <meshStandardMaterial color={f.side === 'foe' ? '#7d7a72' : '#9aa0a6'}
                                       roughness={0.42} metalness={0.55} />

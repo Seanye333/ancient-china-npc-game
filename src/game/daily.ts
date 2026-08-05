@@ -21,7 +21,8 @@ import {
 import { rankForMerit } from './hero';
 import { DAYS_PER_XUN, DAYS_PER_YEAR, partsFor } from './calendar';
 import { raidParties, useRaids, raidChance, raidSize, alreadyOut } from './raids';
-import { groundAt } from '../world/field';
+import { groundAt, water } from '../world/field';
+import { invalidateNav } from '../world/nav';
 import type { Season } from '../world/worldTime';
 
 /**
@@ -236,7 +237,19 @@ export function settleDay(day: number, season: Season): DayReport {
       journal.note(day, `${CALAMITY_LABEL[kind]}。${calamityWord(c)}`, 'bad');
     }
   }
+  /*
+   * 水位。水患漲,大旱落 —— 天災第一次在腳下成立,
+   * 而不只是收成那一欄掉得快一些。漲過的灘地是真的走不過去。
+   */
   const active = useCalamity.getState().active;
+  {
+    const want = active?.kind === 'flood' ? 0.4 : active?.kind === 'drought' ? -0.3 : 0;
+    if (Math.abs(water.offset - want) > 0.01) {
+      // 一天挪一點,不要一夜之間河就滿了
+      water.offset += Math.sign(want - water.offset) * Math.min(0.06, Math.abs(want - water.offset));
+      invalidateNav();      // 淹掉的灘地不能再當成走得過去
+    }
+  }
   if (active) {
     const bite = calamityBite(active.kind);
     const v = useVillage.getState();
