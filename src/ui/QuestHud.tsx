@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
-import { useQuest, wayWord } from '../game/quest';
+import { useQuest, wayWord, needWord } from '../game/quest';
 import { useBands, bandWord } from '../game/bands';
 import { useHero } from '../game/hero';
 import { playerPos, findPresence } from '../game/interact';
@@ -63,6 +63,15 @@ export function QuestHud() {
             {patron && ` · ${wayWord(playerPos.x, playerPos.z, patron.x, patron.z)}`}
           </span>
         </>
+      ) : taken.lostAt && taken.done < taken.need ? (
+        <>
+          <span style={{ fontSize: '.84rem', fontVariantNumeric: 'tabular-nums' }}>
+            {wayWord(playerPos.x, playerPos.z, taken.lostAt.x, taken.lostAt.z)}
+          </span>
+          <span style={{ fontSize: '.78rem', opacity: .66 }}>最後有人在那邊見著他</span>
+        </>
+      ) : taken.errand.kind !== 'bandits' ? (
+        <span style={{ fontSize: '.84rem' }}>{needWord(taken)}</span>
       ) : band && !band.routed ? (
         <>
           <span style={{ fontSize: '.84rem', fontVariantNumeric: 'tabular-nums' }}>

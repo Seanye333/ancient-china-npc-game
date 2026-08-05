@@ -23,6 +23,20 @@ export interface Taken {
   bandId: string | null;
   /** 事情辦妥了,但還沒回去說 —— 這中間那段路是這個系統的重點。 */
   cleared: boolean;
+  /**
+   * 辦到哪了 / 要辦多少。
+   *
+   * 每一種活都有自己的「怎樣才算辦完」,但都收斂成同一組數:
+   * 剿匪是打散那一夥、搶收是下幾趟田、護院是守幾個夜、尋人是找到人。
+   * 收斂成一組數,是為了讓進度條、覆命判斷、存檔<b>只有一套邏輯</b>;
+   * 各寫各的話,四種活就會有四種「快辦完了」的判斷,遲早對不上。
+   */
+  done: number;
+  need: number;
+  /** 尋人:那個人在哪。找到之前只知道大概方位。 */
+  lostAt?: { x: number; z: number };
+  /** 尋人:走丟的是誰。 */
+  lostId?: string;
 }
 
 interface QuestState {
@@ -30,6 +44,8 @@ interface QuestState {
   accept: (t: Taken) => void;
   /** 事情在世界上辦成了(例如那夥賊被打散了)。 */
   markCleared: () => void;
+  /** 往前推一步。推滿了自動算辦妥 —— 判斷只有一處。 */
+  advance: (n?: number) => void;
   /** 覆完命,或是自己退了這件活。 */
   drop: () => void;
 }
@@ -38,6 +54,11 @@ export const useQuest = create<QuestState>((set) => ({
   taken: null,
   accept: (t) => set({ taken: t }),
   markCleared: () => set((s) => (s.taken ? { taken: { ...s.taken, cleared: true } } : s)),
+  advance: (n = 1) => set((s) => {
+    if (!s.taken || s.taken.cleared) return s;
+    const done = s.taken.done + n;
+    return { taken: { ...s.taken, done, cleared: done >= s.taken.need } };
+  }),
   drop: () => set({ taken: null }),
 }));
 
@@ -72,4 +93,24 @@ export function wayWord(fromX: number, fromZ: number, toX: number, toZ: number):
   const dx = toX - fromX;
   const dz = toZ - fromZ;
   return `${bearing(dx, dz)} · 約 ${paces(dx, dz)} 步`;
+}
+
+/** 這件活要做什麼 —— 一句話,擺在 HUD 上。 */
+export function needWord(t: Taken): string {
+  switch (t.errand.kind) {
+    case 'bandits': return '打散那一夥';
+    case 'harvest': return `下田搶收 ${t.done}/${t.need} 趟`;
+    case 'guard': return `守夜 ${t.done}/${t.need} 宿`;
+    case 'search': return t.done >= t.need ? '把人帶回去' : '尋人';
+    case 'escort': return '押著貨走一趟';
+  }
+}
+
+/** 這種活要辦幾次才算完。 */
+export function needFor(kind: Taken['errand']['kind'], tier: number): number {
+  switch (kind) {
+    case 'harvest': return 2 + tier;
+    case 'guard': return 1 + Math.ceil(tier / 2);
+    default: return 1;
+  }
 }

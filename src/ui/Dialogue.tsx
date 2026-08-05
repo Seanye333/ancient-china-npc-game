@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { useInteract, playerPos } from '../game/interact';
 import { useBands, bandWord } from '../game/bands';
-import { useQuest, wayWord } from '../game/quest';
+import { useQuest, wayWord, needFor } from '../game/quest';
+import { lostSpot } from '../game/places';
 import { makeVillagers, smallTalk, addressYou, TRADE_LABEL, TEMPER_LABEL } from '../game/npcs';
 import { kinWord } from '../game/kin';
 import { deltaOf, isSick, spreadRumor } from '../game/folk';
@@ -100,13 +101,25 @@ export function Dialogue() {
    * 成敗留給你的腿和你的刀,不留給 Math.random。
    */
   const walkOut = (e: Errand) => {
-    if (!npc || !target) return;
+    if (!npc) return;
+    // 尋人:那個人真的在世界上某個地方,不是一個判定
+    const lost = e.kind === 'search' ? lostSpot(e.id) : null;
     quest.accept({
-      errand: e, patronName: npc.name, bandId: target.id, cleared: false,
+      errand: e, patronName: npc.name, bandId: target?.id ?? null, cleared: false,
+      done: 0, need: needFor(e.kind, e.tier),
+      ...(lost ? { lostAt: { x: lost.x, z: lost.z }, lostId: lost.whoId } : {}),
     });
     setShown(null);
-    setLine(`${target.name}就在${wayWord(playerPos.x, playerPos.z, target.x, target.z)}。`
-      + `${e.wantMen > men ? '你這點人手⋯⋯多喊幾個一道去罷。' : '早去早回。'}`);
+    if (target) {
+      setLine(`${target.name}就在${wayWord(playerPos.x, playerPos.z, target.x, target.z)}。`
+        + `${e.wantMen > men ? '你這點人手⋯⋯多喊幾個一道去罷。' : '早去早回。'}`);
+    } else if (lost) {
+      setLine(`聽人說最後是在${wayWord(playerPos.x, playerPos.z, lost.x, lost.z)}那邊見著的。`);
+    } else if (e.kind === 'harvest') {
+      setLine('那就有勞了。田頭見 —— 多下幾趟,趕在雨前收完。');
+    } else {
+      setLine('這幾夜就偏勞你了。天黑以後別走遠。');
+    }
   };
 
   /** 覆命。事情已經在世界上辦完了,這裡只發該發的。 */
@@ -204,10 +217,14 @@ export function Dialogue() {
             剿匪已經不擲骰了,再擺一條就是騙人 —— 你的勝算是你帶了幾個人、
             走過去的時候他們還剩幾個、以及你的手。
           */}
-          {shown.bandId ? (
+          {shown.kind !== 'escort' ? (
             <div style={{ fontSize: '.78rem', opacity: .72, lineHeight: 1.7 }}>
-              {target ? `${target.name} · ${bandWord(target)} · ${wayWord(playerPos.x, playerPos.z, target.x, target.z)}` : ''}
-              <br />這一趟得自己走過去。成不成,看你帶了幾個人。
+              {target
+                ? `${target.name} · ${bandWord(target)} · ${wayWord(playerPos.x, playerPos.z, target.x, target.z)}`
+                : shown.kind === 'harvest' ? `要下 ${needFor(shown.kind, shown.tier)} 趟田`
+                  : shown.kind === 'guard' ? `要守 ${needFor(shown.kind, shown.tier)} 個夜`
+                    : '得自己去找'}
+              <br />這一趟得自己走一遭。沒有人替你擲骰子。
             </div>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
@@ -228,7 +245,7 @@ export function Dialogue() {
         {!shown && mine && quest.taken!.cleared && (
           <button style={{ ...btn, borderColor: '#7fb08a', color: '#a8d4b4' }}
                   onClick={reportBack}>
-            回來覆命
+            {quest.taken!.lostId ? '把人帶回來了' : '回來覆命'}
           </button>
         )}
         {!shown && mine && !quest.taken!.cleared && (
@@ -244,13 +261,13 @@ export function Dialogue() {
         {!shown && (
           <button style={btn} onClick={() => setLine(smallTalk(npc, ctx))}>再說兩句</button>
         )}
-        {!shown && errand && !(errand.bandId && quest.taken) && (
+        {!shown && errand && !(errand.kind !== 'escort' && quest.taken) && (
           <button style={{ ...btn, borderColor: '#c8a45a', color: '#f0d9a0' }}
                   onClick={() => { setShown(errand); setLine(null); }}>
             有事要辦?
           </button>
         )}
-        {!shown && errand?.bandId && quest.taken && !mine && (
+        {!shown && errand && errand.kind !== 'escort' && quest.taken && !mine && (
           <span style={{ ...btn, cursor: 'default', opacity: .5, borderStyle: 'dashed' }}>
             手上還有{quest.taken.patronName}託的事
           </span>
@@ -306,7 +323,7 @@ export function Dialogue() {
         {shown && (
           <>
             <button style={{ ...btn, borderColor: '#c8a45a', color: '#f0d9a0' }}
-                    onClick={() => (shown.bandId ? walkOut(shown) : takeIt(shown))}>
+                    onClick={() => (shown.kind === 'escort' ? takeIt(shown) : walkOut(shown))}>
               我去
             </button>
             <button style={btn} onClick={() => { setShown(null); setLine('改日再說罷。'); }}>

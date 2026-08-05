@@ -7,6 +7,9 @@ import {
   useFolk, deltaOf, livingVillagers, sickChance, deathChance, stepRumors, spreadRumor,
 } from './folk';
 import { relatives } from './kin';
+import { useQuest } from './quest';
+import { playerPos } from './interact';
+import { MARKET } from '../world/sites';
 import { DAYS_PER_SHI, mouths, RENT_PER_XUN, LODGING_LABEL } from './economy';
 import { DAYS_PER_XUN, DAYS_PER_YEAR, partsFor } from './calendar';
 import { raidParties, useRaids, raidChance, raidSize, alreadyOut } from './raids';
@@ -172,6 +175,26 @@ export function settleDay(day: number, season: Season): DayReport {
     });
     useRaids.getState().bump();
     journal.note(day, `${b.name}的人出了窩,往村子這邊來了。`, 'bad');
+  }
+
+  /*
+   * 護院:昨夜你在不在村裡。
+   *
+   * 判斷放在天亮結算這裡,而不是做一套「守夜」的介面 ——
+   * 護院本來就不是一個動作,是<b>一整夜待在該待的地方</b>。
+   * 你在村裡過夜,這一宿就算數;你跑去剿匪,今夜就沒守成。
+   */
+  const q = useQuest.getState();
+  if (q.taken && !q.taken.cleared && q.taken.errand.kind === 'guard') {
+    const inVillage = Math.hypot(playerPos.x - MARKET[0], playerPos.z - MARKET[1]) < 46;
+    if (inVillage) {
+      q.advance();
+      const t = useQuest.getState().taken;
+      journal.note(day, t?.cleared ? '守了一夜。這幾宿平安 —— 可以去回話了。'
+        : `守了一夜。（${t?.done}/${t?.need}）`);
+    } else {
+      journal.note(day, '昨夜你不在村裡。託你護院的人一夜沒合眼。', 'bad');
+    }
   }
 
   /* 旬首報一次日子,讓玩家對得上曆法 */

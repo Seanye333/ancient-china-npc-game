@@ -11,6 +11,7 @@ import {
   RENT_PER_XUN, HOUSE_PRICE, LODGING_LABEL, DAYS_PER_SHI,
 } from '../game/economy';
 import { grainDays } from '../game/daily';
+import { useQuest } from '../game/quest';
 import { DAYS_PER_XUN, shichenWord } from '../game/calendar';
 
 /**
@@ -41,6 +42,7 @@ export function PlacePanel() {
   const season = useClock((s) => s.season);
   const advance = useClock((s) => s.advance);
   const note = useJournal((s) => s.note);
+  const quest = useQuest();
   const [line, setLine] = useState<string | null>(null);
   const [qty, setQty] = useState(1);
 
@@ -138,7 +140,14 @@ export function PlacePanel() {
                   hero.addGold(j.pay);
                   hero.addToil(j.toil);
                   advance(j.hours);
-                  setLine(`做了${j.hours}個時辰,得 ${j.pay} 錢。`);
+                  // 手上接的是搶收,而你正在田裡 —— 這一趟就算進去。
+                  // 差事不是另一套動作,是<b>你本來就在做的事恰好是他託你的事</b>
+                  const t = quest.taken;
+                  const counts = t && !t.cleared
+                    && t.errand.kind === 'harvest' && j.kind === 'field';
+                  if (counts) quest.advance();
+                  setLine(`做了${j.hours}個時辰,得 ${j.pay} 錢。`
+                    + (counts ? `（搶收 ${Math.min(t!.done + 1, t!.need)}/${t!.need}）` : ''));
                   note(day, `${j.label} · 得 ${j.pay} 錢`);
                 }}
               >

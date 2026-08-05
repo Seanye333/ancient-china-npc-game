@@ -132,7 +132,7 @@ describe('手上一次只有一件活', () => {
 
   const taken = (bandId: string) => ({
     errand: { id: 'e', kind: 'bandits' as const, patronId: 'n1', tier: 2, wantMen: 3, pay: 40, bandId },
-    patronName: '王安', bandId, cleared: false,
+    patronName: '王安', bandId, cleared: false, done: 0, need: 1,
   });
 
   it('接了以後才有得覆命,覆完就空了', () => {

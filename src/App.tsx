@@ -18,6 +18,7 @@ import { Interaction } from './world/Interaction';
 import { Followers } from './world/Followers';
 import { Camps } from './world/Camps';
 import { Raiders } from './world/Raiders';
+import { LostPerson } from './world/LostPerson';
 import { Battle } from './world/Battle';
 import { Dialogue } from './ui/Dialogue';
 import { BattleHud } from './ui/BattleHud';
@@ -393,6 +394,7 @@ export default function App() {
           <Player />
           <Camps />
           <Raiders />
+          <LostPerson />
           <Followers />
           <Battle />
           <Interaction />

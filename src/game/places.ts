@@ -1,5 +1,5 @@
 import { MARKET, DOCKS, fieldSites, houseSites, meanderAt } from '../world/sites';
-import { terrainHeight } from '../world/field';
+import { terrainHeight, rng } from '../world/field';
 import type { JobKind } from './economy';
 
 /**
@@ -90,4 +90,30 @@ export function placeAt(x: number, z: number): Place | null {
 
 export function placeById(id: string): Place | undefined {
   return places().find((p) => p.id === id);
+}
+
+/**
+ * 走丟的人在哪。
+ *
+ * 從差事的 id 推導,所以<b>同一件差事的人永遠在同一個地方</b> ——
+ * 玩家問了兩次得到同一個方位,那個方位才可信。
+ * 位置挑在村外但走得到的地方:太近沒有找的感覺,太遠會變成折磨。
+ */
+export function lostSpot(errandId: string): { x: number; z: number; whoId: string } {
+  let h = 2166136261;
+  for (let i = 0; i < errandId.length; i++) {
+    h ^= errandId.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const rand = rng(h >>> 0);
+  const fields = fieldSites();
+  // 從田裡挑一塊當「最後有人見到他的地方」—— 田本來就在村外,而且一定走得到
+  const f = fields[Math.floor(rand() * fields.length) % fields.length];
+  const ang = rand() * Math.PI * 2;
+  const off = 10 + rand() * 14;
+  return {
+    x: f.x + Math.sin(ang) * off,
+    z: f.z + Math.cos(ang) * off,
+    whoId: `lost-${(h % 97).toString(36)}`,
+  };
 }
