@@ -50,6 +50,8 @@ export function Interaction() {
   useEffect(() => {
     const w = window as unknown as Record<string, unknown>;
     w.__near = () => useInteract.getState().nearbyId;
+    // 直接開口 —— 驗收腳本要點對話裡的按鈕,不必先走三十步過去追人
+    w.__talkTo = (id: string) => { useInteract.getState().open(id); };
     // 診斷用:玩家在哪、最近的人多遠 —— 找不到人的時候得知道是誰的問題
     // 走向指定的人 —— 診斷用,也是將來「地圖上點某人」的雛形
     w.__walkToNpc = (id: string) => {
