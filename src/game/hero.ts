@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { Lodging } from './economy';
 
 /**
  * 主角 — 這個遊戲的狀態以<b>一個人</b>為中心,不是以勢力為中心。
@@ -72,7 +73,20 @@ interface HeroState {
   stats: Stats;
   merit: number;
   gold: number;
-  food: number;
+  /**
+   * 手上的糧,以石計。<b>你帶的人也吃這一堆</b> ——
+   * 招人不是白撿的戰力,每多一個名字冬天就早來一天。
+   */
+  grain: number;
+  /** 有沒有片瓦遮頭。睡得好不好、東西會不會被摸走,都看它。 */
+  lodging: Lodging;
+  /** 租金付到第幾天為止。到期沒錢就被趕出去。 */
+  rentPaidThrough: number;
+  /**
+   * 累。做工、趕路、打架都會攢,睡一覺才消。
+   * 有這個東西,「一天只有那麼長」才不只是時鐘上的數字。
+   */
+  toil: number;
   /**
    * 無名的鄉勇人數。差事算人手時和 followers 合計。
    */
@@ -93,6 +107,11 @@ interface HeroState {
 
   addMerit: (n: number) => void;
   addGold: (n: number) => void;
+  /** 付錢。錢不夠就<b>什麼都不做並回報 false</b> —— 別讓餘額變成負數。 */
+  spend: (n: number) => boolean;
+  addGrain: (n: number) => void;
+  setLodging: (l: Lodging, paidThrough?: number) => void;
+  addToil: (n: number) => void;
   addRetinue: (n: number) => { taken: number; turnedAway: number };
   addFavor: (who: string, n: number) => void;
   /** 招他同行。人頭超過品階上限會拒絕。 */
@@ -109,7 +128,10 @@ export const useHero = create<HeroState>((set, get) => ({
   stats: { war: 58, leadership: 52, intelligence: 46, politics: 40, charisma: 55 },
   merit: 0,
   gold: 30,
-  food: 20,
+  grain: 2,
+  lodging: 'none',
+  rentPaidThrough: 0,
+  toil: 0,
   retinue: 0,
   followers: [],
   renown: 0,
@@ -118,6 +140,18 @@ export const useHero = create<HeroState>((set, get) => ({
 
   addMerit: (n) => set((s) => ({ merit: Math.max(0, s.merit + n) })),
   addGold: (n) => set((s) => ({ gold: Math.max(0, s.gold + n) })),
+  spend: (n) => {
+    if (get().gold < n) return false;
+    set((s) => ({ gold: s.gold - n }));
+    return true;
+  },
+  // 不在這裡四捨五入:一天吃掉三十分之一石,每天捨一次的誤差會一路累積下去。
+  // 要好看是顯示端的事(UI 一律 toFixed(1))
+  addGrain: (n) => set((s) => ({ grain: Math.max(0, s.grain + n) })),
+  setLodging: (lodging, paidThrough) => set((s) => ({
+    lodging, rentPaidThrough: paidThrough ?? s.rentPaidThrough,
+  })),
+  addToil: (n) => set((s) => ({ toil: Math.max(0, Math.min(12, s.toil + n)) })),
 
   /**
    * 收人。<b>收不下的要回報出去</b> —— 升品的動機該來自「人來了卻收不下」,

@@ -8,6 +8,7 @@ import {
   useInteract, TALK_RANGE, type Presence,
 } from '../game/interact';
 import { makeVillagers } from '../game/npcs';
+import { placeAt, placeById } from '../game/places';
 import { FIG_BODY_H } from './figure';
 
 /**
@@ -19,10 +20,15 @@ import { FIG_BODY_H } from './figure';
  * 偵測刻意<b>每 0.15 秒才跑一次</b>而不是每幀:三十幾個人的距離比較很便宜,
  * 但它會 set 到 store,每幀 set 就是每幀重繪整棵樹。
  */
+const PLACE_VERB: Record<string, string> = {
+  market: '糴糶', work: '做活', home: '歇息', tavern: '進去',
+};
+
 export function Interaction() {
   const setNearby = useInteract((s) => s.setNearby);
   const nearbyId = useInteract((s) => s.nearbyId);
   const talkingTo = useInteract((s) => s.talkingTo);
+  const nearPlace = useInteract((s) => s.nearPlace);
   const open = useInteract((s) => s.open);
 
   const villagers = useMemo(() => makeVillagers(38), []);
@@ -34,13 +40,21 @@ export function Interaction() {
   const acc = useRef(0);
   const markRef = useRef<THREE.Group>(null);
 
-  // E 搭話 — 綁在 window 上,因為 canvas 本身不吃鍵盤焦點
+  /**
+   * E 搭話、F 用場所 —— <b>兩顆鍵,不是一顆</b>。
+   *
+   * 第一版讓 E 兼管兩者,人優先於地方。看起來省事,實際上把市集和碼頭
+   * 變成了進不去的地方:那兩處本來就整天站著人 —— 販子在市集、船工在碼頭。
+   * 「人優先」等於「你永遠只能跟他們說話,永遠糴不到米」。
+   *
+   * 同一個位置上兩件事都成立的時候,不該由程式替玩家猜哪一件。
+   */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.code !== 'KeyE') return;
-      const { nearbyId: near, talkingTo: busy } = useInteract.getState();
-      if (busy || !near) return;
-      open(near);
+      const st = useInteract.getState();
+      if (st.talkingTo || st.atPlace) return;
+      if (e.code === 'KeyE' && st.nearbyId) open(st.nearbyId);
+      if (e.code === 'KeyF' && st.nearPlace) st.openPlace(st.nearPlace);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -111,6 +125,8 @@ export function Interaction() {
         }
       }
       setNearby(best ? best.id : null);
+      const here = placeAt(playerPos.x, playerPos.z);
+      useInteract.getState().setNearPlace(here ? here.id : null);
     }
     // 標記跟著人走 —— 對方在動,標籤黏在頭上而不是釘在地上
     if (markRef.current && nearbyId) {
@@ -119,23 +135,44 @@ export function Interaction() {
     }
   });
 
-  if (!nearbyId || talkingTo) return null;
-  const npc = byId[nearbyId];
-  if (!npc) return null;
+  if (talkingTo) return null;
 
+  const here = nearPlace ? placeById(nearPlace) : null;
+  const npc = nearbyId ? byId[nearbyId] : null;
+
+  // 兩塊牌子可以同時掛著 —— 站在市集上跟販子說話,和糴米,是兩件事
   return (
-    <group ref={markRef}>
-      <Billboard>
-        <Text fontSize={0.26} color="#f4ead6" outlineWidth={0.018} outlineColor="#12100c"
-          anchorX="center" anchorY="bottom">
-          {npc.name}
-        </Text>
-        <Text position={[0, -0.30, 0]} fontSize={0.17} color="#c8a45a"
-          outlineWidth={0.014} outlineColor="#12100c"
-          anchorX="center" anchorY="bottom">
-          E · 搭話
-        </Text>
-      </Billboard>
-    </group>
+    <>
+      {here && (
+        <group position={[here.x, here.y + 1.9, here.z]}>
+          <Billboard>
+            <Text fontSize={0.28} color="#f4ead6" outlineWidth={0.018} outlineColor="#12100c"
+              anchorX="center" anchorY="bottom">
+              {here.label}
+            </Text>
+            <Text position={[0, -0.32, 0]} fontSize={0.17} color="#c8a45a"
+              outlineWidth={0.014} outlineColor="#12100c"
+              anchorX="center" anchorY="bottom">
+              F · {PLACE_VERB[here.kind]}
+            </Text>
+          </Billboard>
+        </group>
+      )}
+      {npc && (
+        <group ref={markRef}>
+          <Billboard>
+            <Text fontSize={0.26} color="#f4ead6" outlineWidth={0.018} outlineColor="#12100c"
+              anchorX="center" anchorY="bottom">
+              {npc.name}
+            </Text>
+            <Text position={[0, -0.30, 0]} fontSize={0.17} color="#c8a45a"
+              outlineWidth={0.014} outlineColor="#12100c"
+              anchorX="center" anchorY="bottom">
+              E · 搭話
+            </Text>
+          </Billboard>
+        </group>
+      )}
+    </>
   );
 }

@@ -57,17 +57,33 @@ interface InteractState {
   nearbyId: string | null;
   /** 正在對話的人。 */
   talkingTo: string | null;
+  /**
+   * 腳下這塊地方(市集、碼頭、落腳處⋯⋯)。
+   * 和「附近的人」分兩個欄位,因為兩者可以同時成立 —— 市集上站著人。
+   * 誰近誰響應 E,由 Interaction 決定;這裡只記狀態。
+   */
+  nearPlace: string | null;
+  /** 正在使用的場所。 */
+  atPlace: string | null;
   setNearby: (id: string | null) => void;
+  setNearPlace: (id: string | null) => void;
   open: (id: string) => void;
   close: () => void;
+  openPlace: (id: string) => void;
+  closePlace: () => void;
 }
 
 export const useInteract = create<InteractState>((set) => ({
   nearbyId: null,
   talkingTo: null,
+  nearPlace: null,
+  atPlace: null,
   setNearby: (id) => set((s) => (s.nearbyId === id ? s : { nearbyId: id })),
+  setNearPlace: (id) => set((s) => (s.nearPlace === id ? s : { nearPlace: id })),
   open: (id) => set({ talkingTo: id }),
   close: () => set({ talkingTo: null }),
+  openPlace: (id) => set({ atPlace: id }),
+  closePlace: () => set({ atPlace: null }),
 }));
 
 /** 搭話的距離。太遠會變成隔空喊話,太近又得貼著人走。 */

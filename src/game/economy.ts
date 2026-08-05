@@ -1,0 +1,146 @@
+import type { VillageState } from './village';
+import type { Season } from '../world/worldTime';
+
+/**
+ * 生計 —— 這個遊戲第一次讓錢有地方去。
+ *
+ * 在這之前 `gold` 只有加沒有減:差事給你錢,錢變成一個越來越大的數字,
+ * 然後就沒有然後了。沒有出口的收入不是收入,是計分板 ——
+ * 而這個遊戲不該有計分板,它該有<b>過冬</b>。
+ *
+ * 三條規矩:
+ *
+ * 一、<b>糧按人頭吃</b>。你帶的人也要吃飯。招人不再是白撿的戰力,
+ *     每多一個名字,冬天就早來一天 —— 招募那條線的代價從這裡才算真的成立。
+ * 二、<b>米價是活的</b>。收成好就便宜,商路斷就貴(village.ts 早就在算了,
+ *     只是先前沒人買得到)。所以買糧的時機本身是一個決定。
+ * 三、<b>做工按時辰給錢</b>,而且要花掉你的時辰。一天只有那麼長,
+ *     去碼頭扛一天包就沒法去剿匪 —— 這才是白身真正的難處。
+ */
+
+/** 一石米夠一個人吃幾天。漢代口糧約每月一石半,取整成一石三十日。 */
+export const DAYS_PER_SHI = 30;
+
+/** 你和你帶的人今天要吃掉幾天份的口糧。 */
+export function mouths(followers: number, retinue: number): number {
+  return 1 + followers + retinue;
+}
+
+/**
+ * 買糧要花多少錢。
+ *
+ * 零買比躉買貴 —— 一次只買一石的人付的是零售價。這條讓「攢一筆錢一次買足」
+ * 成為一個真的划算的決定,而不是無所謂的介面操作。
+ */
+export function grainCost(village: VillageState, shi: number): number {
+  const bulk = shi >= 10 ? 0.88 : shi >= 4 ? 0.95 : 1;
+  return Math.max(1, Math.round(village.grainPrice * shi * bulk));
+}
+
+/** 賣糧只賣得到八成 —— 糧行不做慈善。 */
+export function grainSale(village: VillageState, shi: number): number {
+  return Math.max(0, Math.round(village.grainPrice * shi * 0.78));
+}
+
+/* ── 短工 ──────────────────────────────────────────── */
+
+export type JobKind = 'field' | 'dock' | 'market' | 'wood';
+
+export interface DayJob {
+  kind: JobKind;
+  label: string;
+  /** 做一趟花幾個時辰(小時)。 */
+  hours: number;
+  /** 這一趟給幾錢。 */
+  pay: number;
+  /** 做這個累不累 —— 影響能不能接著再做一趟。 */
+  toil: number;
+  /** 為什麼今天沒這個活可做。 */
+  closed?: string;
+}
+
+const JOB_BASE: Record<JobKind, { label: string; hours: number; pay: number; toil: number }> = {
+  field: { label: '下田幫工', hours: 5, pay: 9, toil: 3 },
+  dock: { label: '碼頭扛包', hours: 4, pay: 11, toil: 4 },
+  market: { label: '市集跑腿', hours: 3, pay: 6, toil: 1 },
+  wood: { label: '上山砍柴', hours: 5, pay: 8, toil: 3 },
+};
+
+/**
+ * 今天有什麼活可做。
+ *
+ * 活跟著季節與村況走:農忙時田裡搶人、商路斷了碼頭就沒船。
+ * 這樣「什麼時候該去做工」本身就是玩家要讀懂的東西,
+ * 而不是一張永遠一樣的選單。
+ */
+export function jobsToday(village: VillageState, season: Season, hour: number): DayJob[] {
+  const out: DayJob[] = [];
+  const late = hour > 15.5;
+
+  // 農忙加價,冬天田裡沒事
+  const farmRush = season === 'spring' || season === 'autumn';
+  out.push(job('field', {
+    mul: farmRush ? 1.45 : 1,
+    closed: season === 'winter' ? '田裡入冬了,沒活。'
+      : late ? '這時候下田,天要黑了。' : undefined,
+  }));
+
+  // 碼頭吃商路
+  out.push(job('dock', {
+    mul: 0.7 + village.trade / 100,
+    closed: village.trade < 22 ? '商路斷了,碼頭空著。'
+      : late ? '今日的船都卸完了。' : undefined,
+  }));
+
+  out.push(job('market', {
+    mul: 0.8 + village.trade / 140,
+    closed: hour < 7 ? '市集還沒開。' : hour > 17 ? '市散了。' : undefined,
+  }));
+
+  // 砍柴不看人臉色,但冬天柴貴
+  out.push(job('wood', {
+    mul: season === 'winter' ? 1.5 : 1,
+    closed: late ? '這時候上山,回來就摸黑了。' : undefined,
+  }));
+
+  return out;
+}
+
+function job(kind: JobKind, o: { mul: number; closed?: string }): DayJob {
+  const b = JOB_BASE[kind];
+  return {
+    kind, label: b.label, hours: b.hours, toil: b.toil,
+    pay: Math.max(1, Math.round(b.pay * o.mul)),
+    closed: o.closed,
+  };
+}
+
+/* ── 住處 ──────────────────────────────────────────── */
+
+export type Lodging = 'none' | 'shed' | 'rented' | 'owned';
+
+export const LODGING_LABEL: Record<Lodging, string> = {
+  none: '無處落腳',
+  shed: '借住柴房',
+  rented: '賃了一間',
+  owned: '自己的屋',
+};
+
+/** 賃屋一旬的租金。買屋要一次拿出這麼多。 */
+export const RENT_PER_XUN = 26;
+export const HOUSE_PRICE = 620;
+
+/**
+ * 睡一覺回幾分。
+ *
+ * 露宿當然也能睡,只是睡不好、還可能被摸走東西 ——
+ * 「有沒有片瓦」這件事要在身上感覺得到,不能只是一行狀態文字。
+ */
+export function restQuality(l: Lodging): { healChance: number; risk: number } {
+  switch (l) {
+    case 'owned': return { healChance: 1, risk: 0 };
+    case 'rented': return { healChance: 0.9, risk: 0.02 };
+    case 'shed': return { healChance: 0.7, risk: 0.06 };
+    default: return { healChance: 0.35, risk: 0.18 };
+  }
+}
