@@ -5,6 +5,7 @@ import { useHero } from '../game/hero';
 import { useClock } from '../world/worldTime';
 import { useJournal } from '../game/journal';
 import { hasSave, loadGame, savedAt } from '../game/save';
+import { startAudio } from '../game/audio';
 
 /**
  * 開場。
@@ -22,6 +23,8 @@ export function Title({ onStart }: { onStart: () => void }) {
   const saved = useMemo(() => savedAt(), []);
 
   const begin = (o: Origin, who: string) => {
+    // 瀏覽器不准沒有互動就出聲 —— 這一下點擊正好是使用者的第一個手勢
+    startAudio();
     useHero.setState({
       name: who || randomName(Math.random),
       hometown: o.hometown,
@@ -121,7 +124,10 @@ export function Title({ onStart }: { onStart: () => void }) {
           </button>
           {hasSave() && (
             <button
-              onClick={() => { if (loadGame()) { useClock.setState({ auto: true }); onStart(); } }}
+              onClick={() => {
+                startAudio();
+                if (loadGame()) { useClock.setState({ auto: true }); onStart(); }
+              }}
               style={{
                 padding: '.6rem 1.2rem', cursor: 'pointer',
                 background: 'rgba(255,255,255,.07)', color: '#e6e2d8',

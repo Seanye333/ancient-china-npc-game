@@ -43,6 +43,7 @@ import { placeById } from './game/places';
 import { useJournal } from './game/journal';
 import { renownWord } from './game/folk';
 import { originById } from './game/origin';
+import { updateAmbience, setMuted, isMuted, audioReady } from './game/audio';
 
 /**
  * 隨時間變的一切 — 太陽、天空、霧、曝光,全部從 skyFor() 拿同一份參數。
@@ -89,6 +90,15 @@ function TimedScene() {
   const { gl, scene } = useThree();
 
   useFrame((_, dt) => tick(dt));
+
+  // 環境音跟著時辰與天氣走 —— 一秒更新一次就夠,它本來就是慢慢淡的
+  const amb = useRef(0);
+  useFrame((_, dt) => {
+    amb.current += dt;
+    if (amb.current < 1) return;
+    amb.current = 0;
+    updateAmbience({ hour: useClock.getState().hour, weather: useClock.getState().weather });
+  });
 
   useEffect(() => {
     gl.toneMappingExposure = sky.exposure;
@@ -145,6 +155,9 @@ function CamBridge() {
     };
     // 驗收腳本要問時間、存讀檔、走到某個場所 —— 都是原型階段的把手
     (window as unknown as Record<string, unknown>).__clock = () => useClock.getState();
+    (window as unknown as Record<string, unknown>).__audio = () => ({
+      ready: audioReady(), muted: isMuted(),
+    });
     (window as unknown as Record<string, unknown>).__villageState = () => useVillage.getState();
     (window as unknown as Record<string, unknown>).__save = () => saveGame();
     (window as unknown as Record<string, unknown>).__load = () => loadGame();
@@ -263,6 +276,10 @@ function Hud() {
         <button style={{ ...btn(false), padding: '.3rem .5rem' }}
           onClick={() => { wipeSave(); setSaved('清了'); }}>
           清
+        </button>
+        <button style={{ ...btn(false), padding: '.3rem .5rem' }}
+          onClick={() => { setMuted(!isMuted()); setSaved(isMuted() ? '靜音' : '有聲'); }}>
+          {audioReady() && !isMuted() ? '♪' : '×'}
         </button>
       </div>
       <div style={{

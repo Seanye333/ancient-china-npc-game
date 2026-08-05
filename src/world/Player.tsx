@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { terrainHeight, groundAt, slideMove, steerMove, viewBlocked } from './field';
 import { bodyGeom, headGeom, FIG_BODY_H } from './figure';
 import { setSightTarget } from './Vegetation';
+import { stepSound } from '../game/audio';
 import { meanderAt } from './sites';
 import { useHero } from '../game/hero';
 import { playerPos, useInteract, warp } from '../game/interact';
@@ -145,7 +146,12 @@ export function Player() {
         m.yaw = Math.atan2(tmp.want.x, tmp.want.z);
       }
       m.y = groundAt(m.x, m.z);
+      const before = m.step;
       m.step += speed * step * 3.1;
+      // 一步一聲 —— 掛在步幅相位上,所以跑起來自然就密
+      if (Math.floor(before / Math.PI) !== Math.floor(m.step / Math.PI)) {
+        stepSound(speed === RUN);
+      }
     }
 
     // 共享座標給互動偵測 — 走模組級可變引用,不進 zustand(每幀 set 會全樹重繪)

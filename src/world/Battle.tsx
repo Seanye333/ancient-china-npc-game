@@ -10,6 +10,7 @@ import { useBands } from '../game/bands';
 import { raidParties, useRaids } from '../game/raids';
 import { useQuest } from '../game/quest';
 import { useClock } from './worldTime';
+import { swingSound, hitSound, hurtSound } from '../game/audio';
 import { makeVillagers, might } from '../game/npcs';
 import {
   fighters, beginBattle, stepBattle, battleOver, playerStrike, useBattle,
@@ -85,6 +86,7 @@ export function Battle() {
 
   /** 這一場打的是「下山的那一夥」嗎 —— 收場的結算不一樣:窩還在,只是人少了。 */
   const engagedRaid = useRef<{ partyId: string; bandId: string; name: string } | null>(null);
+  const lastHurt = useRef(-1);
   const groups = useRef<Record<string, THREE.Group | null>>({});
   const blades = useRef<Record<string, THREE.Group | null>>({});
   const bodies = useRef<Record<string, THREE.Mesh | null>>({});
@@ -94,7 +96,7 @@ export function Battle() {
     const onKey = (e: KeyboardEvent) => {
       if (e.code !== 'Space') return;
       e.preventDefault();
-      playerStrike('you');
+      if (playerStrike('you')) swingSound();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -206,6 +208,13 @@ export function Battle() {
   // 每幀把算好的位置搬到 three 的物件上
   useFrame(({ clock }) => {
     const t = clock.elapsedTime;
+    // 誰在這一幀挨了打 —— hurtAt 是現成的,不必另外開一條事件線
+    for (const f of fighters) {
+      if (t - f.hurtAt < 0.05 && f.hurtAt > lastHurt.current) {
+        lastHurt.current = f.hurtAt;
+        if (f.isPlayer) hurtSound(); else hitSound();
+      }
+    }
     for (const f of fighters) {
       const g = groups.current[f.id];
       if (!g) continue;
