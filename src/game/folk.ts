@@ -70,6 +70,7 @@ export function livingVillagers(): Npc[] {
     });
 }
 
+/** 死了沒。畫面上是用 deltas 直接判的,這個給測試釘規格用。 */
 export function isDead(id: string): boolean {
   return !!useFolk.getState().deltas[id]?.dead;
 }

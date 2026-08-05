@@ -4,7 +4,11 @@ import { useInteract, playerPos } from '../game/interact';
 import { useBands, bandWord } from '../game/bands';
 import { useQuest, wayWord, needFor } from '../game/quest';
 import { lostSpot } from '../game/places';
-import { makeVillagers, smallTalk, addressYou, TRADE_LABEL, TEMPER_LABEL } from '../game/npcs';
+import {
+  makeVillagers, smallTalk, addressYou, mightWord, TRADE_LABEL, TEMPER_LABEL,
+} from '../game/npcs';
+import { useCalamity, CALAMITY_LABEL } from '../game/calamity';
+import { raidParties } from '../game/raids';
 import { kinWord } from '../game/kin';
 import { deltaOf, isSick, spreadRumor } from '../game/folk';
 import { homeOf, homeBonus, moodOf, isGrieving } from '../game/company';
@@ -87,7 +91,12 @@ export function Dialogue() {
 
   const favor = hero.favors[npc.id] ?? 0;
   const joined = hero.followers.includes(npc.id);
-  const ctx = { hour, season, weather, village };
+  const cal = useCalamity.getState().active;
+  const ctx = {
+    hour, season, weather, village,
+    calamity: cal ? CALAMITY_LABEL[cal.kind] : null,
+    raiding: raidParties.find((r) => r.phase !== 'back')?.name ?? null,
+  };
   const opening = `${addressYou(npc)},${smallTalk(npc, ctx)}`;
 
   const btn: CSSProperties = {
@@ -183,6 +192,7 @@ export function Dialogue() {
             <span style={{ color: '#a8d4b4' }}> · 同鄉</span>
           )}
           {' · '}{kinWord(npc.id)}
+          {!joined && <span style={{ opacity: .75 }}>{' · '}{mightWord(npc)}</span>}
         </span>
         {isSick(npc.id) && (
           <span style={{ fontSize: '.74rem', padding: '.05rem .4rem',

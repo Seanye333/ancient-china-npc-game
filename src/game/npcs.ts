@@ -119,10 +119,33 @@ export function mightWord(npc: Npc): string {
  */
 export function smallTalk(
   npc: Npc,
-  ctx: { hour: number; season: string; weather: string; village: VillageState },
+  ctx: {
+    hour: number; season: string; weather: string; village: VillageState;
+    /** 眼下有沒有天災。世界出了大事,人卻在聊米價,那個村子就是假的。 */
+    calamity?: string | null;
+    /** 有沒有哪一夥賊下了山、正往這邊來。 */
+    raiding?: string | null;
+  },
 ): string {
   const night = ctx.hour < 6 || ctx.hour > 19;
   const v = ctx.village;
+
+  /*
+   * 眼前正在發生的事壓過一切閒話。
+   *
+   * 這一段擺在最前面是有道理的:蝗蟲剛過境,而村民還在跟你講米價公道 ——
+   * 那不是「對話沒寫好」,是這個村子看起來不像活的。
+   */
+  if (ctx.raiding) {
+    return npc.temper === 'timid'
+      ? `${ctx.raiding}的人下山了!你別往那邊去⋯⋯`
+      : `${ctx.raiding}那夥又下來了。這回不知道要遭誰家。`;
+  }
+  if (ctx.calamity) {
+    return npc.trade === 'farm'
+      ? `${ctx.calamity}啊⋯⋯今年的收成算是完了。`
+      : `${ctx.calamity}。這光景,誰家還有心思做買賣。`;
+  }
 
   if (night) {
     return npc.temper === 'timid'

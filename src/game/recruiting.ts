@@ -1,5 +1,5 @@
 import type { Npc } from './npcs';
-import { rankForMerit, RANK_COMMONER, RANK_RETAINER } from './hero';
+import { rankForMerit, RANK_COMMONER } from './hero';
 
 /**
  * 招人 — 從村裡帶走一個人。
@@ -103,12 +103,4 @@ export function askToJoin(input: {
             ? '看你不像沒出息的。我押你一把。'
             : '⋯⋯罷了。跟你走一趟。',
   };
-}
-
-/** 部曲能帶多少人 — 給 UI 提示用,和 hero.retinueCap 同源。 */
-export function capHint(merit: number): string {
-  const rank = rankForMerit(merit);
-  if (rank >= RANK_COMMONER) return '白身只養得起十來個賓客';
-  if (rank >= RANK_RETAINER) return '部曲之身,五十人為限';
-  return '有了官身,帶得動百人';
 }

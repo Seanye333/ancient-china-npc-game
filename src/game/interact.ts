@@ -42,12 +42,6 @@ export const presences: Presence[] = [];
  */
 export const companions: Presence[] = [];
 
-/** 走一遍在場的所有人 — 村民 + 隨行。 */
-export function eachPresence(fn: (p: Presence) => void) {
-  for (const p of presences) fn(p);
-  for (const p of companions) fn(p);
-}
-
 export function findPresence(id: string): Presence | undefined {
   return presences.find((p) => p.id === id) ?? companions.find((p) => p.id === id);
 }

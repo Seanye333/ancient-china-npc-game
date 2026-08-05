@@ -125,21 +125,6 @@ export function relatives(id: string): string[] {
   ])];
 }
 
-/** 「王安的兄長」—— 給對話用的一句話。 */
-export function relationWord(who: string, toWhom: string): string | null {
-  const k = kinOf(who);
-  const people = makeVillagers(38);
-  const name = (id: string) => people.find((p) => p.id === id)?.name ?? '某人';
-  const me = people.find((p) => p.id === who);
-  const other = people.find((p) => p.id === toWhom);
-  if (!me || !other) return null;
-  if (k.spouse === toWhom) return `${name(toWhom)}的家眷`;
-  if (k.parents.includes(toWhom)) return `${name(toWhom)}的孩子`;
-  if (k.children.includes(toWhom)) return `${name(toWhom)}的爹娘`;
-  if (k.siblings.includes(toWhom)) return me.age > other.age ? `${name(toWhom)}的兄姊` : `${name(toWhom)}的弟妹`;
-  return null;
-}
-
 /** 這個人在村裡的一句身家 —— 對話面板上顯示。 */
 export function kinWord(id: string): string {
   const k = kinOf(id);
@@ -153,7 +138,13 @@ export function kinWord(id: string): string {
   return bits.join(' · ') || '孑然一身';
 }
 
-/** 全村按戶分組 —— 除錯與將來的「拜訪某戶」都用得到。 */
+/**
+ * 全村按戶分組。
+ *
+ * 沒有畫面在用它 —— 用它的是測試:「每個人只屬於一戶」是這一層的基本不變式,
+ * 而那條不變式抓到過一個真的 bug(孩子排在他爹前面,於是出現在兩戶裡)。
+ * <b>只被測試用到的匯出不是死碼</b>,它是被釘住的規格。
+ */
 export function households(): string[][] {
   if (!houses) build();
   return houses!;

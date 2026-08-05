@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { kinOf, relatives, households, kinWord, relationWord } from './kin';
+import { kinOf, relatives, households, kinWord } from './kin';
 import {
   useFolk, folk, livingVillagers, isDead, sickChance, deathChance,
   renownWord, spreadRumor, stepRumors, rumors,
@@ -52,7 +52,6 @@ describe('親眷', () => {
   it('關係說得出人話', () => {
     const withKin = makeVillagers(38).find((p) => relatives(p.id).length > 0)!;
     expect(kinWord(withKin.id)).not.toBe('孑然一身');
-    expect(relationWord(withKin.id, relatives(withKin.id)[0])).toBeTruthy();
   });
 });
 
