@@ -16,8 +16,8 @@ import { WEAPONS } from '../game/weapons';
 import { note } from '../game/journal';
 import { makeVillagers, might } from '../game/npcs';
 import {
-  fighters, arrows, arrowTally, beginBattle, stepBattle, battleOver, playerStrike,
-  useBattle, alive, fx, type Fighter,
+  fighters, arrows, arrowTally, stuckArrows, beginBattle, stepBattle, battleOver,
+  playerStrike, useBattle, alive, fx, type Fighter,
 } from '../game/combat';
 
 /**
@@ -110,6 +110,11 @@ export function Battle() {
   const groups = useRef<Record<string, THREE.Group | null>>({});
   const blades = useRef<Record<string, THREE.Group | null>>({});
   const bodies = useRef<Record<string, THREE.Mesh | null>>({});
+  const trails = useRef<Record<string, THREE.Mesh | null>>({});
+  /** 倒地的煙 —— 誰這幀剛倒,在他腳邊揚一蓬土。 */
+  const prevStance = useRef<Record<string, string>>({});
+  const puffs = useRef<Array<{ x: number; y: number; z: number; t0: number }>>([]);
+  const puffMesh = useRef<THREE.InstancedMesh>(null);
 
   // 空白鍵出手 —— 綁 window,canvas 不吃鍵盤焦點
   useEffect(() => {
@@ -258,11 +263,39 @@ export function Battle() {
       }
     }
     for (const f of fighters) {
+      // 剛倒下 —— 腳邊揚一蓬土。塵土比慢鏡更早告訴你「這下是實的」
+      if (f.stance === 'down' && prevStance.current[f.id] !== 'down') {
+        puffs.current.push({ x: f.x, y: f.y + 0.15, z: f.z, t0: t });
+        if (puffs.current.length > 8) puffs.current.shift();
+      }
+      prevStance.current[f.id] = f.stance;
       const g = groups.current[f.id];
       if (!g) continue;
       if (f.isPlayer) { g.visible = false; continue; }   // 玩家由 Player.tsx 畫
       g.visible = true;
-      poseInto(g, bodies.current[f.id], blades.current[f.id], f, t);
+      poseInto(g, bodies.current[f.id], blades.current[f.id], f, t, trails.current[f.id]);
+    }
+    // 土:每蓬三團,冒起來、散開、化掉
+    const pm = puffMesh.current;
+    if (pm) {
+      const obj = new THREE.Object3D();
+      let i = 0;
+      for (const p of puffs.current) {
+        const age = t - p.t0;
+        if (age > 0.85) continue;
+        for (let k = 0; k < 3 && i < 24; k++) {
+          const a = k * 2.1 + p.x;
+          const r = 0.25 + age * 1.3;
+          obj.position.set(p.x + Math.sin(a) * r * 0.6, p.y + age * 0.9, p.z + Math.cos(a) * r * 0.6);
+          const s = 0.3 + age * 1.1;
+          obj.scale.set(s, s, s);
+          obj.rotation.set(0, a + age, 0);
+          obj.updateMatrix();
+          pm.setMatrixAt(i++, obj.matrix);
+        }
+      }
+      pm.count = i;
+      pm.instanceMatrix.needsUpdate = true;
     }
   });
 
@@ -309,10 +342,16 @@ export function Battle() {
     if (q.taken && q.taken.bandId === bandId) q.markCleared();
   }, [tally, bandId, rout]);
 
-  if (!bandId) return null;
+  // 沒在打也要掛著 ArrowFlights —— 插在地上的箭是戰場的痕跡,
+  // 打完就集體消失的話,「留痕」就是句空話
+  if (!bandId) return <ArrowFlights />;
 
   return (
     <>
+      <instancedMesh ref={puffMesh} args={[undefined, undefined, 24]} frustumCulled={false}>
+        <sphereGeometry args={[0.3, 6, 5]} />
+        <meshBasicMaterial color="#b9a888" transparent opacity={0.32} depthWrite={false} />
+      </instancedMesh>
       {fighters.map((f) => {
         const g = f.isPlayer ? geoms.mate
           : f.side === 'foe' ? (f.chief ? geoms.chief : geoms.foe) : geoms.mate;
@@ -339,6 +378,13 @@ export function Battle() {
                 </mesh>
               )}
             </group>
+            {/* 刀光 —— 揮砍那一下掃出的一道弧,打擊感的最後一塊拼圖 */}
+            <mesh ref={(o) => { trails.current[f.id] = o; }}
+                  position={[0, FIG_BODY_H * 0.62, 0]} rotation-x={-Math.PI / 2} visible={false}>
+              <ringGeometry args={[0.45, 1.3, 12, 1, 0, Math.PI * 0.85]} />
+              <meshBasicMaterial color="#eef2f6" transparent opacity={0.4}
+                side={THREE.DoubleSide} depthWrite={false} />
+            </mesh>
           </group>
         );
       })}
@@ -356,6 +402,7 @@ const ARROW_CAP = 24;
 
 function ArrowFlights() {
   const mesh = useRef<THREE.InstancedMesh>(null);
+  const stuck = useRef<THREE.InstancedMesh>(null);
   const heard = useRef(0);
   const tmp = useMemo(() => ({
     obj: new THREE.Object3D(),
@@ -380,13 +427,35 @@ function ArrowFlights() {
     }
     im.count = i;
     im.instanceMatrix.needsUpdate = true;
+
+    // 插在地上的 —— 順著落地的方向斜著,箭羽朝天
+    const sm = stuck.current;
+    if (sm) {
+      let k = 0;
+      for (const s of stuckArrows) {
+        if (k >= 32) break;
+        tmp.dir.set(s.dx, s.dy, s.dz).normalize();
+        tmp.obj.position.set(s.x + s.dx * 0.1, s.y + 0.16, s.z + s.dz * 0.1);
+        tmp.obj.quaternion.setFromUnitVectors(tmp.up, tmp.dir);
+        tmp.obj.updateMatrix();
+        sm.setMatrixAt(k++, tmp.obj.matrix);
+      }
+      sm.count = k;
+      sm.instanceMatrix.needsUpdate = true;
+    }
   });
 
   return (
-    <instancedMesh ref={mesh} args={[undefined, undefined, ARROW_CAP]} frustumCulled={false}>
-      <cylinderGeometry args={[0.017, 0.017, 0.6, 4]} />
-      <meshBasicMaterial color="#e3d9bd" />
-    </instancedMesh>
+    <>
+      <instancedMesh ref={mesh} args={[undefined, undefined, ARROW_CAP]} frustumCulled={false}>
+        <cylinderGeometry args={[0.017, 0.017, 0.6, 4]} />
+        <meshBasicMaterial color="#e3d9bd" />
+      </instancedMesh>
+      <instancedMesh ref={stuck} args={[undefined, undefined, 32]} frustumCulled={false}>
+        <cylinderGeometry args={[0.017, 0.017, 0.6, 4]} />
+        <meshBasicMaterial color="#cfc4a6" />
+      </instancedMesh>
+    </>
   );
 }
 
@@ -399,12 +468,15 @@ function ArrowFlights() {
  */
 function poseInto(
   g: THREE.Group, body: THREE.Mesh | null, blade: THREE.Group | null,
-  f: Fighter, t: number,
+  f: Fighter, t: number, trail?: THREE.Mesh | null,
 ) {
   g.position.set(f.x, f.y, f.z);
   g.rotation.set(0, f.yaw, 0);
 
   const hurtFlash = t - f.hurtAt < 0.18;
+  // 逃跑的人刀都扔了 —— 「打散」要看得出是打散,不是換個方向走
+  if (blade) blade.visible = f.stance !== 'fleeing';
+  if (trail) trail.visible = f.stance === 'striking' && !f.bow;
 
   switch (f.stance) {
     case 'down': {
@@ -419,6 +491,12 @@ function poseInto(
       const p = f.phase;
       const arc = p < 0.42 ? -1.9 + p * 1.2 : -1.4 + (p - 0.42) * 5.4;
       if (blade) blade.rotation.set(arc, 0, 0.2);
+      if (trail) {
+        // 刀光跟著劈的那一段掃 —— 起手看不見,劈下去最亮,收招淡掉
+        const k = Math.max(0, Math.min(1, (p - 0.3) / 0.5));
+        trail.rotation.z = -0.6 + k * 1.6;
+        (trail.material as THREE.MeshBasicMaterial).opacity = Math.sin(k * Math.PI) * 0.42;
+      }
       g.rotation.x = Math.sin(Math.min(1, p * 1.6) * Math.PI) * 0.22;
       g.position.y = f.y;
       break;

@@ -85,6 +85,14 @@ export const arrows: Arrow[] = [];
 /** 放過幾箭 —— 渲染端靠它配弓弦聲,測試靠它驗「弓手真的在射」。 */
 export const arrowTally = { loosed: 0 };
 
+/** 脫靶插在地上的箭 —— 打完一場,地上要留得下痕跡。 */
+export interface StuckArrow {
+  x: number; y: number; z: number;
+  dx: number; dy: number; dz: number;
+  life: number;
+}
+export const stuckArrows: StuckArrow[] = [];
+
 /** 場上所有人 — 高頻資料,每幀動。 */
 export const fighters: Fighter[] = [];
 
@@ -470,7 +478,20 @@ function stepArrows(dt: number, ground: (x: number, z: number) => number) {
         break;
       }
     }
-    if (hit || a.life <= 0 || a.y < ground(a.x, a.z) + 0.04) arrows.splice(i, 1);
+    const grounded = a.y < ground(a.x, a.z) + 0.04;
+    if (grounded && !hit) {
+      // 插在土裡,斜著,箭羽朝天 —— 半分鐘後自己爛掉
+      const L = Math.hypot(a.vx, a.vy, a.vz) || 1;
+      stuckArrows.push({
+        x: a.x, y: ground(a.x, a.z), z: a.z,
+        dx: a.vx / L, dy: a.vy / L, dz: a.vz / L, life: 30,
+      });
+    }
+    if (hit || a.life <= 0 || grounded) arrows.splice(i, 1);
+  }
+  for (let i = stuckArrows.length - 1; i >= 0; i--) {
+    stuckArrows[i].life -= dt;
+    if (stuckArrows[i].life <= 0) stuckArrows.splice(i, 1);
   }
 }
 
