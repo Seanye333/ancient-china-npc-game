@@ -83,22 +83,23 @@ export function Details() {
     add(new THREE.BoxGeometry(1.4, 1.1, 1.0), mx, my + 0.55, mz, 0.4);
     add(new THREE.ConeGeometry(1.25, 0.7, 4), mx, my + 1.4, mz, 0.4 + Math.PI / 4);
 
-    // 晾衣桿 —— 挑三戶院前,兩根柱一根竿
+    // 晾衣桿 —— 挑三戶院前,兩根柱一根竿。
+    // 位置清單和幾何在同一個迴圈裡出 —— 分兩處各自越界檢查,
+    // 漏掉一處就是 undefined.door 把整棵樹炸下來(踩過)
     const homes = houseSites().filter((h) => Math.hypot(h.x - MARKET[0], h.z - MARKET[1]) < 46);
+    const laundry: Array<{ x: number; z: number }> = [];
     for (let i = 0; i < 3 && i * 4 + 1 < homes.length; i++) {
       const h = homes[i * 4 + 1];
       const lx = h.door[0] + 2.4, lz = h.door[1] - 1.6;
       const ly = terrainHeight(lx, lz);
       for (const s of [-1, 1]) add(new THREE.CylinderGeometry(0.05, 0.06, 1.9, 5), lx + s * 1.3, ly + 0.95, lz);
       add(new THREE.CylinderGeometry(0.03, 0.03, 2.6, 4).rotateZ(Math.PI / 2), lx, ly + 1.8, lz);
+      laundry.push({ x: lx, z: lz });
     }
 
     const g = mergeGeometries(parts.map((p) => p.toNonIndexed()), false)!;
     g.computeVertexNormals();
-    return { geom: g, laundry: homes.slice(0, 3).map((_, i) => {
-      const h = homes[i * 4 + 1];
-      return { x: h.door[0] + 2.4, z: h.door[1] - 1.6 };
-    }) };
+    return { geom: g, laundry };
   }, []);
 
   /* 泊船 —— 兩條在碼頭邊隨水波輕晃 */
