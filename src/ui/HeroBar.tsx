@@ -44,7 +44,7 @@ export function HeroBar() {
       position: 'fixed', left: 16, bottom: 16, padding: '.8rem 1.1rem',
       background: 'rgba(14,17,22,.78)', backdropFilter: 'blur(8px)',
       border: '1px solid rgba(255,255,255,.14)',
-      color: '#e6e2d8', fontFamily: '"PingFang SC","Hiragino Sans GB",system-ui,sans-serif',
+      color: '#e6e2d8', fontFamily: '"Kaiti SC","STKaiti","KaiTi","BiauKai","PingFang SC",serif',
       display: 'flex', gap: '1.4rem', alignItems: 'flex-end', userSelect: 'none',
     }}>
       <div style={cell}>

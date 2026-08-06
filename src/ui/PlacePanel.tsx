@@ -96,7 +96,7 @@ export function PlacePanel() {
       width: 'min(620px, calc(100vw - 3rem))',
       background: 'rgba(14,17,22,.9)', backdropFilter: 'blur(10px)',
       border: '1px solid rgba(255,255,255,.16)', color: '#e6e2d8',
-      fontFamily: '"PingFang SC","Hiragino Sans GB",system-ui,sans-serif',
+      fontFamily: '"Kaiti SC","STKaiti","KaiTi","BiauKai","PingFang SC",serif',
       padding: '1rem 1.2rem', display: 'flex', flexDirection: 'column', gap: '.75rem',
       zIndex: 20,
     }}>

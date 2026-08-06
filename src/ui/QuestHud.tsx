@@ -20,7 +20,7 @@ const box: CSSProperties = {
   position: 'fixed', left: 16, top: 16, padding: '.7rem .95rem',
   background: 'rgba(14,17,22,.78)', backdropFilter: 'blur(8px)',
   border: '1px solid rgba(255,255,255,.14)',
-  color: '#e6e2d8', fontFamily: '"PingFang SC","Hiragino Sans GB",system-ui,sans-serif',
+  color: '#e6e2d8', fontFamily: '"Kaiti SC","STKaiti","KaiTi","BiauKai","PingFang SC",serif',
   display: 'flex', flexDirection: 'column', gap: '.3rem',
   userSelect: 'none', minWidth: 168, maxWidth: 250,
 };

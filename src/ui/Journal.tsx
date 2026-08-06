@@ -16,7 +16,7 @@ import { partsFor, numberWord } from '../game/calendar';
 
 const wrap: CSSProperties = {
   position: 'fixed', right: 16, top: 268,
-  color: '#e6e2d8', fontFamily: '"PingFang SC","Hiragino Sans GB",system-ui,sans-serif',
+  color: '#e6e2d8', fontFamily: '"Kaiti SC","STKaiti","KaiTi","BiauKai","PingFang SC",serif',
   display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '.4rem',
   userSelect: 'none', zIndex: 12,
 };

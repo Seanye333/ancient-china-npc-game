@@ -30,7 +30,7 @@ export function Ending({ onRestart }: { onRestart: () => void }) {
       position: 'fixed', inset: 0, zIndex: 60,
       background: 'linear-gradient(180deg, rgba(8,9,12,.96), rgba(12,14,18,.99))',
       display: 'grid', placeItems: 'center', padding: '2rem 1rem', overflowY: 'auto',
-      color: '#e6e2d8', fontFamily: '"PingFang SC","Hiragino Sans GB",system-ui,sans-serif',
+      color: '#e6e2d8', fontFamily: '"Kaiti SC","STKaiti","KaiTi","BiauKai","PingFang SC",serif',
     }}>
       <div style={{ width: 'min(560px, 100%)', display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
         <div>

@@ -11,7 +11,7 @@ import type { CSSProperties } from 'react';
  * 因為它們要說的話本來就不一樣。
  */
 
-export const FONT = '"PingFang SC","Hiragino Sans GB",system-ui,sans-serif';
+export const FONT = '"Kaiti SC","STKaiti","KaiTi","BiauKai","PingFang SC",serif';
 export const INK = '#e6e2d8';
 export const GOLD = '#c8a45a';
 export const GREEN = '#a8d4b4';

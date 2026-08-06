@@ -186,6 +186,9 @@ export function Player() {
   }, []);
 
   const keys = useRef<Record<string, boolean>>({});
+  /** 回望的權重 0..1 —— M 鍵按住升起來,鬆手落回去。 */
+  const overview = useRef(0);
+  const prevPos = useRef({ x: 0, z: 0 });
   useEffect(() => {
     const down = (e: KeyboardEvent) => { keys.current[e.code] = true; };
     const up = (e: KeyboardEvent) => { keys.current[e.code] = false; };
@@ -438,6 +441,35 @@ export function Player() {
       tmp.look.set(m.x, m.y + 1.25, m.z);
     }
     camera.lookAt(tmp.look);
+
+    /**
+     * 回望 —— 按住 M,鏡頭慢慢升到高處環視全村(手不能動是應該的,
+     * 你在看你住的地方)。鬆手就落回肩後。和解算器不搶:這裡的拉力
+     * 比它強,按住時它每幀想收回去、我們每幀拉上來,勝負穩定在高處。
+     */
+    overview.current += ((keys.current.KeyM ? 1 : 0) - overview.current) * Math.min(1, step * 2);
+    if (overview.current > 0.02) {
+      const k = overview.current;
+      const oa = performance.now() * 0.00006;
+      tmp.camWant.set(
+        m.x + Math.sin(oa) * 30 * k,
+        m.y + 6 + 34 * k,
+        m.z + Math.cos(oa) * 30 * k,
+      );
+      camera.position.lerp(tmp.camWant, Math.min(1, step * 3) * k);
+      camera.lookAt(m.x, m.y, m.z);
+    }
+
+    // 跑起來視野微擴、鏡頭壓低一絲 —— 速度感白撿
+    const spd = Math.hypot(m.x - prevPos.current.x, m.z - prevPos.current.z) / Math.max(1e-4, step);
+    prevPos.current.x = m.x; prevPos.current.z = m.z;
+    const pc = camera as THREE.PerspectiveCamera;
+    const wantFov = 46 + (spd > 3.4 ? 3.5 : 0);
+    if (Math.abs(pc.fov - wantFov) > 0.02) {
+      pc.fov += (wantFov - pc.fov) * Math.min(1, step * 5);
+      pc.updateProjectionMatrix();
+    }
+
     // 鏡頭震 —— 挨打晃得狠,砍中晃一絲。加在 lookAt 之後,鏡頭姿態算完才抖
     if (fx.shake > 0.01) {
       camera.position.x += (Math.random() - 0.5) * fx.shake * 0.22;

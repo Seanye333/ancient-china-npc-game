@@ -57,7 +57,7 @@ export function Title({ onStart }: { onStart: () => void }) {
       position: 'fixed', inset: 0, zIndex: 50,
       background: 'linear-gradient(180deg, rgba(9,10,13,.94), rgba(14,17,22,.97))',
       backdropFilter: 'blur(6px)',
-      color: '#e6e2d8', fontFamily: '"PingFang SC","Hiragino Sans GB",system-ui,sans-serif',
+      color: '#e6e2d8', fontFamily: '"Kaiti SC","STKaiti","KaiTi","BiauKai","PingFang SC",serif',
       display: 'grid', placeItems: 'center', padding: '2rem 1rem', overflowY: 'auto',
     }}>
       <div style={{ width: 'min(760px, 100%)', display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>

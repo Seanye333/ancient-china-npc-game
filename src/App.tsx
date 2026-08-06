@@ -129,7 +129,23 @@ function TimedScene() {
     indoor.current += ((inside ? 1 : 0) - indoor.current) * Math.min(1, dt * 3);
     const k = indoor.current;
     gl.toneMappingExposure = sky.exposure * (1 - k * 0.28);
-    if (dirRef.current) dirRef.current.intensity = sky.sunIntensity * (1 - k * 0.68);
+    const dir = dirRef.current;
+    if (dir) {
+      dir.intensity = sky.sunIntensity * (1 - k * 0.68);
+      /**
+       * 影子跟著人走:光的位置與目標都掛在主角身上,陰影相機的框
+       * 從 ±150 收到 ±60 —— 同一張 2048 貼圖,近處的影子銳了兩倍半。
+       * 框釘死在原點的話,你走到縣城人就出了框,影子整個沒了。
+       */
+      const L = sky.light.length() || 1;
+      dir.position.set(
+        playerPos.x + (sky.light.x / L) * 170,
+        playerPos.y + (sky.light.y / L) * 170,
+        playerPos.z + (sky.light.z / L) * 170,
+      );
+      dir.target.position.set(playerPos.x, playerPos.y, playerPos.z);
+      dir.target.updateMatrixWorld();
+    }
     if (hemiRef.current) hemiRef.current.intensity = sky.hemiIntensity * (1 - k * 0.3);
   });
 
@@ -178,12 +194,12 @@ function TimedScene() {
         color={sky.sunColor}
         castShadow
         shadow-mapSize={[2048, 2048]}
-        shadow-camera-left={-150}
-        shadow-camera-right={150}
-        shadow-camera-top={150}
-        shadow-camera-bottom={-150}
+        shadow-camera-left={-60}
+        shadow-camera-right={60}
+        shadow-camera-top={60}
+        shadow-camera-bottom={-60}
         shadow-camera-near={1}
-        shadow-camera-far={480}
+        shadow-camera-far={400}
         shadow-bias={-0.0006}
         shadow-normalBias={0.035}
       />
@@ -192,6 +208,32 @@ function TimedScene() {
       <Storm ambRef={ambRef} baseAmbient={sky.ambient} />
     </>
   );
+}
+
+/**
+ * 幀率掉了就先降解析度 —— 畫質的階梯裡 dpr 是最不心疼的一階。
+ * 兩秒量一次;掉到 45 以下降一檔,穩回 70 以上慢慢還。
+ */
+function AdaptiveDpr() {
+  const setDpr = useThree((s) => s.setDpr);
+  const st = useRef({ n: 0, t0: performance.now(), dpr: Math.min(2, window.devicePixelRatio) });
+  const cap = Math.min(2, window.devicePixelRatio);
+  useFrame(() => {
+    const s = st.current;
+    s.n++;
+    const now = performance.now();
+    if (now - s.t0 < 2000) return;
+    const fps = (s.n * 1000) / (now - s.t0);
+    s.n = 0; s.t0 = now;
+    if (fps < 45 && s.dpr > 1) {
+      s.dpr = Math.max(1, s.dpr - 0.25);
+      setDpr(s.dpr);
+    } else if (fps > 70 && s.dpr < cap) {
+      s.dpr = Math.min(cap, s.dpr + 0.25);
+      setDpr(s.dpr);
+    }
+  });
+  return null;
 }
 
 /**
@@ -424,6 +466,7 @@ export default function App() {
           <SMAA />
         </EffectComposer>
 
+        <AdaptiveDpr />
         <CamBridge />
       </Canvas>
       {!started && <Title onStart={() => setStarted(true)} />}

@@ -26,7 +26,7 @@ import { MARKET } from '../world/sites';
 
 const wrap: CSSProperties = {
   position: 'fixed', left: '50%', transform: 'translateX(-50%)',
-  color: '#e6e2d8', fontFamily: '"PingFang SC","Hiragino Sans GB",system-ui,sans-serif',
+  color: '#e6e2d8', fontFamily: '"Kaiti SC","STKaiti","KaiTi","BiauKai","PingFang SC",serif',
   pointerEvents: 'none',
 };
 
@@ -236,7 +236,7 @@ function SparAftermath(p: {
     <div style={{
       position: 'fixed', inset: 0, display: 'grid', placeItems: 'center',
       background: 'rgba(8,9,12,.5)', backdropFilter: 'blur(2px)',
-      color: '#e6e2d8', fontFamily: '"PingFang SC","Hiragino Sans GB",system-ui,sans-serif',
+      color: '#e6e2d8', fontFamily: '"Kaiti SC","STKaiti","KaiTi","BiauKai","PingFang SC",serif',
       zIndex: 30,
     }}>
       <div style={{
@@ -309,7 +309,7 @@ function Aftermath(p: {
     <div style={{
       position: 'fixed', inset: 0, display: 'grid', placeItems: 'center',
       background: 'rgba(8,9,12,.62)', backdropFilter: 'blur(3px)',
-      color: '#e6e2d8', fontFamily: '"PingFang SC","Hiragino Sans GB",system-ui,sans-serif',
+      color: '#e6e2d8', fontFamily: '"Kaiti SC","STKaiti","KaiTi","BiauKai","PingFang SC",serif',
       zIndex: 30,
     }}>
       <div style={{
