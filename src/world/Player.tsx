@@ -60,6 +60,13 @@ export function Player() {
   const weaponGeom = useMemo(() => {
     const w = WEAPONS[weapon];
     if (w.id === 'fists') return null;
+    if (w.id === 'bow') {
+      const arc = new THREE.TorusGeometry(0.46, 0.026, 5, 12, Math.PI * 0.92);
+      arc.rotateZ(Math.PI * 0.54);
+      const str = new THREE.CylinderGeometry(0.008, 0.008, 0.84, 3);
+      str.translate(0.09, 0.46, 0);
+      return mergeGeometries([arc.toNonIndexed(), str.toNonIndexed()], false)!;
+    }
     if (w.id === 'spear') {
       const g = new THREE.CylinderGeometry(0.035, 0.045, 2.7, 6);
       g.translate(0, 0.9, 0);

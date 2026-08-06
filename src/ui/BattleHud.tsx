@@ -197,7 +197,10 @@ export function BattleHud() {
               <strong style={{ fontSize: '1.1rem', color: '#d08a72' }}>{foes}</strong></span>
           </div>
           <div style={{ marginTop: '.35rem', fontSize: '.78rem', opacity: .62 }}>
-            {nightRaid ? '他們剛從夢裡爬起來 —— 趁現在' : '空白鍵 揮刀 · 打的是你面前那一片'}
+            {nightRaid ? '他們剛從夢裡爬起來 —— 趁現在'
+              : useHero.getState().weapon === 'bow'
+                ? '空白鍵 放箭 · 射的是你朝著的方向 —— 別讓他們貼上來'
+                : '空白鍵 揮刀 · 打的是你面前那一片'}
           </div>
         </div>
       </>

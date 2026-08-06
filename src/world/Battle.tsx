@@ -116,7 +116,9 @@ export function Battle() {
     const onKey = (e: KeyboardEvent) => {
       if (e.code !== 'Space') return;
       e.preventDefault();
-      if (playerStrike('you')) swingSound();
+      // 拿弓的人不配刀風 —— 弦響由 ArrowFlights 在「多了一支箭」時配,
+      // 這裡再響一聲就是一次出手兩個聲音
+      if (playerStrike('you') && useHero.getState().weapon !== 'bow') swingSound();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

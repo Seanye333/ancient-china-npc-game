@@ -86,5 +86,36 @@ for (let i = 0; i < 60; i++) {
 const bEnd = await page.evaluate(() => window.__battle());
 console.log(`放了 ${bEnd.loosed} 箭 · 同屏最多 ${maxArrows} 支`, bEnd.loosed > 0 ? '✓' : '✗ 弓是擺設');
 
+console.log('── 玩家的弓(換獵弓,自己放箭)');
+{
+  const closeBtn = page.getByRole('button', { name: /收兵|撐起身子/ });
+  if (await closeBtn.count()) await closeBtn.click();
+  await page.waitForTimeout(500);
+  await page.evaluate(() => {
+    window.__heroStore.setState({ weapon: 'bow', followers: [] });
+    window.__place(0, -40);
+  });
+  await page.waitForTimeout(500);
+  await page.evaluate(() => {
+    const p = window.__probe().player;
+    window.__forceBattle(p[0] + 10, p[1] + 3, 2, 0.3);
+  });
+  await page.waitForTimeout(300);
+  const before = await page.evaluate(() => window.__battle().loosed);
+  let shot = false;
+  for (let i = 0; i < 30; i++) {
+    await page.evaluate(() => { window.__strike(); });
+    await page.waitForTimeout(300);
+    const b = await page.evaluate(() => window.__battle());
+    if (!shot && b.arrows > 0) {
+      shot = true;
+      await page.screenshot({ path: 'docs/art-research/v3-player-bow.png', timeout: 60000 }).catch(() => {});
+    }
+    if (b.tally) break;
+  }
+  const after = await page.evaluate(() => window.__battle());
+  console.log(`玩家放了 ${after.loosed - before} 箭`, after.loosed > before ? '✓' : '✗ 空白鍵沒在射');
+}
+
 console.log('errors:', errors.slice(0, 3).join(' | ') || 'none');
 await browser.close();
