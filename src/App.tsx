@@ -36,6 +36,7 @@ import { Hint } from './ui/Hint';
 import { HeroBar } from './ui/HeroBar';
 import { Lanterns } from './world/Lanterns';
 import { Weather } from './world/Weather';
+import { Seasonals } from './world/Atmosphere';
 import { Tavern } from './world/Interior';
 import { skyFor, useClock } from './world/worldTime';
 import { useHero } from './game/hero';
@@ -315,6 +316,7 @@ export default function App() {
           <Interaction />
           <Tavern />
           <Weather />
+          <Seasonals />
           <Lanterns />
           <Conifers />
           <BroadLeaf />

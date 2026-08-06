@@ -75,7 +75,7 @@ const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 
 /** 季節推移日照長度 — 冬天日短夜長,夏天相反。 */
-function daylight(season: Season) {
+export function daylight(season: Season) {
   switch (season) {
     case 'winter': return { rise: 7.3, set: 16.8 };
     case 'autumn': return { rise: 6.4, set: 18.0 };
