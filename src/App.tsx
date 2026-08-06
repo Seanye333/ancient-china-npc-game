@@ -11,6 +11,7 @@ import {
   Conifers, BroadLeaf, Reeds, Rocks, Bamboo, Willows, setFoliageWind,
 } from './world/Vegetation';
 import { Birds, Chickens, Dogs, FishSplash, TavernFlag } from './world/Life';
+import { Details } from './world/Details';
 import { Landmarks } from './world/Landmarks';
 import { Farmland, Roads } from './world/Landuse';
 import { Settlement } from './world/Settlement';
@@ -395,6 +396,7 @@ export default function App() {
           <Dogs />
           <FishSplash />
           <TavernFlag />
+          <Details />
           <Lanterns />
           <Conifers />
           <BroadLeaf />
