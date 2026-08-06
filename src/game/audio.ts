@@ -171,6 +171,14 @@ export function bowSound() {
   blip({ type: 'bandpass', freq: 1500, q: 2.4, attack: 0.003, decay: 0.16, gain: 0.15, sweepTo: 420 });
 }
 
+/** 犬吠 —— 兩短聲。夜裡有賊靠近村子,狗先說話。 */
+export function barkSound() {
+  blip({ type: 'bandpass', freq: 620, q: 3.5, attack: 0.006, decay: 0.12, gain: 0.13, sweepTo: 380 });
+  if (ctx) setTimeout(() => blip({
+    type: 'bandpass', freq: 660, q: 3.5, attack: 0.006, decay: 0.14, gain: 0.11, sweepTo: 360,
+  }), 170);
+}
+
 /* ── 古琴 ─────────────────────────────────────────────
  *
  * 和其他聲音一樣現算,不帶音檔。撥弦用 Karplus-Strong:

@@ -7,7 +7,10 @@ import {
 import { ToneMappingMode } from 'postprocessing';
 import * as THREE from 'three';
 import { Terrain, River } from './world/Terrain';
-import { Conifers, BroadLeaf, Reeds, Rocks, Bamboo, Willows } from './world/Vegetation';
+import {
+  Conifers, BroadLeaf, Reeds, Rocks, Bamboo, Willows, setFoliageWind,
+} from './world/Vegetation';
+import { Birds, Chickens, Dogs, FishSplash, TavernFlag } from './world/Life';
 import { Landmarks } from './world/Landmarks';
 import { Farmland, Roads } from './world/Landuse';
 import { Settlement } from './world/Settlement';
@@ -106,6 +109,14 @@ function TimedScene() {
   const { gl, scene } = useThree();
 
   useFrame((_, dt) => tick(dt));
+
+  // 風 —— 晴天有一陣沒一陣,雨裡樹是狂的。強度餵給植被的頂點著色器
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime;
+    const gust = 0.55 + Math.sin(t * 0.13) * 0.22 + Math.sin(t * 0.047) * 0.14;
+    const w = useClock.getState().weather;
+    setFoliageWind(t, w === 'rain' ? 1.45 : w === 'snow' ? 0.9 : Math.max(0.25, gust));
+  });
 
   // 環境音跟著時辰與天氣走 —— 一秒更新一次就夠,它本來就是慢慢淡的
   const amb = useRef(0);
@@ -318,6 +329,11 @@ export default function App() {
           <Tavern />
           <Weather />
           <Seasonals />
+          <Birds />
+          <Chickens />
+          <Dogs />
+          <FishSplash />
+          <TavernFlag />
           <Lanterns />
           <Conifers />
           <BroadLeaf />

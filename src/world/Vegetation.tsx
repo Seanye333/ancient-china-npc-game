@@ -52,6 +52,8 @@ const SIGHT_R = 1.15;
 
 /** 每一份編譯過的樹材質 —— 每幀要把主角在視空間的位置餵給它們。 */
 const fadeShaders: Array<{ uniforms: Record<string, { value: unknown }> }> = [];
+/** 會搖的那些 —— 每幀餵時間與風力。 */
+const windShaders: Array<{ uniforms: Record<string, { value: unknown }> }> = [];
 
 /**
  * 告訴植被「主角在鏡頭的哪個方向、多遠」。由 Player 每幀呼叫 ——
@@ -63,10 +65,56 @@ export function setSightTarget(viewSpacePlayer: THREE.Vector3) {
   }
 }
 
-const applyNearFade = (m: THREE.Material | null) => {
-  if (!m || m.userData.nearFade) return;
-  m.userData.nearFade = true;
+/** 風 —— App 每幀餵。世界不搖的時候是一張剪紙,搖起來才是林子。 */
+export function setFoliageWind(time: number, strength: number) {
+  for (const s of windShaders) {
+    (s.uniforms.uTime as { value: number }).value = time;
+    (s.uniforms.uWind as { value: number }).value = strength;
+  }
+}
+
+/**
+ * 植被材質的兩件事:視線讓路(fade)與隨風搖(sway)。
+ *
+ * 搖在<b>局部空間</b>做(begin_vertex 之後、instanceMatrix 之前),
+ * 相位從 instanceMatrix 的平移抽 —— 同一片林子每棵樹各搖各的,
+ * 不然整座山像一塊果凍。幅度由底到梢漸強(smoothstep lo→hi):
+ * 樹幹不動,動的是冠;蘆葦整根伏。陰影貼圖沒跟著搖 —— 幅度小,看不出。
+ */
+const applyFoliage = (fade: boolean, sway: number, lo: number, hi: number) =>
+  (m: THREE.Material | null) => {
+  if (!m || m.userData.foliage) return;
+  m.userData.foliage = true;
   m.onBeforeCompile = (shader) => {
+    if (sway > 0) {
+      shader.uniforms.uTime = { value: 0 };
+      shader.uniforms.uWind = { value: 0.7 };
+      shader.uniforms.uSway = { value: sway };
+      shader.uniforms.uSwayLo = { value: lo };
+      shader.uniforms.uSwayHi = { value: hi };
+      windShaders.push(shader as unknown as { uniforms: Record<string, { value: unknown }> });
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          'void main() {',
+          'uniform float uTime;\nuniform float uWind;\nuniform float uSway;\n'
+          + 'uniform float uSwayLo;\nuniform float uSwayHi;\nvoid main() {',
+        )
+        .replace('#include <begin_vertex>', `
+          #include <begin_vertex>
+          {
+            #ifdef USE_INSTANCING
+              vec2 iwp = vec2(instanceMatrix[3].x, instanceMatrix[3].z);
+            #else
+              vec2 iwp = vec2(0.0);
+            #endif
+            float ph = iwp.x * 0.37 + iwp.y * 0.29;
+            float k = uSway * uWind * smoothstep(uSwayLo, uSwayHi, transformed.y);
+            transformed.x += (sin(uTime * 1.7 + ph) + 0.5 * sin(uTime * 3.1 + ph * 1.7)) * k;
+            transformed.z += cos(uTime * 1.35 + ph * 1.3) * k * 0.7;
+          }
+        `);
+    }
+    if (!fade) { m.needsUpdate = true; return; }
     shader.uniforms.uSight = { value: new THREE.Vector3(0, 0, -6) };
     shader.uniforms.uSightR = { value: SIGHT_R };
     fadeShaders.push(shader as unknown as { uniforms: Record<string, { value: unknown }> });
@@ -108,6 +156,15 @@ const applyNearFade = (m: THREE.Material | null) => {
   };
   m.needsUpdate = true;
 };
+
+/** 樹幹只讓路不搖;各樹種的冠按自己的身量搖 —— 竹最軟,蘆葦整根伏。 */
+const applyNearFade = applyFoliage(true, 0, 0, 0);
+const coniferSway = applyFoliage(true, 0.07, -1.6, 1.8);
+const broadSway = applyFoliage(true, 0.06, -1.2, 1.6);
+const willowSway = applyFoliage(true, 0.065, -1.1, 1.2);
+const bambooLeafSway = applyFoliage(true, 0.10, -0.9, 0.95);
+const bambooCulmSway = applyFoliage(true, 0.045, -2.1, 2.1);
+const reedSway = applyFoliage(false, 0.10, -0.75, 0.75);
 
 /** 位置雜湊 — 用來在人跡帶裡穩定地留下極少數老樹,而不是整片砍光。 */
 function rngGate(x: number, z: number): number {
@@ -271,7 +328,7 @@ export function Conifers() {
       </instancedMesh>
       <instancedMesh ref={crown} args={[undefined, undefined, items.length]} castShadow>
         <coneGeometry args={[1.05, 3.6, 7]} />
-        <meshStandardMaterial color="#ffffff" roughness={0.9} ref={applyNearFade} />
+        <meshStandardMaterial color="#ffffff" roughness={0.9} ref={coniferSway} />
       </instancedMesh>
     </>
   );
@@ -321,7 +378,7 @@ export function BroadLeaf() {
         <meshStandardMaterial color="#42311f" roughness={0.94} ref={applyNearFade} />
       </instancedMesh>
       <instancedMesh ref={crown} args={[undefined, undefined, items.length]} geometry={broadCrownGeom} castShadow>
-        <meshStandardMaterial color="#ffffff" roughness={0.88} flatShading ref={applyNearFade} />
+        <meshStandardMaterial color="#ffffff" roughness={0.88} flatShading ref={broadSway} />
       </instancedMesh>
     </>
   );
@@ -350,7 +407,7 @@ export function Reeds() {
   return (
     <instancedMesh ref={ref} args={[undefined, undefined, items.length]}>
       <coneGeometry args={[0.30, 1.5, 4]} />
-      <meshStandardMaterial color="#ffffff" roughness={0.95} />
+      <meshStandardMaterial color="#ffffff" roughness={0.95} ref={reedSway} />
     </instancedMesh>
   );
 }
@@ -412,11 +469,11 @@ export function Bamboo() {
     <>
       <instancedMesh ref={culm} args={[undefined, undefined, items.length]} castShadow>
         <cylinderGeometry args={[0.05, 0.07, 4.2, 5]} />
-        <meshStandardMaterial color="#6d7a3a" roughness={0.86} ref={applyNearFade} />
+        <meshStandardMaterial color="#6d7a3a" roughness={0.86} ref={bambooCulmSway} />
       </instancedMesh>
       <instancedMesh ref={leaf} args={[undefined, undefined, items.length]} castShadow>
         <coneGeometry args={[0.62, 1.9, 5]} />
-        <meshStandardMaterial color="#ffffff" roughness={0.88} flatShading ref={applyNearFade} />
+        <meshStandardMaterial color="#ffffff" roughness={0.88} flatShading ref={bambooLeafSway} />
       </instancedMesh>
     </>
   );
@@ -452,7 +509,7 @@ export function Willows() {
         <meshStandardMaterial color="#4a3826" roughness={0.94} ref={applyNearFade} />
       </instancedMesh>
       <instancedMesh ref={crown} args={[undefined, undefined, items.length]} geometry={willowCrownGeom} castShadow>
-        <meshStandardMaterial color="#ffffff" roughness={0.9} flatShading ref={applyNearFade} />
+        <meshStandardMaterial color="#ffffff" roughness={0.9} flatShading ref={willowSway} />
       </instancedMesh>
     </>
   );
