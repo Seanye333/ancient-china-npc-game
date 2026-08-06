@@ -71,8 +71,9 @@ export function bodyGeom(robe: THREE.Color) {
   return mergeGeometries(gs, false)!;
 }
 
-export function headGeom(hat: boolean) {
+export function headGeom(hat: boolean, oldHair = false) {
   const gs: THREE.BufferGeometry[] = [];
+  const HAIR_C = oldHair ? new THREE.Color('#d6d0c4') : HAIR;
   const cy = FIG_HR * 0.84;
   gs.push(tint(at(lathe(HEAD_P, FIG_HR, FIG_HR, 16), 0, cy, 0, 1, 1, 0.94), SKIN));
   for (const side of [-1, 1]) {
@@ -84,9 +85,9 @@ export function headGeom(hat: boolean) {
       new THREE.Color('#f2f0ea')));
   }
   gs.push(tint(at(new THREE.SphereGeometry(FIG_HR * 1.13, 12, 8),
-    0, cy + FIG_HR * 0.30, -FIG_HR * 0.06, 1, 1, 0.42), HAIR));
+    0, cy + FIG_HR * 0.30, -FIG_HR * 0.06, 1, 1, 0.42), HAIR_C));
   gs.push(tint(at(new THREE.SphereGeometry(FIG_HR * 0.30, 8, 6),
-    0, cy + FIG_HR * 1.16, FIG_HR * 0.30), HAIR));
+    0, cy + FIG_HR * 1.16, FIG_HR * 0.30), HAIR_C));
   if (hat) {
     gs.push(tint(at(new THREE.ConeGeometry(FIG_HR * 1.70, FIG_HR * 0.62, 10),
       0, cy + FIG_HR * 0.86, 0), TRIM));

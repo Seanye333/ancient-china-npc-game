@@ -32,6 +32,7 @@ import { retinueCap, rankForMerit } from '../game/hero';
 import {
   errandFrom, reward, errandBlurb, ERRAND_LABEL, type Errand,
 } from '../game/errands';
+import { Portrait } from './Portrait';
 
 /**
  * 對話 — 這個世界跟你說話的地方,也是<b>活兒的唯一入口</b>。
@@ -189,6 +190,7 @@ export function Dialogue() {
       padding: '1rem 1.2rem',
       display: 'flex', flexDirection: 'column', gap: '.75rem',
     }}>
+      <Portrait id={npc.id} trade={npc.trade} age={npc.age + deltaOf(npc.id).aged} />
       <div style={{ display: 'flex', alignItems: 'baseline', gap: '.6rem', flexWrap: 'wrap' }}>
         <strong style={{ fontSize: '1.16rem', letterSpacing: '.04em' }}>{npc.name}</strong>
         <span style={{ fontSize: '.76rem', opacity: .6 }}>

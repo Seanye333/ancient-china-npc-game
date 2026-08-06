@@ -2,7 +2,7 @@ import { useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { groundAt, rng, slideMove } from './field';
-import { ROBES, bodyGeom, headGeom, FIG_BODY_H } from './figure';
+import { bodyGeom, headGeom, FIG_BODY_H } from './figure';
 import { houseSites, fieldSites, meanderAt, DOCKS, BRIDGE, MARKET } from './sites';
 import { useClock } from './worldTime';
 import { makeVillagers } from '../game/npcs';
@@ -30,6 +30,8 @@ interface Agent {
   /** 對應 npcs.ts 的身份 — 有名字才談得上搭話。 */
   npcId: string;
   variant: number;
+  /** 上了年紀 —— 白髮、弓背、腳程慢。年紀要穿在身上,不能只寫在對話裡。 */
+  old: boolean;
   home: [number, number];
   door: [number, number];
   work: [number, number];
@@ -82,8 +84,13 @@ export function Crowd() {
     const out: Agent[] = [];
     for (let i = 0; i < 38; i++) {
       const h = houses[i % houses.length];
-      const roll = rand();
-      const job: Job = roll < 0.55 ? 'farm' : roll < 0.78 ? 'dock' : 'market';
+      /**
+       * 行當直接用 npcs.ts 那份 —— 對話裡自稱佃農的人不能在碼頭扛包。
+       * (從前這裡另擲一次骰,同一個人嘴上一套身上一套。)
+       */
+      const job: Job = villagers[i].trade;
+      rand();                                  // 佔位:別讓後面的抽數整批平移
+      const old = villagers[i].age >= 52;
       const work: [number, number] =
         job === 'farm'
           ? (() => { const f = fields[Math.floor(rand() * fields.length)];
@@ -92,9 +99,14 @@ export function Crowd() {
             ? (() => { const d = DOCKS[Math.floor(rand() * DOCKS.length)];
                        return [d[0] + (rand() - 0.5) * 3, d[1] + (rand() - 0.5) * 3]; })()
             : [MARKET[0] + (rand() - 0.5) * 6, MARKET[1] + (rand() - 0.5) * 6];
+      // 衣裳跟著行當走:農褐、埠青、市綠;上了年紀一律灰袍白髮。
+      // 遠遠一看衣色就知道他是幹什麼的 —— 這就是「行當穿在身上」
+      const variant = old ? 3 : job === 'farm' ? 0 : job === 'dock' ? 1 : 2;
+      rand();                                  // 佔位:原本的 variant 抽數
       out.push({
         npcId: villagers[i].id,
-        variant: Math.floor(rand() * ROBES.length),
+        variant,
+        old,
         home: [h.x, h.z], door: h.door, work, job,
         state: 'home',
         x: h.door[0], z: h.door[1], y: groundAt(h.door[0], h.door[1]),
@@ -102,7 +114,7 @@ export function Crowd() {
         target: h.door,
         timer: 0,
         phase: rand() * Math.PI * 2,
-        speed: 1.6 + rand() * 0.9,
+        speed: (1.6 + rand() * 0.9) * (old ? 0.72 : 1),
         partner: -1,
         visible: false,
       });
@@ -110,10 +122,16 @@ export function Crowd() {
     return out;
   }, []);
 
+  // 0 農(褐+笠) 1 埠(青+笠) 2 市(綠) 3 老(灰+白髮)
   const variants = useMemo(
-    () => ROBES.map((hex, i) => ({
-      body: bodyGeom(new THREE.Color(hex)),
-      head: headGeom(i % 2 === 0),
+    () => [
+      { robe: '#6b5741', hat: true, old: false },
+      { robe: '#3f5568', hat: true, old: false },
+      { robe: '#4a6b52', hat: false, old: false },
+      { robe: '#6a6350', hat: false, old: true },
+    ].map((v, i) => ({
+      body: bodyGeom(new THREE.Color(v.robe)),
+      head: headGeom(v.hat, v.old),
       idx: agents.map((a, k) => (a.variant === i ? k : -1)).filter((k) => k >= 0),
     })),
     [agents],
@@ -231,10 +249,13 @@ export function Crowd() {
         const bob = moving ? Math.abs(Math.sin(step)) * 0.055
           : Math.sin(t * 1.15 + a.phase) * 0.014;
         const sway = moving ? Math.sin(step * 0.5) * 0.055 : 0;
+        // 走路微微前傾,老人常年弓著背 —— 體態是不用寫字的年齡與狀態
+        const lean = (moving ? 0.055 : 0) + (a.old ? 0.10 : 0);
 
         tmp.p.set(a.x, a.y + bob, a.z);
-        tmp.e.set(0, a.yaw, sway);
+        tmp.e.set(lean, a.yaw, sway);
         tmp.q.setFromEuler(tmp.e);
+        tmp.s.setScalar(a.old ? 0.94 : 1);
         tmp.m.compose(tmp.p, tmp.q, tmp.s);
         bm.setMatrixAt(slot, tmp.m);
 
@@ -243,8 +264,12 @@ export function Crowd() {
           ? Math.sin(t * 3.1 + a.phase) * 0.10
           : Math.sin(t * 0.5 + a.phase * 1.7) * (moving ? 0.16 : 0.40);
         const nod = a.state === 'talk' ? Math.sin(t * 2.6 + a.phase) * 0.07 : 0;
-        tmp.p.set(a.x, a.y + bob + FIG_BODY_H * 0.99, a.z);
-        tmp.e.set(nod, a.yaw + look, sway * 0.6);
+        tmp.p.set(
+          a.x + Math.sin(a.yaw) * lean * 0.5,
+          a.y + bob + FIG_BODY_H * 0.99 * (a.old ? 0.94 : 1),
+          a.z + Math.cos(a.yaw) * lean * 0.5,
+        );
+        tmp.e.set(nod + lean * 0.6, a.yaw + look, sway * 0.6);
         tmp.q.setFromEuler(tmp.e);
         tmp.m.compose(tmp.p, tmp.q, tmp.s);
         hm.setMatrixAt(slot, tmp.m);
