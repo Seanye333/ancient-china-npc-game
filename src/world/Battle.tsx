@@ -11,13 +11,13 @@ import { raidParties, useRaids } from '../game/raids';
 import { useQuest } from '../game/quest';
 import { lifeTally } from '../game/daily';
 import { useClock } from './worldTime';
-import { swingSound, hitSound, hurtSound } from '../game/audio';
+import { swingSound, hitSound, hurtSound, bowSound } from '../game/audio';
 import { WEAPONS } from '../game/weapons';
 import { note } from '../game/journal';
 import { makeVillagers, might } from '../game/npcs';
 import {
-  fighters, beginBattle, stepBattle, battleOver, playerStrike, useBattle,
-  alive, fx, type Fighter,
+  fighters, arrows, arrowTally, beginBattle, stepBattle, battleOver, playerStrike,
+  useBattle, alive, fx, type Fighter,
 } from '../game/combat';
 
 /**
@@ -92,6 +92,18 @@ export function Battle() {
     return mergeGeometries([blade, guard, grip], false)!;
   }, []);
 
+  // 弓 = 一道弧 + 一根弦。認得出「那個人拿的不是刀」就夠了
+  const bowGeom = useMemo(() => {
+    const arc = new THREE.TorusGeometry(0.46, 0.026, 5, 12, Math.PI * 0.92);
+    arc.rotateZ(Math.PI * 0.54);
+    const str = new THREE.CylinderGeometry(0.008, 0.008, 0.84, 3);
+    str.translate(0.09, 0.46, 0);
+    // 兩件都轉成 non-indexed —— mergeGeometries 不收混著索引的
+    return mergeGeometries([arc.toNonIndexed(), str.toNonIndexed()], false)!;
+  }, []);
+
+  // 箭桿的幾何在 ArrowFlights 裡 —— 箭是高頻資料,和 fighters 一樣每幀搬
+
   /** 這一場打的是「下山的那一夥」嗎 —— 收場的結算不一樣:窩還在,只是人少了。 */
   const engagedRaid = useRef<{ partyId: string; bandId: string; name: string } | null>(null);
   const lastHurt = useRef(-1);
@@ -121,7 +133,10 @@ export function Battle() {
       me: fighters.find((f) => f.isPlayer)
         ? { hp: Math.round(fighters.find((f) => f.isPlayer)!.hp), stance: fighters.find((f) => f.isPlayer)!.stance }
         : null,
-      list: fighters.map((f) => ({ id: f.id, side: f.side, hp: Math.round(f.hp), stance: f.stance })),
+      list: fighters.map((f) => ({ id: f.id, side: f.side, hp: Math.round(f.hp), stance: f.stance, bow: !!f.bow })),
+      arrows: arrows.length,
+      loosed: arrowTally.loosed,
+      fx: { slow: +fx.slow.toFixed(2), finisher: +fx.finisher.toFixed(2) },
     });
     w.__strike = () => playerStrike('you');
     // 走向還站著的敵人 —— 診斷用,也是將來「鎖定目標」的雛形
@@ -163,6 +178,7 @@ export function Battle() {
     // 打擊感的衰減擺在這裡 —— 這個元件常駐,打完了殘餘的晃也要收得掉
     fx.slow = Math.max(0, fx.slow - step);
     fx.shake = Math.max(0, fx.shake - step * 2.2);
+    fx.finisher = Math.max(0, fx.finisher - step);
     const st = useBattle.getState();
 
     // 還沒開打:看看有沒有撞上哪一夥。
@@ -224,7 +240,9 @@ export function Battle() {
     stepBattle(fx.slow > 0 ? step * 0.22 : step, groundAt, slideMove);
 
     const over = battleOver();
-    if (over) finish(over);
+    // 致命一擊的那一拍還在演 —— 收場的面板等它演完再出來。
+    // 不等的話,鏡頭剛壓下去、慢鏡剛拉開,結算就糊在臉上,整拍白擺
+    if (over && fx.finisher <= 0.35) finish(over);
   });
 
   // 每幀把算好的位置搬到 three 的物件上
@@ -308,15 +326,65 @@ export function Battle() {
                 先前刀擺在 0.44h,離手約一掌高,近看就看得出來 */}
             <group ref={(o) => { blades.current[f.id] = o; }}
                    position={[FIG_HR * 0.92, FIG_BODY_H * 0.32, -FIG_HR * 0.12]}>
-              <mesh geometry={bladeGeom} castShadow>
-                <meshStandardMaterial color={f.side === 'foe' ? '#7d7a72' : '#9aa0a6'}
-                                      roughness={0.42} metalness={0.55} />
-              </mesh>
+              {f.bow ? (
+                <mesh geometry={bowGeom} castShadow>
+                  <meshStandardMaterial color="#6e4f2e" roughness={0.8} />
+                </mesh>
+              ) : (
+                <mesh geometry={bladeGeom} castShadow>
+                  <meshStandardMaterial color={f.side === 'foe' ? '#7d7a72' : '#9aa0a6'}
+                                        roughness={0.42} metalness={0.55} />
+                </mesh>
+              )}
             </group>
           </group>
         );
       })}
+      <ArrowFlights />
     </>
+  );
+}
+
+/**
+ * 天上的箭。高頻資料 —— combat 每步算位置,這裡每幀搬進一個 InstancedMesh。
+ * 箭桿順著速度的方向躺 —— 拋物線墜下來的時候箭頭也跟著低頭,
+ * 少了這一下,箭就是一根平移的火柴棍。
+ */
+const ARROW_CAP = 24;
+
+function ArrowFlights() {
+  const mesh = useRef<THREE.InstancedMesh>(null);
+  const heard = useRef(0);
+  const tmp = useMemo(() => ({
+    obj: new THREE.Object3D(),
+    up: new THREE.Vector3(0, 1, 0),
+    dir: new THREE.Vector3(),
+  }), []);
+
+  useFrame(() => {
+    const im = mesh.current;
+    if (!im) return;
+    // 弦響配在「多了一支箭」上 —— 開新一場 loosed 會歸零,計數器要跟著回去
+    if (arrowTally.loosed < heard.current) heard.current = arrowTally.loosed;
+    if (arrowTally.loosed > heard.current) { heard.current = arrowTally.loosed; bowSound(); }
+    let i = 0;
+    for (const a of arrows) {
+      if (i >= ARROW_CAP) break;
+      tmp.dir.set(a.vx, a.vy, a.vz).normalize();
+      tmp.obj.position.set(a.x, a.y, a.z);
+      tmp.obj.quaternion.setFromUnitVectors(tmp.up, tmp.dir);
+      tmp.obj.updateMatrix();
+      im.setMatrixAt(i++, tmp.obj.matrix);
+    }
+    im.count = i;
+    im.instanceMatrix.needsUpdate = true;
+  });
+
+  return (
+    <instancedMesh ref={mesh} args={[undefined, undefined, ARROW_CAP]} frustumCulled={false}>
+      <cylinderGeometry args={[0.017, 0.017, 0.6, 4]} />
+      <meshBasicMaterial color="#e3d9bd" />
+    </instancedMesh>
   );
 }
 

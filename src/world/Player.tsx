@@ -341,8 +341,14 @@ export function Player() {
         if (d < bd) { bd = d; foe = { x: f.x, z: f.z }; }
       }
     }
-    const baseDist = foe ? FIGHT_DIST : CAM_DIST;
-    const baseHigh = foe ? FIGHT_HEIGHT : CAM_HEIGHT;
+    /**
+     * 致命一擊 —— 放倒最後一個的那一秒,鏡頭壓低、收近,然後自己回來。
+     * finisher 從 1.3 倒數到 0;sin 曲線讓它「推進去再退出來」,
+     * 不是猛一跳。全場慢鏡是 combat 給的,這裡只管鏡頭的姿態。
+     */
+    const finPull = fx.finisher > 0 ? Math.sin(Math.min(1, fx.finisher / 1.3) * Math.PI) : 0;
+    const baseDist = (foe ? FIGHT_DIST : CAM_DIST) * (1 - 0.30 * finPull);
+    const baseHigh = (foe ? FIGHT_HEIGHT : CAM_HEIGHT) * (1 - 0.40 * finPull);
     const underCanopy = viewBlocked(m.x, m.z, m.y + 2.2);
 
     /**
