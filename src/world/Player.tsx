@@ -168,6 +168,14 @@ export function Player() {
       stall.current = { t: 0, d: Infinity };
       return route.current.length;
     };
+    // 瞬移 —— 純截圖用:視覺驗收要在半張地圖外的四五個點位取景,
+    // 用走的一個點就是兩分鐘。正式玩法沒有這個東西。
+    (window as unknown as Record<string, unknown>).__place = (x: number, z: number) => {
+      const m = me.current;
+      m.x = x; m.z = z; m.y = terrainHeight(x, z);
+      route.current = []; goto.current = null;
+      stall.current = { t: 0, d: Infinity };
+    };
   }, []);
 
   const keys = useRef<Record<string, boolean>>({});
@@ -354,11 +362,14 @@ export function Player() {
       let hit = 0;
       // 沿視線取樣,而不是只看端點 —— 只看端點鏡頭會從樹幹中間穿過去
       for (let t = 0.26; t <= 1.001; t += 0.12) {
-        if (viewBlocked(
-          m.x - Math.sin(yaw) * dist * t,
-          m.z - Math.cos(yaw) * dist * t,
-          m.y + 1.25 + (camY - m.y - 1.25) * t,
-        )) hit++;
+        const sx = m.x - Math.sin(yaw) * dist * t;
+        const sz = m.z - Math.cos(yaw) * dist * t;
+        const sy = m.y + 1.25 + (camY - m.y - 1.25) * t;
+        // 地形也要沿線查,不能只查終點:營地貼著山根,鏡頭退到山脊
+        // <b>另一側</b>時終點是乾淨的,可整座山正好橫在你和主角之間 ——
+        // 貼崖打架滿屏黃土,就是這條沒查出來的
+        if (terrainHeight(sx, sz) >= sy - 0.5) return 99;
+        if (viewBlocked(sx, sz, sy)) hit++;
       }
       return hit;
     };
