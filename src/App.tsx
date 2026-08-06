@@ -2,7 +2,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Sky, Cloud, Clouds } from '@react-three/drei';
 import {
-  EffectComposer, Bloom, N8AO, ToneMapping, Vignette, SMAA,
+  EffectComposer, Bloom, N8AO, ToneMapping, Vignette, SMAA, GodRays,
 } from '@react-three/postprocessing';
 import { ToneMappingMode } from 'postprocessing';
 import * as THREE from 'three';
@@ -41,7 +41,10 @@ import { Lanterns } from './world/Lanterns';
 import { Weather } from './world/Weather';
 import { Seasonals } from './world/Atmosphere';
 import { Tavern } from './world/Interior';
-import { skyFor, useClock } from './world/worldTime';
+import { skyFor, daylight, useClock } from './world/worldTime';
+import { NightSky, SunDisc } from './world/NightSky';
+import { MARKET } from './world/sites';
+import { playerPos } from './game/interact';
 import { useHero } from './game/hero';
 import { useVillage } from './game/village';
 import { settleDay, settleGuard } from './game/daily';
@@ -107,8 +110,24 @@ function TimedScene() {
   const weather = useClock((s) => s.weather);
   const sky = useMemo(() => skyFor(hour, season, weather), [hour, season, weather]);
   const { gl, scene } = useThree();
+  const dirRef = useRef<THREE.DirectionalLight>(null);
+  const hemiRef = useRef<THREE.HemisphereLight>(null);
+  /** 0 = 露天,1 = 在酒肆裡。進屋是漸變的 —— 光不能「啪」一下切。 */
+  const indoor = useRef(0);
 
   useFrame((_, dt) => tick(dt));
+
+  // 進了酒肆,太陽就交給門板擋:直射壓掉大半、曝光收一點,
+  // 灶火油燈(Interior 自己的燈)才浮得出來 —— 「進屋」要有光的儀式
+  useFrame((_, dt) => {
+    const cx = MARKET[0] + 7, cz = MARKET[1] - 9;
+    const inside = Math.abs(playerPos.x - cx) < 5.2 && Math.abs(playerPos.z - cz) < 4.2;
+    indoor.current += ((inside ? 1 : 0) - indoor.current) * Math.min(1, dt * 3);
+    const k = indoor.current;
+    gl.toneMappingExposure = sky.exposure * (1 - k * 0.28);
+    if (dirRef.current) dirRef.current.intensity = sky.sunIntensity * (1 - k * 0.68);
+    if (hemiRef.current) hemiRef.current.intensity = sky.hemiIntensity * (1 - k * 0.3);
+  });
 
   // 風 —— 晴天有一陣沒一陣,雨裡樹是狂的。強度餵給植被的頂點著色器
   useFrame(({ clock }) => {
@@ -124,17 +143,19 @@ function TimedScene() {
     amb.current += dt;
     if (amb.current < 1) return;
     amb.current = 0;
-    updateAmbience({ hour: useClock.getState().hour, weather: useClock.getState().weather });
+    updateAmbience({
+      hour: useClock.getState().hour, weather: useClock.getState().weather,
+      indoors: indoor.current > 0.5,
+    });
   });
 
   useEffect(() => {
-    gl.toneMappingExposure = sky.exposure;
     const fog = scene.fog as THREE.FogExp2 | null;
     if (fog) {
       fog.color.copy(sky.fog);
       fog.density = sky.fogDensity;
     }
-  }, [sky, gl, scene]);
+  }, [sky, scene]);
 
   return (
     <>
@@ -147,7 +168,8 @@ function TimedScene() {
         mieDirectionalG={0.82}
       />
       <directionalLight
-        position={sky.sun}
+        ref={dirRef}
+        position={sky.light}
         intensity={sky.sunIntensity}
         color={sky.sunColor}
         castShadow
@@ -161,7 +183,7 @@ function TimedScene() {
         shadow-bias={-0.0006}
         shadow-normalBias={0.035}
       />
-      <hemisphereLight args={[sky.skyColor, sky.groundColor, sky.hemiIntensity]} />
+      <hemisphereLight ref={hemiRef} args={[sky.skyColor, sky.groundColor, sky.hemiIntensity]} />
       <ambientLight intensity={sky.ambient} color="#9fb4c8" />
     </>
   );
@@ -264,6 +286,16 @@ export default function App() {
    */
   const [started, setStarted] = useState(false);
   const ending = useEnding((s) => s.life);
+  /** GodRays 要一個光源網格 —— SunDisc 掛好後把 ref 遞給合成器。 */
+  const [sunMesh, setSunMesh] = useState<THREE.Mesh | null>(null);
+  // 體積光只在日頭低的時候開:清晨黃昏的斜光才穿得出光柱,
+  // 正午開著只是白付一遍取樣
+  const lowSun = useClock((s) => {
+    if (s.weather !== 'clear') return false;
+    const { rise, set } = daylight(s.season);
+    return (s.hour > rise - 0.1 && s.hour < rise + 2.2)
+      || (s.hour > set - 2.2 && s.hour < set + 0.1);
+  });
   useEffect(() => {
     // 世界在標題頁不該偷偷走掉幾天
     if (!started) useClock.setState({ auto: false });
@@ -305,6 +337,8 @@ export default function App() {
         }}
       >
         <TimedScene />
+        <NightSky />
+        <SunDisc ref={setSunMesh} />
         <VillageClock />
         <Suspense fallback={null}>
           <Terrain />
@@ -351,6 +385,10 @@ export default function App() {
 
         <EffectComposer multisampling={0} enableNormalPass>
           <N8AO aoRadius={4.2} intensity={1.5} distanceFalloff={1.1} halfRes />
+          {sunMesh && lowSun ? (
+            <GodRays sun={sunMesh} samples={36} density={0.92} decay={0.94}
+              weight={0.28} exposure={0.26} blur />
+          ) : <></>}
           <Bloom intensity={0.42} luminanceThreshold={0.80} luminanceSmoothing={0.28} mipmapBlur />
           <ToneMapping mode={ToneMappingMode.AGX} />
           <Vignette offset={0.28} darkness={0.60} />

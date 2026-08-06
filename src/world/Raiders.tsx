@@ -36,6 +36,8 @@ export function Raiders() {
     return g;
   }, []);
   const groups = useRef<Record<string, THREE.Group | null>>({});
+  const torches = useRef<Record<string, THREE.Group | null>>({});
+  const lights = useRef<Record<string, THREE.PointLight | null>>({});
 
   useEffect(() => {
     const w = window as unknown as Record<string, unknown>;
@@ -97,6 +99,19 @@ export function Raiders() {
         g.position.set(r.x, r.y, r.z);
         g.rotation.set(0, r.yaw, 0);
       }
+      /**
+       * 夜裡打火把 —— 「路上的賊夜裡看得遠」終於有了畫面上的解釋:
+       * 他們自己就是移動的光源,你在黑地裡看見那點火,他們也看得見你。
+       */
+      const hr = useClock.getState().hour;
+      const night = hr < 5.6 || hr > 19.2;
+      const tg = torches.current[r.id];
+      if (tg) tg.visible = night;
+      const li = lights.current[r.id];
+      if (li) {
+        li.visible = night;
+        if (night) li.intensity = 5.5 + Math.sin(performance.now() * 0.011 + r.x) * 1.4;
+      }
     }
     if (changed) useRaids.getState().bump();
   });
@@ -108,6 +123,21 @@ export function Raiders() {
     <>
       {raidParties.map((r) => (
         <group key={r.id} ref={(o) => { groups.current[r.id] = o; }}>
+          {/* 火把:一根桿 + 兩片交叉的火焰,HDR 色靠 bloom 發光;一夥一盞點光 */}
+          <group ref={(o) => { torches.current[r.id] = o; }}
+                 position={[0.55, FIG_BODY_H * 0.9, 0.2]}>
+            <mesh>
+              <cylinderGeometry args={[0.03, 0.04, 0.85, 5]} />
+              <meshStandardMaterial color="#4a3524" roughness={0.9} />
+            </mesh>
+            <mesh position={[0, 0.55, 0]}>
+              <coneGeometry args={[0.13, 0.4, 6]} />
+              <meshBasicMaterial color={new THREE.Color(3.4, 1.6, 0.5)} toneMapped={false} />
+            </mesh>
+          </group>
+          <pointLight ref={(o) => { lights.current[r.id] = o; }}
+            position={[0.55, FIG_BODY_H * 1.6, 0.2]} distance={16} decay={1.6}
+            color="#ff9a4a" intensity={5.5} />
           {/* 一夥人畫成幾個並排的身子 —— 人數看得出來就夠了 */}
           {Array.from({ length: Math.min(4, r.count) }, (_, k) => {
             const off = (k - (Math.min(4, r.count) - 1) / 2) * 0.9;

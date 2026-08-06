@@ -85,7 +85,10 @@ export function daylight(season: Season) {
 }
 
 export interface SkyState {
+  /** 天穹著色器的太陽位置 —— 夜裡在地平線下,天才會黑。 */
   sun: THREE.Vector3;
+  /** 平行光的位置 —— 白天是太陽,夜裡是月亮。掛在天上的和照在地上的要同源。 */
+  light: THREE.Vector3;
   sunColor: THREE.Color;
   sunIntensity: number;
   skyColor: THREE.Color;
@@ -126,6 +129,22 @@ export function skyFor(hour: number, season: Season, weather: Weather = 'clear')
   const az = Math.cos(azT * Math.PI);
   const sunY = isDay ? Math.max(2, alt * 96) : -30;
   const sun = new THREE.Vector3(az * 150, sunY, 52 + (1 - alt) * 30);
+  /**
+   * 平行光的位置。白天就是太陽;夜裡是<b>月亮</b> —— 從前夜間光源擺在
+   * y=-30(地平線下的太陽),從地底往上照,影子全靠環境光遮掩。
+   * 月亮走自己的弧:入夜升起、下半夜偏西。NightSky 畫的那輪和照在
+   * 地上的光同用這個方向 —— 月亮掛在東邊,影子就不能倒向東。
+   * 注意 Sky 著色器仍然吃 sun:把月亮塞給它,半夜的天會亮成白晝
+   * (踩過:22:42 滿地暖光,像黃昏)。
+   */
+  let light = sun;
+  if (!isDay) {
+    const nightLen = 24 - (set - rise);
+    const sinceSet = ((hour - set) + 24) % 24;
+    const u = clamp01(sinceSet / nightLen);
+    const malt = Math.sin(u * Math.PI);
+    light = new THREE.Vector3(Math.cos(u * Math.PI) * 130, 18 + malt * 60, 40);
+  }
 
   // 低角度的太陽偏暖 — 大氣路徑長,藍光散掉了
   const warmth = clamp01(1 - alt * 1.35);
@@ -133,8 +152,10 @@ export function skyFor(hour: number, season: Season, weather: Weather = 'clear')
   if (alt < 0.22) sunColor.lerp(DUSK, clamp01((0.22 - alt) / 0.22));
   if (!isDay) sunColor.copy(NIGHT);
 
-  // 夜間是月光 — 不能歸零,遊戲裡的夜要看得見輪廓
-  const sunIntensity = isDay ? lerp(0.9, 3.6, clamp01(alt * 1.2)) : 0.52;
+  // 夜間是月光 — 不能歸零,遊戲裡的夜要看得見輪廓。
+  // 月亮挪到頭頂之後這個數也得跟著砍:0.52 是「從地底照」時代的值,
+  // 光真的落在地上以後,同樣的強度夜就成了暖洋洋的黃昏
+  const sunIntensity = isDay ? lerp(0.9, 3.6, clamp01(alt * 1.2)) : 0.30;
 
   // 霧:白天淡藍、黃昏轉暖、入夜壓深
   const fog = new THREE.Color();
@@ -152,6 +173,7 @@ export function skyFor(hour: number, season: Season, weather: Weather = 'clear')
 
   return {
     sun,
+    light,
     sunColor,
     sunIntensity: sunIntensity * (1 - overcast * 0.78),
     skyColor: new THREE.Color(isDay ? '#b5cbe6' : '#26324a'),
@@ -184,6 +206,15 @@ export interface SeasonPalette {
   willow: THREE.Color;
   reed: THREE.Color;
   paddy: THREE.Color;
+}
+
+/**
+ * 月相 —— 從曆法的日子推,不另存一份。三旬一月,十五望:
+ * 0 = 朔(看不見),0.5 = 望(滿月)。玩家若注意到「每逢十五月最圓」,
+ * 那不是彩蛋,是曆法在天上寫著。
+ */
+export function moonPhase(day: number): number {
+  return ((day % 30) + 30) % 30 / 30;
 }
 
 export function paletteFor(season: Season): SeasonPalette {

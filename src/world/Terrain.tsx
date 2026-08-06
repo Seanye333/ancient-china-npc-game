@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
+import { MeshReflectorMaterial } from '@react-three/drei';
 import { terrainHeight, slopeAt, riverMask, WATER_Y, water } from './field';
 import { SEASONS, paletteFor, useClock, type Season } from './worldTime';
 
@@ -83,9 +84,26 @@ export function Terrain() {
     (geom.attributes.color as THREE.BufferAttribute).needsUpdate = true;
   }, [season, geom, colorSets]);
 
+  // 雨後濕地:下雨慢慢浸透,雨停慢慢乾 —— 天氣要在地上留痕跡。
+  // roughness 一降,天光在地面上就有了反光;顏色壓一點,土是吃了水的土
+  const matRef = useRef<THREE.MeshStandardMaterial>(null);
+  const wet = useRef(0);
+  useFrame((_, dt) => {
+    const raining = useClock.getState().weather === 'rain';
+    wet.current = raining
+      ? Math.min(1, wet.current + dt / 10)
+      : Math.max(0, wet.current - dt / 75);
+    const m = matRef.current;
+    if (m) {
+      m.roughness = 0.95 - wet.current * 0.42;
+      const v = 1 - wet.current * 0.14;
+      m.color.setRGB(v, v, v);
+    }
+  });
+
   return (
     <mesh geometry={geom} receiveShadow castShadow>
-      <meshStandardMaterial vertexColors roughness={0.95} metalness={0} />
+      <meshStandardMaterial ref={matRef} vertexColors roughness={0.95} metalness={0} />
     </mesh>
   );
 }
@@ -116,13 +134,31 @@ export function River() {
   const frozen = season === 'winter';
   return (
     <mesh ref={riverRef} geometry={geom} position={[0, WATER_Y, 0]} receiveShadow>
-      <meshStandardMaterial
-        color={frozen ? '#8fa6ae' : '#3b5a67'}
-        roughness={frozen ? 0.42 : 0.12}
-        metalness={frozen ? 0.15 : 0.55}
-        transparent
-        opacity={frozen ? 0.96 : 0.9}
-      />
+      {frozen ? (
+        <meshStandardMaterial
+          color="#8fa6ae" roughness={0.42} metalness={0.15} transparent opacity={0.96}
+        />
+      ) : (
+        /**
+         * 真反射 —— 從前是高金屬度「假裝有天光」,黃昏的燈籠在水裡
+         * 什麼都照不出來。鏡面渲染多付一遍場景,解析度壓到 384、
+         * 糊掉一點(水本來就不是鏡子),帳算得過來。冬天結冰就換回啞面。
+         */
+        <MeshReflectorMaterial
+          blur={[260, 90]}
+          resolution={384}
+          mixBlur={1}
+          mixStrength={3.4}
+          roughness={0.5}
+          depthScale={0.6}
+          minDepthThreshold={0.4}
+          maxDepthThreshold={1.4}
+          color="#3a5866"
+          metalness={0.25}
+          transparent
+          opacity={0.92}
+        />
+      )}
     </mesh>
   );
 }
