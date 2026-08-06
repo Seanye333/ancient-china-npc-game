@@ -30,7 +30,9 @@ import { settleGuard } from './daily';
  */
 
 const KEY = 'baishen.save.v1';
-const VERSION = 1;
+// 2:傷有了形狀(woundKind/scars)。版本不合就丟 —— 舊檔缺欄位,
+// undefined 混進帳裡是 NaN 的溫床
+const VERSION = 2;
 
 interface SaveData {
   v: number;
@@ -65,7 +67,7 @@ function heroSlice() {
     name: h.name, courtesy: h.courtesy, hometown: h.hometown,
     stats: h.stats, merit: h.merit, gold: h.gold, grain: h.grain,
     retinue: h.retinue, followers: h.followers, renown: h.renown, weapon: h.weapon,
-    favors: h.favors, wounded: h.wounded,
+    favors: h.favors, wounded: h.wounded, woundKind: h.woundKind, scars: h.scars,
     lodging: h.lodging, rentPaidThrough: h.rentPaidThrough, toil: h.toil,
   };
 }

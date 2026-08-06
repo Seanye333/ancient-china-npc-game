@@ -5,7 +5,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { groundAt, slideMove } from './field';
 import { bodyGeom, headGeom, FIG_BODY_H, FIG_HR } from './figure';
 import { playerPos } from '../game/interact';
-import { useHero } from '../game/hero';
+import { useHero, woundPenalty } from '../game/hero';
 import { useBands } from '../game/bands';
 import { raidParties, useRaids } from '../game/raids';
 import { useQuest } from '../game/quest';
@@ -48,10 +48,12 @@ function ourSide(
   hero: ReturnType<typeof useHero.getState>,
   byId: Record<string, ReturnType<typeof makeVillagers>[number]>,
 ) {
+  const pen = woundPenalty(hero);
   return [
     {
       id: 'you', name: hero.name, war: hero.stats.war, isPlayer: true,
-      weapon: WEAPONS[hero.weapon],
+      // 臂上帶著傷,同一把刀砍下去就是輕 —— 帶傷打架的代價寫在出手上
+      weapon: { ...WEAPONS[hero.weapon], dmgMul: WEAPONS[hero.weapon].dmgMul * pen.dmg },
     },
     ...hero.followers.map((id) => ({
       id: `mate-${id}`, npcId: id,

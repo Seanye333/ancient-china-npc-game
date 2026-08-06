@@ -131,7 +131,16 @@ export function BattleHud() {
             village.nudge({ order: village.order + 7 + Math.round(band.fierce * 6) });
           }
           if (tally.playerDown) {
-            hero.hurt(3);
+            // 傷在哪是抽的,但抽完就是<b>你的傷</b>:瘸著走一個月,
+            // 或砍不動刀一個月,或臉上留一道好不了的疤
+            const kind = (['leg', 'leg', 'arm', 'arm', 'face'] as const)[
+              Math.floor(Math.random() * 5)];
+            hero.hurt(3, kind);
+            note(useClock.getState().day, kind === 'leg'
+              ? '腿上挨了狠的 —— 這一個月,走不快了。'
+              : kind === 'arm'
+                ? '持刀的胳膊傷了筋 —— 這一個月,砍下去是輕的。'
+                : '臉上開了口子。就算長好,這道疤也跟定你了。', 'bad');
             hero.addGold(-Math.round(hero.gold * 0.25));
           }
           // 倒下的人不會再跟著你走 —— 這一步就是招募那條線的代價

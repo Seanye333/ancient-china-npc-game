@@ -107,6 +107,13 @@ interface HeroState {
   favors: Record<string, number>;
   /** 傷勢剩餘旬數,0 = 無恙。 */
   wounded: number;
+  /**
+   * 傷在哪 —— 傷不該只是一個倒數計時。
+   * 腿:走得慢;臂:砍得輕;面:好了也留疤(疤是生平的一部分)。
+   */
+  woundKind: 'leg' | 'arm' | 'face' | null;
+  /** 臉上的疤 —— 好不了的那種痕跡。 */
+  scars: number;
 
   addMerit: (n: number) => void;
   addGold: (n: number) => void;
@@ -120,7 +127,7 @@ interface HeroState {
   /** 招他同行。人頭超過品階上限會拒絕。 */
   recruit: (id: string) => boolean;
   dismiss: (id: string) => void;
-  hurt: (spans: number) => void;
+  hurt: (spans: number, kind?: 'leg' | 'arm' | 'face') => void;
   heal: () => void;
 }
 
@@ -141,6 +148,8 @@ export const useHero = create<HeroState>((set, get) => ({
   renown: 0,
   favors: {},
   wounded: 0,
+  woundKind: null,
+  scars: 0,
 
   addMerit: (n) => set((s) => ({ merit: Math.max(0, s.merit + n) })),
   addGold: (n) => set((s) => ({ gold: Math.max(0, s.gold + n) })),
@@ -181,9 +190,35 @@ export const useHero = create<HeroState>((set, get) => ({
     return true;
   },
   dismiss: (id) => set((s) => ({ followers: s.followers.filter((f) => f !== id) })),
-  hurt: (spans) => set((s) => ({ wounded: Math.max(s.wounded, spans) })),
-  heal: () => set((s) => ({ wounded: Math.max(0, s.wounded - 1) })),
+  hurt: (spans, kind) => set((s) => ({
+    wounded: Math.max(s.wounded, spans),
+    // 舊傷未愈又添新傷:傷處以新的為準 —— 帳只有一本,別疊兩種減益
+    woundKind: kind ?? s.woundKind ?? 'leg',
+  })),
+  heal: () => set((s) => {
+    const left = Math.max(0, s.wounded - 1);
+    if (left > 0) return { wounded: left };
+    // 好利索了 —— 破相的傷收口成疤,疤不會再掉
+    return {
+      wounded: 0,
+      woundKind: null,
+      scars: s.scars + (s.woundKind === 'face' ? 1 : 0),
+    };
+  }),
 }));
+
+/**
+ * 傷的減益 —— 數字集中一處,測試釘這裡。
+ * 帶傷能走(不然「帶傷出門是在賭命」是句空話),但走不快、跑不動;
+ * 腿傷最瘸,臂傷砍下去輕一截。
+ */
+export function woundPenalty(s: { wounded: number; woundKind: 'leg' | 'arm' | 'face' | null }) {
+  if (s.wounded <= 0 || !s.woundKind) return { speed: 1, dmg: 1 };
+  return {
+    speed: s.woundKind === 'leg' ? 0.62 : 0.85,
+    dmg: s.woundKind === 'arm' ? 0.72 : 1,
+  };
+}
 
 // 原型階段:截圖腳本要能直接擺好局面,不必每次都把招募流程重跑一遍
 if (typeof window !== 'undefined') {

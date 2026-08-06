@@ -8,7 +8,7 @@ import { setSightTarget } from './Vegetation';
 import { findPath } from './nav';
 import { stepSound } from '../game/audio';
 import { meanderAt } from './sites';
-import { useHero } from '../game/hero';
+import { useHero, woundPenalty } from '../game/hero';
 import { playerPos, useInteract, warp } from '../game/interact';
 import { fighters, alive, fx } from '../game/combat';
 import { WEAPONS } from '../game/weapons';
@@ -277,10 +277,13 @@ export function Player() {
 
     // 倒在地上的人不會走路
     const downed = fighters.some((f) => f.isPlayer && f.stance === 'down');
-    const moving = tmp.want.lengthSq() > 1e-4 && wounded === 0 && !talking && !downed;
+    // 帶傷<b>能</b>走 —— 從前 wounded>0 直接釘死在原地,和「帶傷出門
+    // 是在賭命」那句話對不上。現在是走得慢、跑不動:腿傷最瘸
+    const moving = tmp.want.lengthSq() > 1e-4 && !talking && !downed;
     if (moving) {
       tmp.want.normalize();
-      const speed = (k.ShiftLeft || k.ShiftRight) ? RUN : WALK;
+      const pen = woundPenalty(useHero.getState());
+      const speed = ((k.ShiftLeft || k.ShiftRight) && wounded === 0 ? RUN : WALK) * pen.speed;
       if (goto.current) {
         // 自動走:遇到樹叢會自己繞 —— 直線走法過不了凹角
         const got = steerMove(m.x, m.z, tmp.want.x, tmp.want.z, speed * step, side.current);
@@ -299,7 +302,7 @@ export function Player() {
       m.step += speed * step * 3.1;
       // 一步一聲 —— 掛在步幅相位上,所以跑起來自然就密
       if (Math.floor(before / Math.PI) !== Math.floor(m.step / Math.PI)) {
-        stepSound(speed === RUN);
+        stepSound(speed >= RUN);
       }
     }
 
