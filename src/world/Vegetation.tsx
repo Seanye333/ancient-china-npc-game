@@ -1,5 +1,6 @@
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, type RefObject } from 'react';
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
   terrainHeight, slopeAt, valleyMask, riverMask, humanMask, rng, WATER_Y,
   registerBlockers, clearBlockers,
@@ -45,7 +46,9 @@ function inClearing(x: number, z: number): boolean {
  *
  * 樹還在、影子還在、擋人擋鏡頭的規則都不變,只是視線上那幾片葉子退開。
  */
-const SIGHT_R = 1.5;          // 視線圓柱的半徑,再往外一倍羽化回實心
+// 視線圓柱的半徑。只要露得出人就夠 —— 半徑越大,挖掉的樹冠越多,
+// 羽化帶上的殘點雲也越大(近處一棵樹冠佔半個屏幕,殘點就是滿牆霉斑)
+const SIGHT_R = 1.15;
 
 /** 每一份編譯過的樹材質 —— 每幀要把主角在視空間的位置餵給它們。 */
 const fadeShaders: Array<{ uniforms: Record<string, { value: unknown }> }> = [];
@@ -88,16 +91,17 @@ const applyNearFade = (m: THREE.Material | null) => {
           // 只管鏡頭與主角<b>之間</b>那一段;主角背後的樹是背景,不該動
           if (along > 0.05 && along < len) {
             float radial = length(vViewPos - dir * along);
-            // 圓柱心最透,一倍半徑外羽化回實心 —— 免得邊緣切出一個硬圓洞
-            float keep = smoothstep(uSightR, uSightR * 2.0, radial);
-            // 有序抖動而不是整棵樹忽然不見 —— 一格一格篩掉才不會「啪」一下
-            mat4 bayer = mat4(
-               0.0,  8.0,  2.0, 10.0,
-              12.0,  4.0, 14.0,  6.0,
-               3.0, 11.0,  1.0,  9.0,
-              15.0,  7.0, 13.0,  5.0) / 16.0;
-            float th = bayer[int(mod(gl_FragCoord.x, 4.0))][int(mod(gl_FragCoord.y, 4.0))];
-            if (keep < th) discard;
+            // 圓柱心最透,一倍半徑出頭就羽化回實心 —— 免得邊緣切出一個硬圓洞。
+            // 羽化帶刻意窄:帶一寬,貼著鏡頭的整棵樹冠都落在「半透」裡,
+            // 滿屏都是篩子 —— 截圖裡那層網紋就是這麼來的。
+            float keep = smoothstep(uSightR, uSightR * 1.30, radial);
+            // 抖動篩掉而不是整棵樹忽然不見。閾值用位置雜湊(噪點)而不是
+            // Bayer 棋盤格 —— 規則格子在大面積半透上是滿屏網紋,
+            // 噪點在同樣的覆蓋率下讀作「顆粒」,眼睛會把它當材質而不是故障。
+            // 顆粒取 2×2 像素一格:單像素的殘點糊在牆上像長霉,
+            // 粗一號的顆粒才讀得出「這是葉子讓開了」。
+            float th = fract(sin(dot(floor(gl_FragCoord.xy / 2.0), vec2(12.9898, 78.233))) * 43758.5453);
+            if (keep < th * 0.996) discard;
           }
         }
       `);
@@ -176,6 +180,66 @@ function useBlockers(
   }, [key, items, solid, view, top]);
 }
 
+/**
+ * 逐棵的色彩抖動 —— 一片林子最露餡的不是模型糙,是<b>每棵樹一個色</b>。
+ *
+ * 真實的林相裡沒有兩棵樹同色:向陽背陰、老葉新葉、個體差異。
+ * 這裡用位置雜湊(不是 rand,換季重掛時同一棵樹要拿到同一個色)
+ * 在 HSL 上各抖一點。畫面上的變化遠大於代價 —— instanceColor
+ * 是一次性的 buffer,draw call 一個不多。
+ *
+ * 注意:instanceColor 是<b>乘</b>在 material.color 上的,
+ * 所以用它的材質底色必須是白 —— 基色搬進每棵樹裡,不然雙重壓暗。
+ */
+const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
+const HSL = { h: 0, s: 0, l: 0 };
+
+function jitteredColor(
+  base: THREE.Color, x: number, z: number, dh: number, ds: number, dl: number,
+): THREE.Color {
+  base.getHSL(HSL);
+  return new THREE.Color().setHSL(
+    (HSL.h + (rngGate(x, z) - 0.5) * 2 * dh + 1) % 1,
+    clamp01(HSL.s + (rngGate(x * 1.7 + 13, z * 2.3 + 7) - 0.5) * 2 * ds),
+    clamp01(HSL.l + (rngGate(x * 2.9 + 31, z * 1.3 + 17) - 0.5) * 2 * dl),
+  );
+}
+
+function useInstanceColors(
+  ref: RefObject<THREE.InstancedMesh | null>,
+  items: Placement[],
+  colorOf: (p: Placement) => THREE.Color,
+) {
+  useLayoutEffect(() => {
+    const mesh = ref.current;
+    if (!mesh) return;
+    items.forEach((p, i) => mesh.setColorAt(i, colorOf(p)));
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    // colorOf 換季會換一個新函式進來 —— 依賴收它,不收每個顏色
+  }, [ref, items, colorOf]);
+}
+
+/**
+ * 闊葉/柳樹的樹冠 —— 三團錯開的多面體合併成<b>一份</b>幾何。
+ *
+ * 單顆 icosahedron 遠看是樹,近看是一塊滾石:二十個大平面貼著鏡頭,
+ * 加上秋季的褐色,截圖裡整個村子像堆滿了土堆。三團錯開以後輪廓
+ * 有了凹進去的地方,眼睛才肯把它讀成「葉子疊出來的」。
+ * 合併成一份 BufferGeometry,InstancedMesh 照舊一次畫完 —— 面數 ×3,
+ * draw call ×1,這筆帳怎麼算都划算。
+ */
+const broadCrownGeom = mergeGeometries([
+  new THREE.IcosahedronGeometry(1.30, 0).translate(0, 0.22, 0),
+  new THREE.IcosahedronGeometry(0.92, 0).rotateY(0.9).translate(0.78, -0.30, 0.30),
+  new THREE.IcosahedronGeometry(0.84, 0).rotateY(2.1).translate(-0.62, -0.34, -0.48),
+], false)!;
+
+const willowCrownGeom = mergeGeometries([
+  new THREE.SphereGeometry(1.30, 7, 5).scale(1, 0.72, 1),
+  new THREE.SphereGeometry(0.85, 6, 5).scale(1, 0.62, 1).translate(0.95, -0.42, 0.25),
+  new THREE.SphereGeometry(0.80, 6, 5).scale(1, 0.60, 1).translate(-0.80, -0.48, -0.40),
+], false)!;
+
 /** 針葉林 — 山坡的主力。太陡不長,谷地讓給闊葉。 */
 export function Conifers() {
   const p = paletteFor(useClock((s) => s.season));
@@ -194,6 +258,11 @@ export function Conifers() {
   const trunk = useInstances(items, () => 0.55);
   useBlockers('conifer', items, 0.17, 0.80, 4.15);
   const crown = useInstances(items, () => 2.35);
+  const colorOf = useMemo(
+    () => (q: Placement) => jitteredColor(p.conifer, q.x, q.z, 0.012, 0.10, 0.09),
+    [p],
+  );
+  useInstanceColors(crown, items, colorOf);
   return (
     <>
       <instancedMesh ref={trunk} args={[undefined, undefined, items.length]} castShadow>
@@ -202,7 +271,7 @@ export function Conifers() {
       </instancedMesh>
       <instancedMesh ref={crown} args={[undefined, undefined, items.length]} castShadow>
         <coneGeometry args={[1.05, 3.6, 7]} />
-        <meshStandardMaterial color={p.conifer} roughness={0.9} ref={applyNearFade} />
+        <meshStandardMaterial color="#ffffff" roughness={0.9} ref={applyNearFade} />
       </instancedMesh>
     </>
   );
@@ -227,15 +296,32 @@ export function BroadLeaf() {
   const trunk = useInstances(items, () => 0.75);
   useBlockers('broadleaf', items, 0.20, 1.30, 3.80);
   const crown = useInstances(items, () => 2.25);
+  const season = useClock((s) => s.season);
+  const colorOf = useMemo(() => {
+    // 秋林不是一種顏色 —— 金、鏽、赭、殘綠雜在一起才是「層林盡染」。
+    // 原本整片 #8a6326,截圖裡讀作一村子的土堆;哪棵樹拿哪個色用位置
+    // 雜湊定,同一棵樹每年秋天都紅成同一個樣子。
+    if (season === 'autumn') {
+      const AUTUMN = [
+        new THREE.Color('#c08a2e'), new THREE.Color('#b06a28'),
+        new THREE.Color('#9a4a22'), new THREE.Color('#8a7a30'),
+      ];
+      return (q: Placement) => {
+        const pick = AUTUMN[Math.floor(rngGate(q.x * 3.7 + 5, q.z * 2.1 + 3) * AUTUMN.length) % AUTUMN.length];
+        return jitteredColor(pick, q.x, q.z, 0.012, 0.10, 0.10);
+      };
+    }
+    return (q: Placement) => jitteredColor(p.broadleaf, q.x, q.z, 0.018, 0.12, 0.11);
+  }, [p, season]);
+  useInstanceColors(crown, items, colorOf);
   return (
     <>
       <instancedMesh ref={trunk} args={[undefined, undefined, items.length]} castShadow>
         <cylinderGeometry args={[0.16, 0.24, 1.7, 5]} />
         <meshStandardMaterial color="#42311f" roughness={0.94} ref={applyNearFade} />
       </instancedMesh>
-      <instancedMesh ref={crown} args={[undefined, undefined, items.length]} castShadow>
-        <icosahedronGeometry args={[1.55, 0]} />
-        <meshStandardMaterial color={p.broadleaf} roughness={0.88} flatShading ref={applyNearFade} />
+      <instancedMesh ref={crown} args={[undefined, undefined, items.length]} geometry={broadCrownGeom} castShadow>
+        <meshStandardMaterial color="#ffffff" roughness={0.88} flatShading ref={applyNearFade} />
       </instancedMesh>
     </>
   );
@@ -256,10 +342,15 @@ export function Reeds() {
     [],
   );
   const ref = useInstances(items, () => 0.5);
+  const colorOf = useMemo(
+    () => (q: Placement) => jitteredColor(p.reed, q.x, q.z, 0.010, 0.08, 0.10),
+    [p],
+  );
+  useInstanceColors(ref, items, colorOf);
   return (
     <instancedMesh ref={ref} args={[undefined, undefined, items.length]}>
       <coneGeometry args={[0.30, 1.5, 4]} />
-      <meshStandardMaterial color={p.reed} roughness={0.95} />
+      <meshStandardMaterial color="#ffffff" roughness={0.95} />
     </instancedMesh>
   );
 }
@@ -279,10 +370,16 @@ export function Rocks() {
   );
   const ref = useInstances(items, () => 0.2);
   useBlockers('rock', items, 0.52, 0.85, 1.10);
+  // 石頭只抖明度不抖色相 —— 花崗岩的深深淺淺是風化,不是染色
+  const colorOf = useMemo(
+    () => (q: Placement) => jitteredColor(p.rock, q.x, q.z, 0.004, 0.05, 0.13),
+    [p],
+  );
+  useInstanceColors(ref, items, colorOf);
   return (
     <instancedMesh ref={ref} args={[undefined, undefined, items.length]} castShadow receiveShadow>
       <dodecahedronGeometry args={[0.9, 0]} />
-      <meshStandardMaterial color={p.rock} roughness={0.95} flatShading />
+      <meshStandardMaterial color="#ffffff" roughness={0.95} flatShading />
     </instancedMesh>
   );
 }
@@ -306,6 +403,11 @@ export function Bamboo() {
   );
   const culm = useInstances(items, () => 2.1);
   const leaf = useInstances(items, () => 4.15);
+  const colorOf = useMemo(
+    () => (q: Placement) => jitteredColor(p.bamboo, q.x, q.z, 0.014, 0.10, 0.10),
+    [p],
+  );
+  useInstanceColors(leaf, items, colorOf);
   return (
     <>
       <instancedMesh ref={culm} args={[undefined, undefined, items.length]} castShadow>
@@ -314,7 +416,7 @@ export function Bamboo() {
       </instancedMesh>
       <instancedMesh ref={leaf} args={[undefined, undefined, items.length]} castShadow>
         <coneGeometry args={[0.62, 1.9, 5]} />
-        <meshStandardMaterial color={p.bamboo} roughness={0.88} flatShading ref={applyNearFade} />
+        <meshStandardMaterial color="#ffffff" roughness={0.88} flatShading ref={applyNearFade} />
       </instancedMesh>
     </>
   );
@@ -338,15 +440,19 @@ export function Willows() {
   const trunk = useInstances(items, () => 1.05);
   useBlockers('willow', items, 0.28, 1.35, 4.00);
   const crown = useInstances(items, () => 2.55);
+  const colorOf = useMemo(
+    () => (q: Placement) => jitteredColor(p.willow, q.x, q.z, 0.014, 0.10, 0.10),
+    [p],
+  );
+  useInstanceColors(crown, items, colorOf);
   return (
     <>
       <instancedMesh ref={trunk} args={[undefined, undefined, items.length]} castShadow>
         <cylinderGeometry args={[0.18, 0.30, 2.4, 6]} />
         <meshStandardMaterial color="#4a3826" roughness={0.94} ref={applyNearFade} />
       </instancedMesh>
-      <instancedMesh ref={crown} args={[undefined, undefined, items.length]} castShadow>
-        <sphereGeometry args={[1.45, 8, 6]} />
-        <meshStandardMaterial color={p.willow} roughness={0.9} flatShading ref={applyNearFade} />
+      <instancedMesh ref={crown} args={[undefined, undefined, items.length]} geometry={willowCrownGeom} castShadow>
+        <meshStandardMaterial color="#ffffff" roughness={0.9} flatShading ref={applyNearFade} />
       </instancedMesh>
     </>
   );

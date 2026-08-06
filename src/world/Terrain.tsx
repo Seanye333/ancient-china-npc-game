@@ -33,6 +33,11 @@ export function Terrain() {
     // 高度與坡度是四季共用的,只算一次 — 否則四套顏色要跑四遍 slopeAt
     const hs = new Float32Array(n);
     const ss = new Float32Array(n);
+    // 色彩打散也是四季共用的:斑塊(低頻)讓草地和枯草互滲成一塊塊,
+    // 顆粒(高頻)給每個頂點一點明度差 —— 少了這兩層,地表就是一整張
+    // 平色的塑料布,螢幕截圖裡最「假」的就是它
+    const patch = new Float32Array(n);
+    const grain = new Float32Array(n);
     for (let i = 0; i < n; i++) {
       const x = pos.getX(i);
       const z = pos.getZ(i);
@@ -40,6 +45,10 @@ export function Terrain() {
       pos.setY(i, y);
       hs[i] = y;
       ss[i] = slopeAt(x, z);
+      patch[i] = 0.5 + 0.5 * Math.sin(x * 0.085 + Math.sin(z * 0.047) * 2.3)
+        * Math.sin(z * 0.071 + Math.sin(x * 0.039) * 1.9);
+      const h = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453;
+      grain[i] = h - Math.floor(h);
     }
     pos.needsUpdate = true;
     g.computeVertexNormals();
@@ -54,12 +63,14 @@ export function Terrain() {
         const sl = ss[i];
         c.copy(p.grass);
         c.lerp(p.dry, smoothstep(6, 26, y));
+        c.lerp(p.dry, patch[i] * 0.30);            // 低地也有一塊塊的枯黃
         c.lerp(p.silt, smoothstep(1.6, -1.4, y));
         c.lerp(p.rock, smoothstep(0.34, 0.70, sl));
         c.lerp(p.snow, smoothstep(p.snowLo, p.snowHi, y) * (1 - sl * 0.5));
-        arr[i * 3] = c.r;
-        arr[i * 3 + 1] = c.g;
-        arr[i * 3 + 2] = c.b;
+        const v = 0.94 + grain[i] * 0.12;          // 顆粒:±6% 明度
+        arr[i * 3] = c.r * v;
+        arr[i * 3 + 1] = c.g * v;
+        arr[i * 3 + 2] = c.b * v;
       }
       sets[s] = new THREE.BufferAttribute(arr, 3);
     }
