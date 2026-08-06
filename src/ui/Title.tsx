@@ -6,6 +6,7 @@ import { useClock } from '../world/worldTime';
 import { useJournal } from '../game/journal';
 import { hasSave, loadGame, savedAt } from '../game/save';
 import { startAudio } from '../game/audio';
+import { ORIGIN_WEAPON, WEAPONS } from '../game/weapons';
 
 /**
  * 開場。
@@ -32,6 +33,7 @@ export function Title({ onStart }: { onStart: () => void }) {
       gold: o.gold,
       grain: o.grain,
       renown: o.renown,
+      weapon: ORIGIN_WEAPON[o.id] ?? 'club',
       lodging: o.lodging,
       rentPaidThrough: o.lodging === 'rented' ? 10 : 0,
       merit: 0, retinue: 0, followers: [], favors: {}, wounded: 0, toil: 0,
@@ -102,7 +104,8 @@ export function Title({ onStart }: { onStart: () => void }) {
                 fontSize: '.74rem', opacity: .62, marginTop: '.2rem',
                 fontVariantNumeric: 'tabular-nums',
               }}>
-                錢 {o.gold} · 糧 {o.grain} 石 · {LODGE[o.lodging]}
+                錢 {o.gold} · 糧 {o.grain} 石 · {WEAPONS[ORIGIN_WEAPON[o.id] ?? 'club'].name}
+                {' · '}{LODGE[o.lodging]}
                 <span style={{ color: o.renown < 0 ? '#d07862' : o.renown > 5 ? '#a8d4b4' : undefined }}>
                   {' · '}鄉望 {o.renown > 0 ? '+' : ''}{o.renown}
                 </span>

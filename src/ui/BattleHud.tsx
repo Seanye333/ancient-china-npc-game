@@ -8,6 +8,7 @@ import { useClock } from '../world/worldTime';
 import { note } from '../game/journal';
 import { useQuest } from '../game/quest';
 import { convoy, endConvoy, lossPenalty } from '../game/convoy';
+import { endLife } from '../game/daily';
 import { useHero } from '../game/hero';
 import { useVillage } from '../game/village';
 import { anyPerson } from '../game/countyfolk';
@@ -29,6 +30,8 @@ const wrap: CSSProperties = {
 
 export function BattleHud() {
   const bandId = useBattle((s) => s.bandId);
+  const sparring = useBattle((s) => s.sparring);
+  const sparWith = useBattle((s) => s.sparWith);
   const tally = useBattle((s) => s.tally);
   const clear = useBattle((s) => s.clear);
   const bands = useBands((s) => s.bands);
@@ -46,6 +49,46 @@ export function BattleHud() {
   const near = bands.find(
     (b) => !b.routed && Math.hypot(b.x - playerPos.x, b.z - playerPos.z) < 46,
   );
+
+  /*
+   * 帶傷出門又被打倒 —— 這一趟沒能回來。
+   *
+   * 第一次倒下是重傷擊昏(掉錢、養三旬);<b>傷還沒好又倒一次,就是死</b>。
+   * 這一條讓 wounded 不再只是「幾旬不能動」的計時器,而是一句實話:
+   * 你現在出門,是在賭命。
+   *
+   * 判定放在收場出現的<b>那一刻</b>,不放在按鈕裡:第一版放在「撐起身子」的
+   * onClose —— 於是畫面先給你看「再睜眼時人已經在路邊」,點了按鈕才突然死。
+   * 死不能是按鈕的副作用。
+   */
+  useEffect(() => {
+    if (!tally || sparring) return;
+    if (tally.playerDown && useHero.getState().wounded > 0) {
+      endLife('slain', useClock.getState().day);
+      clear();
+    }
+  }, [tally, sparring, clear]);
+
+  if (tally && sparring) {
+    const foe = sparWith ? anyPerson(sparWith) : null;
+    return (
+      <SparAftermath
+        won={tally.won}
+        name={foe?.name ?? '那位'}
+        onClose={() => {
+          if (tally.won) {
+            // 贏了漲的是鄉望 —— 全村都看見你把人放倒了;
+            // 對手自己反而服你(直脾氣的世界,打得過就是道理)
+            useHero.setState((s) => ({ renown: s.renown + 3 }));
+            if (sparWith) hero.addFavor(sparWith, 1);
+          } else {
+            useHero.setState((s) => ({ toil: Math.min(12, s.toil + 2) }));
+          }
+          clear();
+        }}
+      />
+    );
+  }
 
   if (tally) {
     const band = bands.find((b) => b.id === bandId);
@@ -158,6 +201,44 @@ export function BattleHud() {
   }
 
   return null;
+}
+
+/** 切磋的收場 —— 沒有戰利品欄,只有一句話和一個台階。 */
+function SparAftermath(p: { won: boolean; name: string; onClose: () => void }) {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, display: 'grid', placeItems: 'center',
+      background: 'rgba(8,9,12,.5)', backdropFilter: 'blur(2px)',
+      color: '#e6e2d8', fontFamily: '"PingFang SC","Hiragino Sans GB",system-ui,sans-serif',
+      zIndex: 30,
+    }}>
+      <div style={{
+        width: 'min(420px, calc(100vw - 3rem))',
+        background: 'rgba(14,17,22,.94)', border: '1px solid rgba(255,255,255,.16)',
+        padding: '1.3rem 1.4rem', display: 'flex', flexDirection: 'column', gap: '.8rem',
+      }}>
+        <strong style={{ fontSize: '1.2rem', letterSpacing: '.08em' }}>
+          {p.won ? '點到為止' : '技不如人'}
+        </strong>
+        <p style={{ margin: 0, fontSize: '.92rem', lineHeight: 1.8, opacity: .88 }}>
+          {p.won
+            ? `${p.name}坐在地上喘了半天,忽然笑了:「好手段。」圍著看的人都記住了這一場。`
+            : `${p.name}收了棍,伸手把你拉起來:「承讓。再練練。」腰背疼了半日。`}
+        </p>
+        <button
+          onClick={p.onClose}
+          style={{
+            padding: '.5rem 1rem', cursor: 'pointer',
+            background: 'rgba(255,255,255,.08)', color: '#e6e2d8',
+            border: '1px solid rgba(255,255,255,.24)',
+            fontFamily: 'inherit', fontSize: '.9rem',
+          }}
+        >
+          {p.won ? '扶他起來' : '拍拍土站起來'}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 /**

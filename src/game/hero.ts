@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Lodging } from './economy';
+import type { WeaponId } from './weapons';
 
 /**
  * 主角 — 這個遊戲的狀態以<b>一個人</b>為中心,不是以勢力為中心。
@@ -78,6 +79,8 @@ interface HeroState {
    * 招人不是白撿的戰力,每多一個名字冬天就早來一天。
    */
   grain: number;
+  /** 手上的傢伙 —— 就一件,換了就是舊的不要了。 */
+  weapon: WeaponId;
   /** 有沒有片瓦遮頭。睡得好不好、東西會不會被摸走,都看它。 */
   lodging: Lodging;
   /** 租金付到第幾天為止。到期沒錢就被趕出去。 */
@@ -129,6 +132,7 @@ export const useHero = create<HeroState>((set, get) => ({
   merit: 0,
   gold: 30,
   grain: 2,
+  weapon: 'club',
   lodging: 'none',
   rentPaidThrough: 0,
   toil: 0,

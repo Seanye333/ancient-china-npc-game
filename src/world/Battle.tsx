@@ -12,6 +12,7 @@ import { useQuest } from '../game/quest';
 import { lifeTally } from '../game/daily';
 import { useClock } from './worldTime';
 import { swingSound, hitSound, hurtSound } from '../game/audio';
+import { WEAPONS } from '../game/weapons';
 import { makeVillagers, might } from '../game/npcs';
 import {
   fighters, beginBattle, stepBattle, battleOver, playerStrike, useBattle,
@@ -45,7 +46,10 @@ function ourSide(
   byId: Record<string, ReturnType<typeof makeVillagers>[number]>,
 ) {
   return [
-    { id: 'you', name: hero.name, war: hero.stats.war, isPlayer: true },
+    {
+      id: 'you', name: hero.name, war: hero.stats.war, isPlayer: true,
+      weapon: WEAPONS[hero.weapon],
+    },
     ...hero.followers.map((id) => ({
       id: `mate-${id}`, npcId: id,
       name: byId[id]?.name ?? '同行', war: byId[id] ? might(byId[id]) : 40,
@@ -130,7 +134,8 @@ export function Battle() {
       const hero = useHero.getState();
       beginBattle({
         ours: [
-          { id: 'you', name: hero.name, war: hero.stats.war, isPlayer: true },
+          { id: 'you', name: hero.name, war: hero.stats.war, isPlayer: true,
+            weapon: WEAPONS[hero.weapon] },
           ...hero.followers.map((id) => ({
             id: `mate-${id}`, npcId: id,
             name: byId[id]?.name ?? '同行', war: byId[id] ? might(byId[id]) : 40,
@@ -234,6 +239,7 @@ export function Battle() {
    */
   useEffect(() => {
     if (!tally || !bandId) return;
+    if (useBattle.getState().sparring) return;   // 切磋 —— 世界不動,帳不記
 
     /*
      * 打的是下山那一夥:窩還在,但出來的這幾個是從窩裡出來的,窩就該少這麼多人。

@@ -14,7 +14,7 @@ import { useRefugees, refugeeRoll, REFUGEE_STAY } from './refugees';
 import { useQuest } from './quest';
 import { moodOf, grumble, isGrieving } from './company';
 import { anyPerson } from './countyfolk';
-import { checkEnding, useEnding } from './ending';
+import { checkEnding, useEnding, type EndingKind } from './ending';
 import { playerPos } from './interact';
 import { MARKET } from '../world/sites';
 import {
@@ -454,7 +454,6 @@ export function settleDay(day: number, season: Season): DayReport {
    */
   {
     const h = useHero.getState();
-    const nameOf = (id: string) => anyPerson(id)?.name ?? '某人';
     const kind = checkEnding({
       starvingDays: lifeTally.starvingDays,
       sickDays: lifeTally.sickDays,
@@ -464,16 +463,7 @@ export function settleDay(day: number, season: Season): DayReport {
       gold: h.gold,
       bandsCleared: lifeTally.bandsCleared,
     });
-    if (kind && !useEnding.getState().life) {
-      useEnding.getState().end({
-        kind, days: day, merit: h.merit, renown: h.renown, gold: h.gold,
-        lodging: h.lodging,
-        companions: [...lifeTally.companions].map(nameOf),
-        lost: [...lifeTally.lost].map(nameOf),
-        bandsCleared: lifeTally.bandsCleared,
-        errandsDone: lifeTally.errandsDone,
-      });
-    }
+    if (kind && !useEnding.getState().life) endLife(kind, day);
   }
 
   /* 旬首報一次日子,讓玩家對得上曆法 */
@@ -483,6 +473,25 @@ export function settleDay(day: number, season: Season): DayReport {
   }
 
   return report;
+}
+
+/**
+ * 就此收場 —— 把一生的流水帳結成一頁生平。
+ *
+ * 抽出來是因為收場有兩種來路:每天結算查出來的(餓、病、功成),
+ * 和<b>當場發生的</b>(戰死)。兩邊要長出同一頁,就只能有一份結法。
+ */
+export function endLife(kind: EndingKind, day: number) {
+  const h = useHero.getState();
+  const nameOf = (id: string) => anyPerson(id)?.name ?? '某人';
+  useEnding.getState().end({
+    kind, days: day, merit: h.merit, renown: h.renown, gold: h.gold,
+    lodging: h.lodging,
+    companions: [...lifeTally.companions].map(nameOf),
+    lost: [...lifeTally.lost].map(nameOf),
+    bandsCleared: lifeTally.bandsCleared,
+    errandsDone: lifeTally.errandsDone,
+  });
 }
 
 /** 給 UI 的一句話:糧還夠幾天。 */

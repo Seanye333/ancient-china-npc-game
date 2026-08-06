@@ -56,6 +56,10 @@ export interface Fighter {
    * 我的測試少了一個人,不是遊戲難。
    */
   driven: boolean;
+  /** 兵器夠得著的距離。人各一把 —— 拳腳要貼上去,矛隔一步就戳得到。 */
+  reach: number;
+  /** 兵器的傷害係數。 */
+  dmgMul: number;
   /** 最後一次挨打的時刻,用來閃紅。 */
   hurtAt: number;
 }
@@ -124,6 +128,8 @@ export interface Recruit {
   isPlayer?: boolean;
   /** 由外面推嗎。省略時等同 isPlayer —— 真人在鍵盤那頭是常態,空跑的場子才要另說。 */
   driven?: boolean;
+  /** 手上的傢伙。省略 = 尋常的刀(1.35 / 1.0)。 */
+  weapon?: { reach: number; dmgMul: number };
 }
 
 /**
@@ -156,6 +162,7 @@ export function beginBattle(input: {
       x, z, y: ground(x, z), yaw: toBand,
       war: r.war, morale: 30 + (input.leadership ?? 50) * 0.25, isPlayer: !!r.isPlayer,
       driven: r.driven ?? !!r.isPlayer,
+      reach: r.weapon?.reach ?? REACH, dmgMul: r.weapon?.dmgMul ?? 1,
     }));
   });
 
@@ -171,6 +178,7 @@ export function beginBattle(input: {
       id: `${band.id}-${i}`, side: 'foe', name: chief ? '賊首' : '山賊',
       chief, x, z, y: ground(x, z), yaw: toBand + Math.PI,
       war, morale: 26 + band.fierce * 24 + (chief ? 18 : 0), isPlayer: false, driven: false,
+      reach: REACH, dmgMul: 1,
     }));
   }
   useBattle.getState().open(band.id);
@@ -180,6 +188,7 @@ function mk(p: {
   id: string; side: Side; name: string; npcId?: string; chief?: boolean;
   x: number; y: number; z: number; yaw: number;
   war: number; morale: number; isPlayer: boolean; driven: boolean;
+  reach: number; dmgMul: number;
 }): Fighter {
   // 主角厚一點 —— 這個遊戲裡你可以輸,但不該在看清楚發生什麼之前就倒下
   const hp = 42 + p.war * 0.38 + (p.isPlayer ? 16 : 0);
@@ -261,8 +270,8 @@ export function stepBattle(
     // 真人自己走位,不由這裡推
     if (!f.driven) {
       f.yaw = Math.atan2(dx, dz);
-      if (d > REACH) {
-        const step = Math.min(MOVE * dt, d - REACH * 0.8);
+      if (d > f.reach) {
+        const step = Math.min(MOVE * dt, d - f.reach * 0.8);
         const got = slide(f.x, f.z, f.x + (dx / d) * step, f.z + (dz / d) * step);
         f.x = got.x; f.z = got.z; f.y = ground(f.x, f.z);
         f.stance = 'closing';
@@ -333,13 +342,22 @@ export function playerStrike(id: string): boolean {
 function resolveStrike(f: Fighter) {
   const tgt = f.isPlayer ? inFront(f) : (f.targetId ? fighterAt(f.targetId) : null);
   if (!tgt || !alive(tgt)) return;
-  if (Math.hypot(tgt.x - f.x, tgt.z - f.z) > REACH * 1.5) return;
+  if (Math.hypot(tgt.x - f.x, tgt.z - f.z) > f.reach * 1.5) return;
 
   const crowd = Math.min(SURROUND_CAP, attackersOn(tgt, f.id) * SURROUND_PENALTY);
-  const chance = clampf(0.44 + (f.war - tgt.war) / 190 + crowd, 0.15, 0.90);
+  /*
+   * 一寸長一寸強 —— 長兵的優勢做在<b>命中</b>上,不是傷害上。
+   *
+   * 第一版只給矛加了 reach,空跑五十場矛 23 勝、刀 32 勝:接近時多戳到的
+   * 那零點一五秒,貼身以後全還回去了 —— 這個模型裡沒有「拒止」,
+   * reach 只是白佔一個格子。拿短傢伙的人得先擠進來才打得到,
+   * 這件事就是命中率:對面的桿子比你的長,你每一下都是冒著戳臉遞進去的。
+   */
+  const reachEdge = (f.reach - tgt.reach) * 0.22;
+  const chance = clampf(0.44 + (f.war - tgt.war) / 190 + crowd + reachEdge, 0.15, 0.90);
   if (rand() > chance) return;
 
-  const dmg = (6.5 + f.war * 0.10) * (0.75 + rand() * 0.6);
+  const dmg = (6.5 + f.war * 0.10) * f.dmgMul * (0.75 + rand() * 0.6);
   lastBlow = clock;
   tgt.hp -= dmg;
   tgt.hurtAt = clock;
@@ -362,7 +380,7 @@ function inFront(f: Fighter): Fighter | null {
     if (g.side === f.side || !alive(g)) continue;
     const dx = g.x - f.x, dz = g.z - f.z;
     const d = Math.hypot(dx, dz);
-    if (d > REACH * 1.6) continue;
+    if (d > f.reach * 1.6) continue;
     const ang = Math.abs(wrapPi(Math.atan2(dx, dz) - f.yaw));
     if (ang > 0.87) continue;
     if (d < bestD) { bestD = d; best = g; }
@@ -461,6 +479,16 @@ const wrapPi = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 interface BattleState {
   /** 正在打的那夥人的 id,null = 沒在打。 */
   bandId: string | null;
+  /**
+   * 切磋 —— 點到為止的打。
+   *
+   * 和真打共用整個戰鬥系統(走位、揮刀、士氣、姿態全部一樣),
+   * 只在<b>收場</b>那一刻分岔:沒有戰利品、沒有折損、輸了不掉錢不受傷。
+   * 對面認輸(逃)或倒地都算分出勝負 —— 倒地在切磋裡是「被放倒」,不是死。
+   */
+  sparring: boolean;
+  /** 切磋的對手(npcId)—— 收場要記人情。 */
+  sparWith: string | null;
   tally: BattleTally | null;
   open: (bandId: string) => void;
   finish: (t: BattleTally) => void;
@@ -469,8 +497,43 @@ interface BattleState {
 
 export const useBattle = create<BattleState>((set) => ({
   bandId: null,
+  sparring: false,
+  sparWith: null,
   tally: null,
-  open: (bandId) => set({ bandId, tally: null }),
+  open: (bandId) => set({ bandId, tally: null, sparring: false, sparWith: null }),
   finish: (tally) => set({ tally }),
-  clear: () => { fighters.length = 0; set({ bandId: null, tally: null }); },
+  clear: () => {
+    fighters.length = 0;
+    set({ bandId: null, tally: null, sparring: false, sparWith: null });
+  },
 }));
+
+/**
+ * 開一場切磋。單挑 —— 你的人不上,他的臉面也不許別人上。
+ */
+export function beginSpar(input: {
+  me: { name: string; war: number; weapon?: { reach: number; dmgMul: number } };
+  foe: { npcId: string; name: string; war: number };
+  at: { x: number; z: number };
+  ground: (x: number, z: number) => number;
+}) {
+  rand = Math.random;
+  clock = 0;
+  lastBlow = 0;
+  fighters.length = 0;
+  const { at, ground } = input;
+  fighters.push(mk({
+    id: 'you', side: 'you', name: input.me.name,
+    x: at.x, z: at.z, y: ground(at.x, at.z), yaw: 0,
+    war: input.me.war, morale: 60, isPlayer: true, driven: true,
+    reach: input.me.weapon?.reach ?? REACH, dmgMul: input.me.weapon?.dmgMul ?? 1,
+  }));
+  const fx = at.x + 4, fz = at.z + 3;
+  fighters.push(mk({
+    id: `spar-${input.foe.npcId}`, side: 'foe', name: input.foe.name, npcId: input.foe.npcId,
+    x: fx, z: fz, y: ground(fx, fz), yaw: Math.PI,
+    war: input.foe.war, morale: 46, isPlayer: false, driven: false,
+    reach: REACH, dmgMul: 0.85,          // 切磋拿的是棍,不是刀
+  }));
+  useBattle.setState({ bandId: 'spar', tally: null, sparring: true, sparWith: input.foe.npcId });
+}

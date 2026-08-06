@@ -19,6 +19,7 @@ import { countyPrice, INN_PRICE } from '../game/economy';
 import { petition, PETITION_COST, bountyTarget, bountyPay, bountyMerit } from '../game/yamen';
 import { useRefugees, takeWord } from '../game/refugees';
 import { useMarauders } from '../game/marauders';
+import { WEAPONS, type WeaponId } from '../game/weapons';
 import { useQuest } from '../game/quest';
 import { menNeeded } from '../game/errands';
 import { bandWord } from '../game/bands';
@@ -121,6 +122,21 @@ export function PlacePanel() {
                 onClick={() => setQty(n)}>{n}</button>
             ))}
           </div>
+          {/* 鐵器只有縣城有 —— 村裡的市集打不出一口刀 */}
+          {(Object.values(WEAPONS) as Array<typeof WEAPONS[WeaponId]>)
+            .filter((w) => w.price > 0 && (inCounty || !w.countyOnly) && w.id !== hero.weapon)
+            .map((w) => (
+              <button key={w.id} style={hero.gold >= w.price ? btn : dim} onClick={() => {
+                if (!hero.spend(w.price)) { setLine('錢不夠。'); return; }
+                useHero.setState({ weapon: w.id });
+                setLine(`${w.name}到手。舊的那件,就留在攤上了。`);
+                note(day, `買了${w.name} · ${w.price} 錢`);
+              }}>
+                買{w.name} · {w.price} 錢
+                <span style={{ opacity: .55 }}> · {w.word}</span>
+              </button>
+            ))}
+
           {/*
             賑濟 —— 散糧換不到一個銅錢,換到的是全村都知道你在最難的時候
             拿出了東西。對一個要靠人過日子的白身來說,那比糧值錢。

@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { terrainHeight, groundAt, slideMove, steerMove, viewBlocked, walkable } from './field';
-import { bodyGeom, headGeom, FIG_BODY_H } from './figure';
+import { bodyGeom, headGeom, FIG_BODY_H, FIG_HR } from './figure';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { setSightTarget } from './Vegetation';
 import { findPath } from './nav';
 import { stepSound } from '../game/audio';
@@ -10,6 +11,7 @@ import { meanderAt } from './sites';
 import { useHero } from '../game/hero';
 import { playerPos, useInteract, warp } from '../game/interact';
 import { fighters, alive } from '../game/combat';
+import { WEAPONS } from '../game/weapons';
 
 /**
  * 你 — 這個世界裡第一個由玩家推動的人。
@@ -43,10 +45,42 @@ export function Player() {
   // 說話的時候人得站住 —— 邊走邊聊會把對方甩在身後
   const talking = useInteract((s) => s.talkingTo);
 
+  const weapon = useHero((s) => s.weapon);
   const geom = useMemo(() => ({
     body: bodyGeom(new THREE.Color('#3f5568')),
     head: headGeom(false),
   }), []);
+
+  /**
+   * 手上那件傢伙 —— 打起來才亮出來。
+   *
+   * 平時走路不掛兵器是刻意的:白身在村裡拎著刀晃,那個畫面不對;
+   * 接戰的那一刻它出現在手上,「要打了」這件事就不必用文字說。
+   */
+  const weaponGeom = useMemo(() => {
+    const w = WEAPONS[weapon];
+    if (w.id === 'fists') return null;
+    if (w.id === 'spear') {
+      const g = new THREE.CylinderGeometry(0.035, 0.045, 2.7, 6);
+      g.translate(0, 0.9, 0);
+      const tip = new THREE.ConeGeometry(0.06, 0.3, 6);
+      tip.translate(0, 2.4, 0);
+      return mergeGeometries([g, tip], false)!;
+    }
+    if (w.id === 'club') {
+      const g = new THREE.CylinderGeometry(0.05, 0.075, 1.1, 6);
+      g.translate(0, 0.4, 0);
+      return g;
+    }
+    const blade = new THREE.BoxGeometry(0.05, 0.56, 0.115);
+    blade.translate(0, 0.42, 0.012);
+    const guard = new THREE.BoxGeometry(0.14, 0.045, 0.14);
+    guard.translate(0, 0.14, 0);
+    const grip = new THREE.BoxGeometry(0.045, 0.16, 0.05);
+    grip.translate(0, 0.05, 0);
+    return mergeGeometries([blade, guard, grip], false)!;
+  }, [weapon]);
+  const weaponRef = useRef<THREE.Mesh>(null);
 
   const bodyRef = useRef<THREE.Mesh>(null);
   const headRef = useRef<THREE.Mesh>(null);
@@ -265,6 +299,17 @@ export function Player() {
       headRef.current.position.set(m.x, m.y + bob + FIG_BODY_H * 0.99, m.z);
       headRef.current.rotation.set(0, m.yaw, sway * 0.6);
     }
+    if (weaponRef.current) {
+      const fighting = fighters.length > 0;
+      weaponRef.current.visible = fighting;
+      if (fighting) {
+        // 掛在右手上,跟著身子轉
+        const hx = m.x + Math.cos(m.yaw) * FIG_HR * 0.92 - Math.sin(m.yaw) * (-FIG_HR * 0.12);
+        const hz = m.z - Math.sin(m.yaw) * FIG_HR * 0.92 - Math.cos(m.yaw) * (-FIG_HR * 0.12);
+        weaponRef.current.position.set(hx, m.y + bob + FIG_BODY_H * 0.32, hz);
+        weaponRef.current.rotation.set(-0.85, m.yaw, 0.2);
+      }
+    }
 
     /**
      * 鏡頭跟隨。第三人稱最常見的破綻就是鏡頭埋進東西裡,所以這裡不是
@@ -379,6 +424,15 @@ export function Player() {
       <mesh ref={headRef} geometry={geom.head} castShadow>
         <meshStandardMaterial vertexColors roughness={0.62} />
       </mesh>
+      {weaponGeom && (
+        <mesh ref={weaponRef} geometry={weaponGeom} visible={false} castShadow>
+          <meshStandardMaterial
+            color={weapon === 'club' ? '#6b4a2c' : '#9aa0a6'}
+            roughness={weapon === 'club' ? 0.85 : 0.42}
+            metalness={weapon === 'club' ? 0 : 0.55}
+          />
+        </mesh>
+      )}
     </>
   );
 }

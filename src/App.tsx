@@ -46,6 +46,7 @@ import { placeById } from './game/places';
 import { DOCKS } from './world/sites';
 import { useJournal } from './game/journal';
 import { originById } from './game/origin';
+import { ORIGIN_WEAPON } from './game/weapons';
 import { updateAmbience, isMuted, audioReady } from './game/audio';
 import { useEnding } from './game/ending';
 import { findPath, navStats, navOpen } from './world/nav';
@@ -258,6 +259,7 @@ export default function App() {
         useHero.setState({
           name: '無名', hometown: o.hometown, stats: { ...o.stats },
           gold: o.gold, grain: o.grain, renown: o.renown, lodging: o.lodging,
+          weapon: ORIGIN_WEAPON[o.id] ?? 'club',
         });
       }
       useClock.setState({ auto: true });

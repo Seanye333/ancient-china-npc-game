@@ -16,11 +16,12 @@ import { partsFor, numberWord } from './calendar';
  * 它該像其它結局一樣,給你一份生平。
  */
 
-export type EndingKind = 'starved' | 'sick' | 'rooted' | 'summoned' | 'renowned';
+export type EndingKind = 'starved' | 'sick' | 'slain' | 'rooted' | 'summoned' | 'renowned';
 
 export const ENDING_TITLE: Record<EndingKind, string> = {
   starved: '餓殍',
   sick: '病歿',
+  slain: '陣歿',
   rooted: '安身',
   summoned: '出谷',
   renowned: '名動一鄉',
@@ -91,6 +92,9 @@ export function epitaph(life: Life): string {
     case 'sick':
       return `${span}。病了半個多月,沒能起來。`
         + `${life.companions.length ? '跟過你的人替你收了屍。' : '沒有人替你收屍。'}`;
+    case 'slain':
+      return `${span}。傷還沒好,又提刀出了門 —— 這一趟沒能回來。`
+        + `亂世裡提刀的人,多半是這個下場;差別只在有沒有人記得名字。`;
     case 'rooted':
       return `${span},終於有了一間自己的屋子。`
         + `這不是什麼了不起的事 —— 可是對一個白身來說,在一個縣裡站住腳,`
@@ -132,7 +136,7 @@ export const useEnding = create<EndingState>((set) => ({
 
 /** 敗亡沒得推,好下場才有得選。 */
 export function isFatal(k: EndingKind): boolean {
-  return k === 'starved' || k === 'sick';
+  return k === 'starved' || k === 'sick' || k === 'slain';
 }
 
 /* ── 眼下該做的事 ──────────────────────────────────── */

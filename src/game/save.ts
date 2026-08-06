@@ -61,7 +61,7 @@ function heroSlice() {
   return {
     name: h.name, courtesy: h.courtesy, hometown: h.hometown,
     stats: h.stats, merit: h.merit, gold: h.gold, grain: h.grain,
-    retinue: h.retinue, followers: h.followers, renown: h.renown,
+    retinue: h.retinue, followers: h.followers, renown: h.renown, weapon: h.weapon,
     favors: h.favors, wounded: h.wounded,
     lodging: h.lodging, rentPaidThrough: h.rentPaidThrough, toil: h.toil,
   };

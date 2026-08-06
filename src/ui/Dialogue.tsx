@@ -14,6 +14,9 @@ import {
 } from '../game/npcs';
 import { useCalamity, CALAMITY_LABEL } from '../game/calamity';
 import { anyPerson, isCountyFolk } from '../game/countyfolk';
+import { beginSpar } from '../game/combat';
+import { might } from '../game/npcs';
+import { WEAPONS } from '../game/weapons';
 import { countyPrice } from '../game/economy';
 import { raidParties } from '../game/raids';
 import { kinWord } from '../game/kin';
@@ -324,6 +327,20 @@ export function Dialogue() {
             }}
           >
             {joined ? '已隨你左右' : '跟我走吧'}
+          </button>
+        )}
+        {/* 切磋 —— 怕事的不肯;比武是直脾氣世界的社交 */}
+        {!shown && !joined && npc.temper !== 'timid' && (
+          <button style={btn} onClick={() => {
+            beginSpar({
+              me: { name: hero.name, war: hero.stats.war, weapon: WEAPONS[hero.weapon] },
+              foe: { npcId: npc.id, name: npc.name, war: might(npc) },
+              at: { x: playerPos.x, z: playerPos.z },
+              ground: groundAt,
+            });
+            close();
+          }}>
+            切磋一場<span style={{ opacity: .55 }}> · 點到為止</span>
           </button>
         )}
         {!shown && joined && (
