@@ -23,7 +23,7 @@ import { FIG_BODY_H } from './figure';
  */
 const PLACE_VERB: Record<string, string> = {
   market: '糴糶', work: '做活', home: '歇息', tavern: '進去',
-  inn: '投宿', yamen: '進去', refugees: '上前',
+  inn: '投宿', yamen: '進去', refugees: '上前', fair: '湊過去',
 };
 
 export function Interaction() {

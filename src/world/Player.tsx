@@ -10,7 +10,7 @@ import { stepSound } from '../game/audio';
 import { meanderAt } from './sites';
 import { useHero } from '../game/hero';
 import { playerPos, useInteract, warp } from '../game/interact';
-import { fighters, alive } from '../game/combat';
+import { fighters, alive, fx } from '../game/combat';
 import { WEAPONS } from '../game/weapons';
 
 /**
@@ -414,6 +414,12 @@ export function Player() {
       tmp.look.set(m.x, m.y + 1.25, m.z);
     }
     camera.lookAt(tmp.look);
+    // 鏡頭震 —— 挨打晃得狠,砍中晃一絲。加在 lookAt 之後,鏡頭姿態算完才抖
+    if (fx.shake > 0.01) {
+      camera.position.x += (Math.random() - 0.5) * fx.shake * 0.22;
+      camera.position.y += (Math.random() - 0.5) * fx.shake * 0.16;
+      camera.rotation.z += (Math.random() - 0.5) * fx.shake * 0.012;
+    }
   });
 
   return (

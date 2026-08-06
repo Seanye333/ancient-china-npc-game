@@ -13,10 +13,11 @@ import { lifeTally } from '../game/daily';
 import { useClock } from './worldTime';
 import { swingSound, hitSound, hurtSound } from '../game/audio';
 import { WEAPONS } from '../game/weapons';
+import { note } from '../game/journal';
 import { makeVillagers, might } from '../game/npcs';
 import {
   fighters, beginBattle, stepBattle, battleOver, playerStrike, useBattle,
-  alive, type Fighter,
+  alive, fx, type Fighter,
 } from '../game/combat';
 
 /**
@@ -32,13 +33,15 @@ import {
 
 const ENGAGE = 18;
 /**
- * 天黑以後他們遠遠就盯上你了。
+ * 夜裡的規矩,一句話說得出口:<b>路上的賊看得遠,窩裡的賊在睡覺</b>。
  *
- * 這是「夜裡在野外是危險的」最便宜也最誠實的做法:不加一套夜間事件,
- * 只把察覺的距離拉開。於是「天要黑了,還去不去那趟」變成一個真的問題,
- * 而不是一句氣氛描寫。
+ * 下了山在走的那夥,夜裡打著火把、豎著耳朵 —— 三十步就盯上你;
+ * 蹲在窩裡的,火塘一滅各睡各的 —— 你摸到十一步他們才驚醒。
+ * 這一反一正,「天黑了」就從一句氣氛描寫變成一道選擇題:
+ * 夜路危險,可是夜襲正是時候。
  */
 const ENGAGE_NIGHT = 30;
+const CAMP_NIGHT = 11;
 
 /** 我方出陣的人 —— 蹲窩的和攔路的兩處都要,抽出來免得各寫一份走樣。 */
 function ourSide(
@@ -157,6 +160,9 @@ export function Battle() {
 
   useFrame((_, dt) => {
     const step = dt > 0.1 ? 0.1 : dt;
+    // 打擊感的衰減擺在這裡 —— 這個元件常駐,打完了殘餘的晃也要收得掉
+    fx.slow = Math.max(0, fx.slow - step);
+    fx.shake = Math.max(0, fx.shake - step * 2.2);
     const st = useBattle.getState();
 
     // 還沒開打:看看有沒有撞上哪一夥。
@@ -165,6 +171,7 @@ export function Battle() {
       const hr = useClock.getState().hour;
       const night = hr < 5.6 || hr > 19.2;
       const reach = night ? ENGAGE_NIGHT : ENGAGE;
+      const campReach = night ? CAMP_NIGHT : ENGAGE;
       for (const r of raidParties) {
         if (r.fighting) continue;
         if (Math.hypot(r.x - playerPos.x, r.z - playerPos.z) > reach) continue;
@@ -184,15 +191,23 @@ export function Battle() {
       }
       for (const b of bands) {
         if (b.routed) continue;
-        if (Math.hypot(b.x - playerPos.x, b.z - playerPos.z) > reach) continue;
+        if (Math.hypot(b.x - playerPos.x, b.z - playerPos.z) > campReach) continue;
         const hero = useHero.getState();
         engagedRaid.current = null;
+        // 夜襲不是白撿的:兇的窩會留哨 —— 哨醒著,這一場就是硬仗
+        const sleeping = night && Math.random() > 0.2 + b.fierce * 0.4;
         beginBattle({
           ours: ourSide(hero, byId),
           band: { id: b.id, x: b.x, z: b.z, fierce: b.fierce, count: b.count },
           at: { x: playerPos.x, z: playerPos.z }, ground: groundAt,
           leadership: hero.stats.leadership,
+          sleeping,
         });
+        if (night) {
+          note(useClock.getState().day, sleeping
+            ? `趁夜摸進了${b.name} —— 火塘只剩紅炭,他們還在睡。`
+            : `摸到${b.name}跟前,哨子的鑼先響了 —— 他們醒著!`, sleeping ? 'good' : 'bad');
+        }
         break;
       }
       return;
@@ -205,7 +220,8 @@ export function Battle() {
       me.x = playerPos.x; me.z = playerPos.z; me.y = playerPos.y; me.yaw = playerPos.yaw;
     }
 
-    stepBattle(step, groundAt, slideMove);
+    // 慢鏡只慢模擬,不慢你的手 —— 全場凝住而你還能動,那半秒就是「是我砍倒他的」
+    stepBattle(fx.slow > 0 ? step * 0.22 : step, groundAt, slideMove);
 
     const over = battleOver();
     if (over) finish(over);

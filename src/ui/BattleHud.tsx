@@ -9,6 +9,8 @@ import { note } from '../game/journal';
 import { useQuest } from '../game/quest';
 import { convoy, endConvoy, lossPenalty } from '../game/convoy';
 import { endLife } from '../game/daily';
+import { useFair, contenders, FAIR_PRIZE_GOLD, FAIR_PRIZE_RENOWN } from '../game/fair';
+import { festivalOn } from '../game/calendar';
 import { useHero } from '../game/hero';
 import { useVillage } from '../game/village';
 import { anyPerson } from '../game/countyfolk';
@@ -32,6 +34,7 @@ export function BattleHud() {
   const bandId = useBattle((s) => s.bandId);
   const sparring = useBattle((s) => s.sparring);
   const sparWith = useBattle((s) => s.sparWith);
+  const nightRaid = useBattle((s) => s.nightRaid);
   const tally = useBattle((s) => s.tally);
   const clear = useBattle((s) => s.clear);
   const bands = useBands((s) => s.bands);
@@ -71,17 +74,36 @@ export function BattleHud() {
 
   if (tally && sparring) {
     const foe = sparWith ? anyPerson(sparWith) : null;
+    // 這一場是不是擂台上的 —— 擂台的勝負要接回比武的輪次
+    const onStage = !!useFair.getState && festivalOn(useClock.getState().day) !== null
+      && !useFair.getState().out
+      && contenders(hero.followers).some((c) => c.id === sparWith);
     return (
       <SparAftermath
         won={tally.won}
         name={foe?.name ?? '那位'}
+        stage={onStage ? useFair.getState().round : null}
         onClose={() => {
           if (tally.won) {
-            // 贏了漲的是鄉望 —— 全村都看見你把人放倒了;
-            // 對手自己反而服你(直脾氣的世界,打得過就是道理)
-            useHero.setState((s) => ({ renown: s.renown + 3 }));
+            if (onStage) {
+              useFair.getState().advance();
+              const fair = useFair.getState();
+              if (fair.champion) {
+                hero.addGold(FAIR_PRIZE_GOLD);
+                useHero.setState((s) => ({ renown: s.renown + FAIR_PRIZE_RENOWN }));
+                note(useClock.getState().day,
+                  `三場全勝!彩頭 ${FAIR_PRIZE_GOLD} 錢捧回了家 —— 這個名字,半個縣都聽見了。`,
+                  'good');
+              } else {
+                // 台上贏一場,比私下切磋值錢 —— 全村看著
+                useHero.setState((s) => ({ renown: s.renown + 4 }));
+              }
+            } else {
+              useHero.setState((s) => ({ renown: s.renown + 3 }));
+            }
             if (sparWith) hero.addFavor(sparWith, 1);
           } else {
+            if (onStage) useFair.getState().fall();
             useHero.setState((s) => ({ toil: Math.min(12, s.toil + 2) }));
           }
           clear();
@@ -175,7 +197,7 @@ export function BattleHud() {
               <strong style={{ fontSize: '1.1rem', color: '#d08a72' }}>{foes}</strong></span>
           </div>
           <div style={{ marginTop: '.35rem', fontSize: '.78rem', opacity: .62 }}>
-            空白鍵 揮刀 · 打的是你面前那一片
+            {nightRaid ? '他們剛從夢裡爬起來 —— 趁現在' : '空白鍵 揮刀 · 打的是你面前那一片'}
           </div>
         </div>
       </>
@@ -194,7 +216,7 @@ export function BattleHud() {
         }}>
           <strong style={{ letterSpacing: '.06em' }}>{near.name}</strong>
           <span style={{ opacity: .6 }}> · {bandWord(near)} · {d} 步</span>
-          {night && <span style={{ color: '#d08a72' }}> · 天黑了,他們老遠就看得見你</span>}
+          {night && <span style={{ color: '#a8d4b4' }}> · 夜深了 —— 摸得夠近,他們還在睡</span>}
         </div>
       </div>
     );
@@ -204,7 +226,9 @@ export function BattleHud() {
 }
 
 /** 切磋的收場 —— 沒有戰利品欄,只有一句話和一個台階。 */
-function SparAftermath(p: { won: boolean; name: string; onClose: () => void }) {
+function SparAftermath(p: {
+  won: boolean; name: string; stage: number | null; onClose: () => void;
+}) {
   return (
     <div style={{
       position: 'fixed', inset: 0, display: 'grid', placeItems: 'center',
@@ -218,12 +242,18 @@ function SparAftermath(p: { won: boolean; name: string; onClose: () => void }) {
         padding: '1.3rem 1.4rem', display: 'flex', flexDirection: 'column', gap: '.8rem',
       }}>
         <strong style={{ fontSize: '1.2rem', letterSpacing: '.08em' }}>
-          {p.won ? '點到為止' : '技不如人'}
+          {p.stage !== null
+            ? (p.won ? `擂台第${['一', '二', '三'][p.stage]}場 · 勝` : '被打下台了')
+            : (p.won ? '點到為止' : '技不如人')}
         </strong>
         <p style={{ margin: 0, fontSize: '.92rem', lineHeight: 1.8, opacity: .88 }}>
-          {p.won
-            ? `${p.name}坐在地上喘了半天,忽然笑了:「好手段。」圍著看的人都記住了這一場。`
-            : `${p.name}收了棍,伸手把你拉起來:「承讓。再練練。」腰背疼了半日。`}
+          {p.stage !== null
+            ? (p.won
+              ? `${p.name}拱了拱手退下去。台下鬨起來 —— ${p.stage >= 2 ? '彩頭是你的了!' : '下一場的人已經在脫外衣。'}`
+              : `台下「嗐」了一聲。${p.name}把你扶到台邊:「明年再來。」`)
+            : p.won
+              ? `${p.name}坐在地上喘了半天,忽然笑了:「好手段。」圍著看的人都記住了這一場。`
+              : `${p.name}收了棍,伸手把你拉起來:「承讓。再練練。」腰背疼了半日。`}
         </p>
         <button
           onClick={p.onClose}

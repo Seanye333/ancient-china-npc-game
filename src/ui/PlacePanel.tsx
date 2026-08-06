@@ -20,6 +20,11 @@ import { petition, PETITION_COST, bountyTarget, bountyPay, bountyMerit } from '.
 import { useRefugees, takeWord } from '../game/refugees';
 import { useMarauders } from '../game/marauders';
 import { WEAPONS, type WeaponId } from '../game/weapons';
+import { useFair, contenders } from '../game/fair';
+import { beginSpar } from '../game/combat';
+import { might, mightWord } from '../game/npcs';
+import { playerPos as heroPos } from '../game/interact';
+import { groundAt } from '../world/field';
 import { useQuest } from '../game/quest';
 import { menNeeded } from '../game/errands';
 import { bandWord } from '../game/bands';
@@ -289,6 +294,28 @@ export function PlacePanel() {
 
       {place.kind === 'inn' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+          {/*
+            猜枚 —— 快、蠢、但真能翻本。
+            勝率四成五:閒漢的手總比你的眼快一點,可他給雙倍 ——
+            這桌賭局誠實地寫在按鈕上,坑不坑得起是你的事。
+          */}
+          {[5, 20].map((bet) => (
+            <button key={bet} style={hero.gold >= bet ? btn : dim} onClick={() => {
+              if (!hero.spend(bet)) { setLine('陸小乙撇撇嘴:「錢呢?」'); return; }
+              advance(0.5);
+              if (Math.random() < 0.45) {
+                hero.addGold(bet * 2);
+                setLine(`開手 —— 你贏了!陸小乙把 ${bet * 2} 錢推過來,臉都綠了。`);
+              } else {
+                setLine(bet >= 20
+                  ? `開手 —— 輸了。${bet} 錢沒了,陸小乙笑得見牙不見眼。`
+                  : '開手 —— 輸了。「再來再來,手氣這就回來了。」');
+              }
+            }}>
+              跟陸小乙猜枚 · 押 {bet} 錢
+              <span style={{ opacity: .55 }}> · 贏了翻倍,勝率四成五</span>
+            </button>
+          ))}
           <button style={hero.gold >= INN_PRICE ? btn : dim} onClick={() => {
             if (!hero.spend(INN_PRICE)) { setLine('住不起。'); return; }
             const toDawn = ((24 - hour) + 6.2) % 24 || 24;
@@ -302,6 +329,46 @@ export function PlacePanel() {
           </button>
         </div>
       )}
+
+      {place.kind === 'fair' && (() => {
+        const fair = useFair.getState();
+        const list = contenders(hero.followers);
+        if (fair.champion) {
+          return (
+            <p style={{ margin: 0, fontSize: '.88rem', lineHeight: 1.8, color: '#a8d4b4' }}>
+              彩頭已經是你的了。台下還有人在學你最後那一下。
+            </p>
+          );
+        }
+        if (fair.out) {
+          return (
+            <p style={{ margin: 0, fontSize: '.86rem', lineHeight: 1.8, opacity: .75 }}>
+              今年就到這裡 —— 台是別人的了。看了兩場,學了一手。
+            </p>
+          );
+        }
+        const foe = list[fair.round];
+        if (!foe) return null;
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+            <span style={{ fontSize: '.8rem', opacity: .7 }}>
+              第{['一', '二', '三'][fair.round]}場 · 台上是{foe.name} —— {mightWord(foe)}。
+              三場全勝,彩頭八十錢。
+            </span>
+            <button style={btn} onClick={() => {
+              beginSpar({
+                me: { name: hero.name, war: hero.stats.war, weapon: WEAPONS[hero.weapon] },
+                foe: { npcId: foe.id, name: foe.name, war: might(foe) },
+                at: { x: heroPos.x, z: heroPos.z },
+                ground: groundAt,
+              });
+              closePlace();
+            }}>
+              上擂台<span style={{ opacity: .55 }}> · 點到為止,當著全村的面</span>
+            </button>
+          </div>
+        );
+      })()}
 
       {place.kind === 'refugees' && (() => {
         const band = useRefugees.getState().band;

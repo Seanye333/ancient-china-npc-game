@@ -20,6 +20,7 @@ import { Raiders } from './world/Raiders';
 import { County, COUNTY } from './world/County';
 import { CountyFolk } from './world/CountyFolk';
 import { Drifters } from './world/Drifters';
+import { FairDay } from './world/FairDay';
 import { LostPerson } from './world/LostPerson';
 import { Cart } from './world/Cart';
 import { Battle } from './world/Battle';
@@ -304,6 +305,7 @@ export default function App() {
           <County />
           <CountyFolk />
           <Drifters />
+          <FairDay />
           <Camps />
           <Raiders />
           <LostPerson />

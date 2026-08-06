@@ -233,3 +233,32 @@ describe('架總會打完', () => {
     useBattle.getState().clear();
   });
 });
+
+describe('夜襲', () => {
+  /**
+   * 夜襲的規格:同一夥人,睡著的比醒著的好打<b>一大截</b> ——
+   * 差距要大到值得專程等天黑,又不能大到白撿(哨醒著就是硬仗,判定在外面)。
+   */
+  it('睡著的窩好打一大截', { timeout: 30000 }, () => {
+    const N = 60;
+    let awake = 0, asleep = 0;
+    for (let i = 0; i < N; i++) {
+      for (const sleeping of [false, true]) {
+        beginBattle({
+          ours: [
+            { id: 'u0', name: 'me', war: 58, isPlayer: true, driven: false },
+            { id: 'u1', name: 'a', war: 38 }, { id: 'u2', name: 'b', war: 36 },
+          ],
+          band: { id: 'b', x: 0, z: 12, fierce: 0.6, count: 4 },
+          at: { x: 0, z: 0 }, ground: flat, rng: seeded(4000 + i * 7919),
+          sleeping,
+        });
+        let over: BattleTally | null = null;
+        for (let k = 0; k < 6000 && !over; k++) { stepBattle(1 / 30, flat, nowhere); over = battleOver(); }
+        if (over?.won) { if (sleeping) asleep++; else awake++; }
+        useBattle.getState().clear();
+      }
+    }
+    expect(asleep, `夜襲 ${asleep}/${N} vs 硬仗 ${awake}/${N}`).toBeGreaterThan(awake + N * 0.2);
+  });
+});

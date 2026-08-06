@@ -81,6 +81,17 @@ let lastBlow = 0;
 const STALE_AFTER = 25;
 
 /**
+ * 打擊感的兩個旋鈕 —— 命中頓一下(hit-stop),放倒一個慢半拍(殺招慢鏡)。
+ *
+ * 高頻資料,和 fighters 一樣走模組級。渲染端(Battle/Player)每幀讀,
+ * 邏輯端只負責在「打中了」的那一刻擰上去。
+ *
+ * 慢的只有<b>戰鬥模擬</b>,玩家自己的移動不慢 —— 放倒最後一個的那半秒,
+ * 全場都凝住而你還能動,那半秒就是「是我砍倒他的」。
+ */
+export const fx = { slow: 0, shake: 0 };
+
+/**
  * 打鬥的節奏參數 —— 調這裡就能改「一場架有多長」。
  *
  * 這幾個數字是<b>空跑一千場調出來的</b>,不是看畫面調的:
@@ -143,6 +154,14 @@ export function beginBattle(input: {
   ground: (x: number, z: number) => number;
   /** 你的統率 — 帶得住人,他們就不那麼容易散。這是統率唯一該有的意思。 */
   leadership?: number;
+  /**
+   * 夜襲 —— 對面是從夢裡爬起來的。
+   *
+   * 手感上是三件事:起手慢(摸刀都要摸半天)、膽氣先掉一截
+   * (黑燈瞎火不知道來了多少人)、站位散(本來各睡各的)。
+   * 數值全在這裡,判定(摸得夠近、有沒有哨)在外面 —— 這個函式不看時辰。
+   */
+  sleeping?: boolean;
   rng?: () => number;
 }) {
   rand = input.rng ?? Math.random;
@@ -174,14 +193,33 @@ export function beginBattle(input: {
     // 賊是烏合之眾:單論身手不如你的人,可怕的是<b>數量</b>。
     // 第一版把他們調得比村民還能打,於是三打三只有一成勝率 —— 那不叫難,叫沒得打。
     const war = Math.round(24 + band.fierce * 36 + (chief ? 8 : 0) + rand() * 9);
-    fighters.push(mk({
+    const f = mk({
       id: `${band.id}-${i}`, side: 'foe', name: chief ? '賊首' : '山賊',
       chief, x, z, y: ground(x, z), yaw: toBand + Math.PI,
       war, morale: 26 + band.fierce * 24 + (chief ? 18 : 0), isPlayer: false, driven: false,
       reach: REACH, dmgMul: 1,
-    }));
+    });
+    if (input.sleeping) {
+      /*
+       * 夜襲的核心不是「他們變弱」,是<b>他們不會一起醒</b>。
+       *
+       * 醒的時刻按人頭排開(2、4、6 秒⋯⋯):你衝進去的時候只有一個人
+       * 摸到了刀,放倒他,第二個才剛坐起來 —— 各個擊破,
+       * 一場 2v4 打成四場 1v1 帶幫手。第一版全體同時慢兩秒,
+       * 空跑出來 4/60 對 0/60:慢兩秒翻不了一場人數劣勢的盤,
+       * <b>只有「不同時」翻得了</b>。
+       * 睡夢裡挨刀的人也醒得快 —— 挨打會立刻清醒(見 hurtAt 那條)。
+       */
+      f.morale -= 20;
+      f.cool = 1.6 + i * 2.0 + rand() * 1.2;
+      f.x += (rand() - 0.5) * 7;           // 各睡各的,不是列隊等你
+      f.z += (rand() - 0.5) * 7;
+      f.y = ground(f.x, f.z);
+    }
+    fighters.push(f);
   }
   useBattle.getState().open(band.id);
+  if (input.sleeping) useBattle.setState({ nightRaid: true });
 }
 
 function mk(p: {
@@ -361,10 +399,18 @@ function resolveStrike(f: Fighter) {
   lastBlow = clock;
   tgt.hp -= dmg;
   tgt.hurtAt = clock;
+  // 睡夢裡挨刀的人也醒了 —— 不清這個 cool,他會站著挨砍到排程醒來,像個木樁
+  if (tgt.cool > 1.2) tgt.cool = 0.6;
+  // 命中頓一下;自己挨打晃得比打中人狠 —— 疼要疼在鏡頭上
+  fx.slow = Math.max(fx.slow, 0.05);
+  fx.shake = Math.max(fx.shake, tgt.isPlayer ? 0.5 : 0.16);
   if (tgt.hp <= 0) {
     tgt.hp = 0;
     tgt.stance = 'down';
     tgt.phase = 0;
+    // 放倒一個 —— 慢半拍,讓那一下看得清
+    fx.slow = 0.42;
+    fx.shake = Math.max(fx.shake, 0.45);
     shakeMorale(tgt);
   } else if (tgt.stance !== 'striking') {
     tgt.stance = 'reeling';
@@ -489,6 +535,8 @@ interface BattleState {
   sparring: boolean;
   /** 切磋的對手(npcId)—— 收場要記人情。 */
   sparWith: string | null;
+  /** 這一場是夜襲 —— HUD 要說一句,收場的文案也不一樣。 */
+  nightRaid: boolean;
   tally: BattleTally | null;
   open: (bandId: string) => void;
   finish: (t: BattleTally) => void;
@@ -499,12 +547,13 @@ export const useBattle = create<BattleState>((set) => ({
   bandId: null,
   sparring: false,
   sparWith: null,
+  nightRaid: false,
   tally: null,
-  open: (bandId) => set({ bandId, tally: null, sparring: false, sparWith: null }),
+  open: (bandId) => set({ bandId, tally: null, sparring: false, sparWith: null, nightRaid: false }),
   finish: (tally) => set({ tally }),
   clear: () => {
     fighters.length = 0;
-    set({ bandId: null, tally: null, sparring: false, sparWith: null });
+    set({ bandId: null, tally: null, sparring: false, sparWith: null, nightRaid: false });
   },
 }));
 

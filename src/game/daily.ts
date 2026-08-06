@@ -21,7 +21,7 @@ import {
   DAYS_PER_SHI, mouths, RENT_PER_XUN, LODGING_LABEL, stipendFor, taxDue, UPKEEP_PER_MAN,
 } from './economy';
 import { rankForMerit } from './hero';
-import { DAYS_PER_XUN, DAYS_PER_YEAR, partsFor } from './calendar';
+import { DAYS_PER_XUN, DAYS_PER_YEAR, partsFor, festivalOn, daysToFestival } from './calendar';
 import { raidParties, useRaids, raidChance, raidSize, alreadyOut } from './raids';
 import { groundAt, water } from '../world/field';
 import { invalidateNav } from '../world/nav';
@@ -464,6 +464,16 @@ export function settleDay(day: number, season: Season): DayReport {
       bandsCleared: lifeTally.bandsCleared,
     });
     if (kind && !useEnding.getState().life) endLife(kind, day);
+  }
+
+  /* 社日 —— 值得盼的那一天。前三天先放風聲,盼要有得盼 */
+  {
+    const fest = festivalOn(day);
+    if (fest) {
+      journal.note(day, `今日${fest}!市集上搭了擂台,全村都在往那邊去。`, 'good');
+    } else if (daysToFestival(day) === 3) {
+      journal.note(day, `再過三天就是${festivalOn(day + 3)},聽說今年照例有比武奪彩。`);
+    }
   }
 
   /* 旬首報一次日子,讓玩家對得上曆法 */

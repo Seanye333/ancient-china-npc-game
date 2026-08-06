@@ -15,7 +15,7 @@ import type { JobKind } from './economy';
  */
 
 export type PlaceKind =
-  | 'market' | 'work' | 'home' | 'tavern' | 'inn' | 'yamen' | 'refugees';
+  | 'market' | 'work' | 'home' | 'tavern' | 'inn' | 'yamen' | 'refugees' | 'fair';
 
 export interface Place {
   id: string;

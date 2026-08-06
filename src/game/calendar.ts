@@ -90,3 +90,23 @@ export function numberWord(n: number): string {
   const t = Math.floor(n / 10);
   return n % 10 === 0 ? DIGITS[t] + '十' : DIGITS[t] + '十' + DIGITS[n % 10];
 }
+
+/**
+ * 社日 —— 春秋各一次,祭土地神的日子,也是全村聚在一起的日子。
+ *
+ * 曆法跑了這麼久,日子和日子還是一樣的:沒有一天值得<b>盼</b>。
+ * 社日就是那一天:市集搭起擂台,比武奪彩,吃席到黃昏。
+ * 定在每季第十五天 —— 玩家看得見它從日曆上一天天走近。
+ */
+export function festivalOn(day: number): '春社' | '秋社' | null {
+  const dayOfYear = Math.max(0, Math.floor(day)) % DAYS_PER_YEAR;
+  if (dayOfYear === 14) return '春社';
+  if (dayOfYear === DAYS_PER_SEASON * 2 + 14) return '秋社';
+  return null;
+}
+
+/** 還有幾天到下一個社日 —— 給「盼」一個數字。 */
+export function daysToFestival(day: number): number {
+  for (let d = 1; d <= DAYS_PER_YEAR; d++) if (festivalOn(day + d)) return d;
+  return DAYS_PER_YEAR;
+}

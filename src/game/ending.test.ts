@@ -108,3 +108,42 @@ describe('推掉的收場不再問第二次', () => {
     expect(isFatal('rooted')).toBe(false);
   });
 });
+
+describe('社日', () => {
+  it('春秋各一天,前後對得上曆法', async () => {
+    const { festivalOn, daysToFestival, DAYS_PER_SEASON, DAYS_PER_YEAR } = await import('./calendar');
+    expect(festivalOn(14)).toBe('春社');
+    expect(festivalOn(DAYS_PER_SEASON * 2 + 14)).toBe('秋社');
+    expect(festivalOn(15)).toBeNull();
+    expect(festivalOn(14 + DAYS_PER_YEAR)).toBe('春社');
+    // 倒數要能對上
+    expect(daysToFestival(11)).toBe(3);
+  });
+
+  it('擂台三場由弱到強,跟著你的人不上台', async () => {
+    const { contenders } = await import('./fair');
+    const { might } = await import('./npcs');
+    const list = contenders([]);
+    expect(list).toHaveLength(3);
+    expect(might(list[0])).toBeLessThanOrEqual(might(list[1]));
+    expect(might(list[1])).toBeLessThanOrEqual(might(list[2]));
+    // 把最強那個帶走,他就不在台上了
+    const without = contenders([list[2].id]);
+    expect(without.some((p) => p.id === list[2].id)).toBe(false);
+  });
+
+  it('三勝封擂,一敗出局', async () => {
+    const { useFair } = await import('./fair');
+    const f = useFair.getState();
+    f.reset();
+    f.advance(); f.advance();
+    expect(useFair.getState().champion).toBe(false);
+    f.advance();
+    expect(useFair.getState().champion).toBe(true);
+    f.reset();
+    f.advance(); f.fall();
+    expect(useFair.getState().out).toBe(true);
+    expect(useFair.getState().champion).toBe(false);
+    f.reset();
+  });
+});

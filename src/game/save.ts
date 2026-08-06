@@ -9,6 +9,7 @@ import { convoy, useConvoy } from './convoy';
 import { useEnding } from './ending';
 import { useMarauders } from './marauders';
 import { useRefugees } from './refugees';
+import { useFair } from './fair';
 import { lifeTally } from './daily';
 import { useClock } from '../world/worldTime';
 import { settleGuard } from './daily';
@@ -47,6 +48,8 @@ interface SaveData {
   convoy: unknown;
   marauders: unknown;
   refugees: unknown;
+  /** 擂台打到第幾場 —— 比到一半讀檔丟兩場勝利,那就是搶劫。 */
+  fair: unknown;
   /**
    * 一生的流水帳(誰跟過你、剿了幾夥)與推掉過的收場。
    * 不存的話,讀檔以後落幕那頁「跟過你的人」是空的 ——
@@ -88,6 +91,11 @@ export function saveGame(): boolean {
       convoy: convoy.car,
       marauders: { phase: useMarauders.getState().phase, daysLeft: useMarauders.getState().daysLeft },
       refugees: useRefugees.getState().band,
+      fair: {
+        round: useFair.getState().round,
+        out: useFair.getState().out,
+        champion: useFair.getState().champion,
+      },
       tally: {
         ...lifeTally,
         companions: [...lifeTally.companions],
@@ -128,6 +136,7 @@ export function loadGame(): boolean {
     convoy.car = (data.convoy as never) ?? null;
     if (data.marauders) useMarauders.setState(data.marauders as never);
     useRefugees.setState({ band: (data.refugees as never) ?? null });
+    if (data.fair) useFair.setState(data.fair as never);
     useConvoy.getState().bump();
     if (data.tally) {
       const t = data.tally as {
