@@ -14,7 +14,8 @@ import type { JobKind } from './economy';
  * 這張表也是後面所有「場所」的掛鉤 —— 酒肆、賭坊、縣衙都照這個樣子加。
  */
 
-export type PlaceKind = 'market' | 'work' | 'home' | 'tavern' | 'inn' | 'yamen';
+export type PlaceKind =
+  | 'market' | 'work' | 'home' | 'tavern' | 'inn' | 'yamen' | 'refugees';
 
 export interface Place {
   id: string;
@@ -34,6 +35,16 @@ function at(x: number, z: number) {
 }
 
 let cache: Place[] | null = null;
+
+/**
+ * 會出現又會消失的場所 —— 流民的窩、將來的集市攤。
+ *
+ * 靜態表(places)是開局就定死的;這張表歸各自的元件管,
+ * 誰擺出來的誰收走。placeAt 兩張都查。
+ */
+const dynamic = new Map<string, Place>();
+export function registerPlace(p: Place) { dynamic.set(p.id, p); }
+export function unregisterPlace(id: string) { dynamic.delete(id); }
 
 export function places(): Place[] {
   if (cache) return cache;
@@ -106,7 +117,7 @@ export function places(): Place[] {
 export function placeAt(x: number, z: number): Place | null {
   let best: Place | null = null;
   let bestD = Infinity;
-  for (const p of places()) {
+  for (const p of [...places(), ...dynamic.values()]) {
     const d = Math.hypot(p.x - x, p.z - z);
     if (d > p.radius || d >= bestD) continue;
     bestD = d; best = p;
@@ -115,7 +126,7 @@ export function placeAt(x: number, z: number): Place | null {
 }
 
 export function placeById(id: string): Place | undefined {
-  return places().find((p) => p.id === id);
+  return places().find((p) => p.id === id) ?? dynamic.get(id);
 }
 
 /**

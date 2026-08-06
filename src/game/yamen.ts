@@ -46,3 +46,33 @@ export function petition(input: {
     line: `主簿把你的名字記在簿上。「鄉里都說你辦事牢靠。」 · 功績 +${gain}`,
   };
 }
+
+/* ── 懸賞 ──────────────────────────────────────────── */
+
+import type { Band } from './bands';
+
+/**
+ * 縣衙貼榜。
+ *
+ * 賊坐大到縣裡壓不住(那一夥的份量過了檻、而且治安爛),官府才肯出錢 ——
+ * 懸賞不是常設商店,是<b>官府沒辦法了的證據</b>。
+ * 賞錢比村民的委託高得多,但這錢難掙:榜上那一夥一定是最大的。
+ *
+ * 這也是官府線和武那條線的交匯點:領賞給的功績,和投書不一樣,
+ * 是實打實「替官府辦了事」的功。
+ */
+export function bountyTarget(bands: Band[], order: number): Band | null {
+  if (order >= 35) return null;
+  const big = bands
+    .filter((b) => !b.routed && b.count * (0.6 + b.fierce) >= 7.5)
+    .sort((a, b) => b.count * (0.6 + b.fierce) - a.count * (0.6 + a.fierce));
+  return big[0] ?? null;
+}
+
+export function bountyPay(b: Band): number {
+  return Math.round(40 + b.count * (0.6 + b.fierce) * 12);
+}
+
+export function bountyMerit(b: Band): number {
+  return Math.round(6 + b.count * (0.6 + b.fierce) * 1.4);
+}

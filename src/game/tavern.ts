@@ -34,8 +34,19 @@ export function newsFrom(input: {
   village: VillageState;
   at: { x: number; z: number };
   sickNames: string[];
+  /** 亂兵:'coming' 的時候這句話值錢 —— 你還有兩天。 */
+  marauders?: { phase: 'coming' | 'present' | null; daysLeft: number };
 }): string {
   const { bands, raids, village, at } = input;
+
+  // 過兵的風聲壓過一切 —— 這五個錢買的就是那兩天
+  if (input.marauders?.phase === 'coming') {
+    return `「北邊潰下來的兵,已經過了山口 —— 頂多${input.marauders.daysLeft}天就到。`
+      + `帶得走的帶走,帶不走的埋起來。」`;
+  }
+  if (input.marauders?.phase === 'present') {
+    return '「還問?兵就在村裡!能別出門就別出門。」';
+  }
 
   // 有人在路上就先說這個 —— 這是最要緊、也最來得及去做的事
   if (raids.length) {

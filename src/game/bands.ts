@@ -94,6 +94,15 @@ interface BandsState {
   rout: (id: string) => void;
   /** 被打散的一夥過些時日會有人回來 —— 剿匪不是一勞永逸。 */
   regrow: () => void;
+  /**
+   * 沒人剿,賊就坐大。
+   *
+   * 原本 regrow 只會把散掉的窩變小 —— 於是放著不管的世界會越來越太平,
+   * 這和亂世的方向正好相反。現在治安差的旬,活著的窩會添人丁;
+   * 坐大到一個程度,縣衙就得貼榜(見 yamen 的懸賞)。
+   * 回傳坐大到出名的那一夥,好讓日誌說一句。
+   */
+  swell: (order: number, roll: () => number) => Band | null;
 }
 
 export const useBands = create<BandsState>((set) => ({
@@ -101,6 +110,19 @@ export const useBands = create<BandsState>((set) => ({
   rout: (id) => set((s) => ({
     bands: s.bands.map((b) => (b.id === id ? { ...b, routed: true } : b)),
   })),
+  swell: (order, roll) => {
+    let famous: Band | null = null;
+    set((s) => ({
+      bands: s.bands.map((b) => {
+        if (b.routed || order >= 40 || roll() > 0.30) return b;
+        if (b.count >= 10) return b;
+        const grown = { ...b, count: b.count + 1, fierce: Math.min(0.95, b.fierce + 0.02) };
+        if (grown.count === 8) famous = grown;      // 過了這個檻,鄉里就有名了
+        return grown;
+      }),
+    }));
+    return famous;
+  },
   regrow: () => set((s) => {
     if (!s.bands.some((b) => b.routed)) return s;
     return {

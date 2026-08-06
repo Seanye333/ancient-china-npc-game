@@ -11,13 +11,17 @@ import {
   RENT_PER_XUN, HOUSE_PRICE, LODGING_LABEL, DAYS_PER_SHI,
 } from '../game/economy';
 import { grainDays } from '../game/daily';
-import { useQuest } from '../game/quest';
 import { DAYS_PER_XUN, shichenWord } from '../game/calendar';
 import {
   DRINK_PRICE, NEWS_PRICE, DRINK_TOIL, newsFrom, hirePrice, canHire, tavernMood,
 } from '../game/tavern';
 import { countyPrice, INN_PRICE } from '../game/economy';
-import { petition, PETITION_COST } from '../game/yamen';
+import { petition, PETITION_COST, bountyTarget, bountyPay, bountyMerit } from '../game/yamen';
+import { useRefugees, takeWord } from '../game/refugees';
+import { useMarauders } from '../game/marauders';
+import { useQuest } from '../game/quest';
+import { menNeeded } from '../game/errands';
+import { bandWord } from '../game/bands';
 import { useBands } from '../game/bands';
 import { raidParties } from '../game/raids';
 import { livingVillagers, deltaOf } from '../game/folk';
@@ -227,6 +231,7 @@ export function PlacePanel() {
             setLine(newsFrom({
               bands: useBands.getState().bands,
               raids: raidParties.map((r) => ({ name: r.name, x: r.x, z: r.z })),
+              marauders: useMarauders.getState(),
               village,
               at: { x: playerPos.x, z: playerPos.z },
               sickNames: livingVillagers()
@@ -282,8 +287,93 @@ export function PlacePanel() {
         </div>
       )}
 
+      {place.kind === 'refugees' && (() => {
+        const band = useRefugees.getState().band;
+        if (!band) return null;
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+            <span style={{ fontSize: '.8rem', opacity: .7 }}>
+              {band.count} 個人,面有菜色。看見你過來,有人把孩子往身後攏了攏。
+            </span>
+            {/* 收留:最便宜的人手 —— 不要身價錢,但一樣吃糧領月錢 */}
+            <button style={btn} onClick={() => {
+              const got = hero.addRetinue(Math.min(band.count, 3));
+              if (!got.taken) { setLine('你自己都養不起了。'); return; }
+              useRefugees.getState().take(got.taken);
+              useHero.setState((s) => ({ renown: s.renown + got.taken }));
+              setLine(takeWord(got.taken));
+              note(day, `收留了 ${got.taken} 個流民`, 'good');
+            }}>
+              收留幾個<span style={{ opacity: .55 }}> · 不要身價錢,吃糧領月錢</span>
+            </button>
+            <button style={hero.grain >= 1 && !band.fed ? btn : dim} onClick={() => {
+              if (band.fed) { setLine('粥已經施過了。他們沒再伸手 —— 逃難的人也有臉面。'); return; }
+              if (hero.grain < 1) { setLine('你自己的糧也見底了。'); return; }
+              hero.addGrain(-1);
+              useRefugees.getState().feed();
+              const fame = useCalamity.getState().active ? 4 : 2;
+              useHero.setState((s) => ({ renown: s.renown + fame }));
+              setLine('一鍋粥見了底。有個老的朝你作了個長揖,沒說話。');
+              note(day, `施粥一石 · 鄉望 +${fame}`, 'good');
+            }}>
+              施一石粥<span style={{ opacity: .55 }}> · 鄉望</span>
+            </button>
+            <button style={{ ...btn, opacity: .8 }} onClick={() => {
+              useRefugees.getState().leave();
+              useHero.setState((s) => ({ renown: s.renown - 2 }));
+              setLine('他們沒爭辯,收拾起包袱往下游去了。有人回頭看了一眼。');
+              note(day, '把流民趕走了', 'bad');
+            }}>
+              叫他們走<span style={{ opacity: .55 }}> · 村裡人會看在眼裡</span>
+            </button>
+          </div>
+        );
+      })()}
+
       {place.kind === 'yamen' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+          {(() => {
+            const q = quest.taken;
+            // 領賞 —— 榜上那一夥已散,錢貨兩清
+            if (q?.errand.patronId === 'yamen' && q.cleared) {
+              return (
+                <button style={{ ...btn, borderColor: '#7fb08a', color: '#a8d4b4' }}
+                  onClick={() => {
+                    const band = useBands.getState().bands.find((b) => b.id === q.errand.bandId);
+                    const merit = band ? bountyMerit(band) : 10;
+                    hero.addGold(q.errand.pay);
+                    hero.addMerit(merit);
+                    quest.drop();
+                    setLine(`主簿數了錢,一枚一枚。「${q.errand.pay} 錢,點清。」 · 功績 +${merit}`);
+                    note(day, `領了懸賞 · ${q.errand.pay} 錢`, 'good');
+                  }}>
+                  領賞 · {q.errand.pay} 錢
+                </button>
+              );
+            }
+            // 貼榜 —— 賊坐大到縣裡壓不住,官府才肯出錢
+            const mark = bountyTarget(useBands.getState().bands, village.order);
+            if (!mark || q) return null;
+            const pay = bountyPay(mark);
+            return (
+              <button style={{ ...btn, borderColor: '#c8a45a', color: '#f0d9a0' }}
+                onClick={() => {
+                  quest.accept({
+                    errand: {
+                      id: `bounty-${mark.id}`, kind: 'bandits', patronId: 'yamen',
+                      tier: 5, wantMen: menNeeded(mark), pay, bandId: mark.id,
+                    },
+                    patronName: '縣衙', bandId: mark.id, cleared: false,
+                    done: 0, need: 1,
+                  });
+                  setLine(`榜文抄给了你。${mark.name} —— ${bandWord(mark)}。活要見人,寨要見平。`);
+                  note(day, `接了縣衙的懸賞:${mark.name}`, 'good');
+                }}>
+                榜上懸賞:{mark.name} · {pay} 錢
+                <span style={{ opacity: .55 }}> · {bandWord(mark)} · 需人 {menNeeded(mark)}</span>
+              </button>
+            );
+          })()}
           <button style={hero.gold >= PETITION_COST ? btn : dim} onClick={() => {
             const r = petition({
               gold: hero.gold, merit: hero.merit, renown: hero.renown,

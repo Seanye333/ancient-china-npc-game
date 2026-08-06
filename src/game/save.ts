@@ -7,6 +7,8 @@ import { useFolk } from './folk';
 import { useCalamity } from './calamity';
 import { convoy, useConvoy } from './convoy';
 import { useEnding } from './ending';
+import { useMarauders } from './marauders';
+import { useRefugees } from './refugees';
 import { lifeTally } from './daily';
 import { useClock } from '../world/worldTime';
 import { settleGuard } from './daily';
@@ -43,6 +45,8 @@ interface SaveData {
   calamity: unknown;
   /** 押到一半的車。不存的話,押貨途中讀檔 = 貨憑空消失,而差事還掛著。 */
   convoy: unknown;
+  marauders: unknown;
+  refugees: unknown;
   /**
    * 一生的流水帳(誰跟過你、剿了幾夥)與推掉過的收場。
    * 不存的話,讀檔以後落幕那頁「跟過你的人」是空的 ——
@@ -82,6 +86,8 @@ export function saveGame(): boolean {
       folk: useFolk.getState().deltas,
       calamity: useCalamity.getState().active,
       convoy: convoy.car,
+      marauders: { phase: useMarauders.getState().phase, daysLeft: useMarauders.getState().daysLeft },
+      refugees: useRefugees.getState().band,
       tally: {
         ...lifeTally,
         companions: [...lifeTally.companions],
@@ -120,6 +126,8 @@ export function loadGame(): boolean {
     useFolk.setState({ deltas: (data.folk as never) ?? {} });
     useCalamity.setState({ active: (data.calamity as never) ?? null });
     convoy.car = (data.convoy as never) ?? null;
+    if (data.marauders) useMarauders.setState(data.marauders as never);
+    useRefugees.setState({ band: (data.refugees as never) ?? null });
     useConvoy.getState().bump();
     if (data.tally) {
       const t = data.tally as {

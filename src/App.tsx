@@ -19,6 +19,7 @@ import { Camps } from './world/Camps';
 import { Raiders } from './world/Raiders';
 import { County, COUNTY } from './world/County';
 import { CountyFolk } from './world/CountyFolk';
+import { Drifters } from './world/Drifters';
 import { LostPerson } from './world/LostPerson';
 import { Cart } from './world/Cart';
 import { Battle } from './world/Battle';
@@ -49,6 +50,11 @@ import { updateAmbience, isMuted, audioReady } from './game/audio';
 import { useEnding } from './game/ending';
 import { findPath, navStats, navOpen } from './world/nav';
 import { water, steerMove, walkable } from './world/field';
+import { useMarauders } from './game/marauders';
+import { useRefugees } from './game/refugees';
+import { useBands } from './game/bands';
+import { newsFrom } from './game/tavern';
+import { bountyTarget, bountyPay } from './game/yamen';
 import { useCalamity } from './game/calamity';
 import { lifeTally } from './game/daily';
 
@@ -171,6 +177,19 @@ function CamBridge() {
     (window as unknown as Record<string, unknown>).__water = () => water.offset;
     (window as unknown as Record<string, unknown>).__countyAt = () => [COUNTY.x, COUNTY.z];
     (window as unknown as Record<string, unknown>).__dockAt = () => [DOCKS[0][0], DOCKS[0][1]];
+    (window as unknown as Record<string, unknown>).__forceMarauders = (d: number) =>
+      useMarauders.getState().begin(d);
+    (window as unknown as Record<string, unknown>).__news = () => newsFrom({
+      bands: useBands.getState().bands, raids: [],
+      marauders: useMarauders.getState(),
+      village: useVillage.getState(), at: { x: 0, z: 0 }, sickNames: [],
+    });
+    (window as unknown as Record<string, unknown>).__refugees = () => useRefugees.getState().band;
+    (window as unknown as Record<string, unknown>).__bandsStore = () => useBands;
+    (window as unknown as Record<string, unknown>).__bounty = () => {
+      const t = bountyTarget(useBands.getState().bands, useVillage.getState().order);
+      return t && { name: t.name, pay: bountyPay(t) };
+    };
     (window as unknown as Record<string, unknown>).__cityfolk = () =>
       cityfolk.map((c) => ({ id: c.id, x: Math.round(c.x), z: Math.round(c.z) }));
     (window as unknown as Record<string, unknown>).__steer = (
@@ -282,6 +301,7 @@ export default function App() {
           <Player />
           <County />
           <CountyFolk />
+          <Drifters />
           <Camps />
           <Raiders />
           <LostPerson />

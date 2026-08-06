@@ -9,6 +9,8 @@ import { relatives } from './kin';
 import {
   useCalamity, calamityRoll, calamityDays, calamityBite, calamityWord, CALAMITY_LABEL,
 } from './calamity';
+import { useMarauders, marauderRoll, warnDays, marauderBite, personalLoss } from './marauders';
+import { useRefugees, refugeeRoll, REFUGEE_STAY } from './refugees';
 import { useQuest } from './quest';
 import { moodOf, grumble, isGrieving } from './company';
 import { anyPerson } from './countyfolk';
@@ -240,6 +242,7 @@ export function settleDay(day: number, season: Season): DayReport {
    * 水位。水患漲,大旱落 —— 天災第一次在腳下成立,
    * 而不只是收成那一欄掉得快一些。漲過的灘地是真的走不過去。
    */
+  let calamityEnded = false;
   const active = useCalamity.getState().active;
   {
     const want = active?.kind === 'flood' ? 0.4 : active?.kind === 'drought' ? -0.3 : 0;
@@ -259,7 +262,77 @@ export function settleDay(day: number, season: Season): DayReport {
     });
     useCalamity.getState().step();
     if (useCalamity.getState().active === null) {
+      calamityEnded = true;
       journal.note(day, `${CALAMITY_LABEL[active.kind]}過去了。`, 'good');
+    }
+  }
+
+  /*
+   * 亂兵過境 —— 第一個不能用刀解決的威脅。
+   *
+   * 它的全部玩法在「提前得信」:風聲先到兩三天,你有時間把人帶去縣城。
+   * 人在村裡就被搜身;有屋的糧鎖在屋裡,睡柴垛的家當就在身上。
+   */
+  let maraudersLeft = false;
+  {
+    const m = useMarauders.getState();
+    if (!m.phase && marauderRoll(useVillage.getState().order, Math.random)) {
+      m.begin(warnDays(Math.random));
+      journal.note(day, '路上行人腳步都急了 —— 說是北邊過兵,往這邊來。', 'bad');
+    } else if (m.phase) {
+      const turn = m.step();
+      if (turn === 'arrived') {
+        journal.note(day, '亂兵進了村。刀就掛在腰上,誰也不敢攔。', 'bad');
+      } else if (turn === 'left') {
+        maraudersLeft = true;
+        journal.note(day, '兵走了。村裡靜得不像話,家家在數自己剩下什麼。', 'bad');
+      }
+      if (useMarauders.getState().phase === 'present') {
+        const v = useVillage.getState();
+        const bite = marauderBite();
+        v.nudge({ order: v.order + bite.order, harvest: v.harvest + bite.harvest,
+                  trade: v.trade + bite.trade });
+        const h = useHero.getState();
+        const loss = personalLoss({
+          inVillage: Math.hypot(playerPos.x - MARKET[0], playerPos.z - MARKET[1]) < 46,
+          lodging: h.lodging, gold: h.gold, grain: h.grain, roll: Math.random,
+        });
+        if (loss.word) {
+          h.addGold(-loss.gold);
+          h.addGrain(-loss.grain);
+          journal.note(day, loss.word, 'bad');
+        }
+      }
+    }
+  }
+
+  /*
+   * 流民 —— 世道爛出來的人。亂兵剛走、大災剛完、或治安爛透的時候,
+   * 村口會蹲下一小群外鄉人。收不收,是你的事。
+   */
+  {
+    const r = useRefugees.getState();
+    if (!r.band) {
+      const n = refugeeRoll({
+        order: useVillage.getState().order,
+        justCalamity: calamityEnded, justMarauders: maraudersLeft,
+        roll: Math.random,
+      });
+      if (n > 0) {
+        r.arrive(n, day);
+        journal.note(day, `村口來了${n}個外鄉人,蹲在路邊不走 —— 拖家帶口,是逃難的。`, 'bad');
+      }
+    } else if (day - r.band.since >= REFUGEE_STAY) {
+      journal.note(day, '村口那幾個流民走了,往下游去了。');
+      r.leave();
+    }
+  }
+
+  /* 沒人剿,賊就坐大 —— 每旬看一次 */
+  if (day % DAYS_PER_XUN === 0) {
+    const famous = useBands.getState().swell(useVillage.getState().order, Math.random);
+    if (famous) {
+      journal.note(day, `聽說${famous.name}如今聚了好幾十口人,連縣裡都壓不住了。`, 'bad');
     }
   }
 
