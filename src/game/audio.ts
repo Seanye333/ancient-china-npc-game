@@ -10,6 +10,8 @@
  * 那一下點擊正好是使用者的第一個手勢。
  */
 
+import { useBattle } from './combat';
+
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 let bed: { wind: GainNode; night: GainNode; rain: GainNode } | null = null;
@@ -66,6 +68,8 @@ export function startAudio() {
   bed.wind.connect(master);
   bed.night.connect(master);
   bed.rain.connect(master);
+  // 開場先靜幾秒再來第一段琴 —— 按下「開始」的那口氣要先讓風聲接住
+  music.next = ctx.currentTime + 5;
 }
 
 export function setMuted(m: boolean) {
@@ -96,6 +100,16 @@ export function updateAmbience(input: {
   bed.night.gain.setTargetAtTime((night ? 0.055 : dusk ? 0.022 : 0.004) * damp, t, 1.6);
   bed.rain.gain.setTargetAtTime(
     (input.weather === 'rain' ? 0.16 : input.weather === 'snow' ? 0.02 : 0) * damp, t, 1.0);
+
+  // 琴 —— 幾十秒一段,夜裡更稀更輕。打起來就把下一段往後推:
+  // 那時候的配樂是刀風;收場之後它也不搶著回來,喘完氣才續上
+  const fighting = useBattle.getState().bandId !== null;
+  if (fighting) {
+    music.next = Math.max(music.next, t + 9 + Math.random() * 8);
+  } else if (!muted && t >= music.next) {
+    const dur = playPhrase(night);
+    music.next = t + dur + 20 + Math.random() * 28 + (night ? 14 : 0);
+  }
 }
 
 /** 一次性的短音 —— 腳步、刀、挨打。 */
@@ -150,4 +164,94 @@ export function hurtSound() {
 /** 銅錢落袋 —— 給買賣與領俸。 */
 export function coinSound() {
   blip({ type: 'bandpass', freq: 3200, q: 4, attack: 0.002, decay: 0.13, gain: 0.1 });
+}
+
+/** 弓弦 —— 「啪」的一下彈開,比刀風短促、高一截。 */
+export function bowSound() {
+  blip({ type: 'bandpass', freq: 1500, q: 2.4, attack: 0.003, decay: 0.16, gain: 0.15, sweepTo: 420 });
+}
+
+/* ── 古琴 ─────────────────────────────────────────────
+ *
+ * 和其他聲音一樣現算,不帶音檔。撥弦用 Karplus-Strong:
+ * 一段噪音塞進「弦長」那麼長的延遲環裡反覆平均,幾毫秒後噪音就
+ * 收斂成那根弦的音高,而且衰減自然 —— 這個一九八三年的算法,
+ * 合出來的就是「撥」的聲音,比任何振盪器都像弦。
+ *
+ * 樂句稀,間隔幾十秒才來一段 —— 古琴的意思一半在留白裡。
+ * 打起來就停:那時候的配樂是刀風和心跳。
+ */
+
+/** 宮調五聲,兩個八度 —— C D F G A,古琴定弦的骨架。 */
+const GONG = [130.8, 146.8, 174.6, 196.0, 220.0, 261.6, 293.7, 349.2];
+
+const music = { next: 0, plucked: 0 };
+const pluckCache = new Map<number, AudioBuffer>();
+
+function pluckBuffer(c: AudioContext, freq: number): AudioBuffer {
+  const got = pluckCache.get(freq);
+  if (got) return got;
+  const sr = c.sampleRate;
+  const N = Math.round(sr / freq);
+  const len = Math.floor(sr * 2.4);
+  const buf = c.createBuffer(1, len, sr);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < N; i++) d[i] = Math.random() * 2 - 1;
+  // 環裡每圈把相鄰兩點平均一次 —— 高頻先死,剩下的就是弦音。
+  // 0.996 是弦的「餘韻」:低音拖得長,像琴不像箏
+  for (let i = N; i < len; i++) d[i] = 0.996 * 0.5 * (d[i - N] + d[i - N + 1]);
+  pluckCache.set(freq, buf);
+  return buf;
+}
+
+/** 撥一聲。slideFrom 給「綽」—— 從低一點滑上來,古琴的招牌。 */
+function pluck(freq: number, when: number, gain: number, slideFrom = 1) {
+  if (!ctx || !master) return;
+  const src = ctx.createBufferSource();
+  src.buffer = pluckBuffer(ctx, freq);
+  if (slideFrom !== 1) {
+    src.playbackRate.setValueAtTime(slideFrom, when);
+    src.playbackRate.linearRampToValueAtTime(1, when + 0.14);
+  }
+  const f = ctx.createBiquadFilter();
+  f.type = 'lowpass';
+  f.frequency.value = 2100;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(gain, when);
+  src.connect(f).connect(g).connect(master);
+  src.start(when);
+  src.stop(when + 2.4);
+  music.plucked++;
+}
+
+/**
+ * 一段樂句:三到六個音在五聲音階上散步,步子小、節奏散,收在一個長音上。
+ * 沒有「曲子」—— 每段都是現編的,聽起來像有人在遠處隨手撫弦。
+ */
+function playPhrase(soft: boolean): number {
+  if (!ctx) return 0;
+  let t = ctx.currentTime + 0.05;
+  let idx = 1 + Math.floor(Math.random() * 5);
+  const notes = 3 + Math.floor(Math.random() * 4);
+  const vol = soft ? 0.10 : 0.16;
+  for (let i = 0; i < notes; i++) {
+    const last = i === notes - 1;
+    const slide = Math.random() < 0.3 ? 0.92 : 1;
+    pluck(GONG[idx], t, vol * (0.8 + Math.random() * 0.4), slide);
+    t += last ? 1.7 : [0.38, 0.55, 0.8, 1.15][Math.floor(Math.random() * 4)];
+    idx = Math.max(0, Math.min(GONG.length - 1,
+      idx + [-2, -1, -1, 1, 1, 2][Math.floor(Math.random() * 6)]));
+  }
+  return t - ctx.currentTime;
+}
+
+/** 驗收要問得到 —— 聲音壞掉的樣子就是安靜,和沒做完全一樣。 */
+export function musicState() {
+  return { plucked: music.plucked, nextIn: ctx ? +(music.next - ctx.currentTime).toFixed(1) : null };
+}
+
+/** 立刻來一段 —— 純驗收用,不進正式流程。 */
+export function nudgeMusic() {
+  if (!ctx) return;
+  music.next = ctx.currentTime;
 }

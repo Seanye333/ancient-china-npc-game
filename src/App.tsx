@@ -49,7 +49,7 @@ import { DOCKS } from './world/sites';
 import { useJournal } from './game/journal';
 import { originById } from './game/origin';
 import { ORIGIN_WEAPON } from './game/weapons';
-import { updateAmbience, isMuted, audioReady } from './game/audio';
+import { updateAmbience, isMuted, audioReady, musicState, nudgeMusic } from './game/audio';
 import { useEnding } from './game/ending';
 import { findPath, navStats, navOpen } from './world/nav';
 import { water, steerMove, walkable } from './world/field';
@@ -207,8 +207,9 @@ function CamBridge() {
     (window as unknown as Record<string, unknown>).__flood = () => useCalamity.getState()
       .begin({ kind: 'flood', since: useClock.getState().day, daysLeft: 40 });
     (window as unknown as Record<string, unknown>).__audio = () => ({
-      ready: audioReady(), muted: isMuted(),
+      ready: audioReady(), muted: isMuted(), music: musicState(),
     });
+    (window as unknown as Record<string, unknown>).__pluck = () => nudgeMusic();
     (window as unknown as Record<string, unknown>).__villageState = () => useVillage.getState();
     (window as unknown as Record<string, unknown>).__save = () => saveGame();
     (window as unknown as Record<string, unknown>).__load = () => loadGame();
