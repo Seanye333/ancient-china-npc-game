@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { WEAPONS, ORIGIN_WEAPON } from './weapons';
 import { ORIGINS } from './origin';
 import {
-  beginBattle, beginSpar, stepBattle, battleOver, useBattle, type BattleTally,
+  beginBattle, beginSpar, stepBattle, battleOver, useBattle, arrowTally,
+  type BattleTally,
 } from './combat';
 
 /**
@@ -59,6 +60,27 @@ describe('兵器', () => {
       if (duel('blade', 900 + i * 3301)) blade++;
     }
     expect(spear, `矛 ${spear} vs 刀 ${blade}`).toBeGreaterThanOrEqual(blade - 6);
+  });
+
+  /**
+   * 弓是唯一改「打法」的兵器:遠了射、近了只有一根軟棍。
+   * 空跑裡 AI 替玩家風箏(退著射),所以量得出「會用的人拿它什麼水準」。
+   * 它不該全面壓過刀 —— 貼身要命這個短板必須真的存在,
+   * 不然人人買弓,近戰三件全成擺設。
+   */
+  it('弓真的在射,而且打得過拳腳 —— 但貼了身就是軟的', () => {
+    let bow = 0, fists = 0, blade = 0;
+    let shot = 0;
+    for (let i = 0; i < 50; i++) {
+      if (duel('bow', 700 + i * 4409)) bow++;
+      if (arrowTally.loosed > 0) shot++;
+      if (duel('fists', 700 + i * 4409)) fists++;
+      if (duel('blade', 700 + i * 4409)) blade++;
+    }
+    expect(shot, '五十場裡幾乎每場都該放過箭').toBeGreaterThan(45);
+    expect(bow, `弓 ${bow} vs 拳 ${fists}`).toBeGreaterThan(fists + 8);
+    // 不許全面壓過刀:高出太多,近戰的短板就是假的
+    expect(bow, `弓 ${bow} vs 刀 ${blade}`).toBeLessThanOrEqual(blade + 12);
   });
 });
 

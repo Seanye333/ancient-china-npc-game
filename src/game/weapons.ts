@@ -11,7 +11,7 @@
  * 鐵器只有縣城有賣 —— 村裡的市集打不出一口刀,這是縣城存在的又一個理由。
  */
 
-export type WeaponId = 'fists' | 'club' | 'blade' | 'spear';
+export type WeaponId = 'fists' | 'club' | 'blade' | 'spear' | 'bow';
 
 export interface Weapon {
   id: WeaponId;
@@ -24,6 +24,11 @@ export interface Weapon {
   price: number;
   /** 只有縣城有賣。 */
   countyOnly: boolean;
+  /**
+   * 弓 —— 唯一改「打法」而不只是改數字的兵器:空白鍵放的是箭,
+   * 朝你面對的方向飛;reach/dmgMul 管的是被貼了身之後那根軟棍。
+   */
+  bow?: boolean;
   word: string;
 }
 
@@ -43,6 +48,11 @@ export const WEAPONS: Record<WeaponId, Weapon> = {
   spear: {
     id: 'spear', name: '長矛', reach: 1.8, dmgMul: 0.9, price: 34, countyOnly: true,
     word: '一寸長一寸強,先戳得到就先說話',
+  },
+  bow: {
+    id: 'bow', name: '獵弓', reach: 0.95, dmgMul: 0.55, price: 44, countyOnly: true,
+    bow: true,
+    word: '十步之外先說話,貼了身就是一根軟棍',
   },
 };
 

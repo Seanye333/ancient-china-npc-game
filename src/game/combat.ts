@@ -133,7 +133,7 @@ const FLEE = 4.6;                   // 逃命跑得比誰都快
  */
 const BOW_RANGE = 15;               // 這個距離內才射
 const BOW_KEEP = 5.0;               // 逼近到這裡他就往後退
-const BOW_COOL = 2.3;               // 兩箭之間
+const BOW_COOL = 2.6;               // 兩箭之間
 const ARROW_SPEED = 15;
 const ARROW_G = 7;                  // 拋物線的墜 — 樣式化的重力,別當物理讀
 
@@ -171,8 +171,8 @@ export interface Recruit {
   isPlayer?: boolean;
   /** 由外面推嗎。省略時等同 isPlayer —— 真人在鍵盤那頭是常態,空跑的場子才要另說。 */
   driven?: boolean;
-  /** 手上的傢伙。省略 = 尋常的刀(1.35 / 1.0)。 */
-  weapon?: { reach: number; dmgMul: number };
+  /** 手上的傢伙。省略 = 尋常的刀(1.35 / 1.0)。bow = 空白鍵放的是箭。 */
+  weapon?: { reach: number; dmgMul: number; bow?: boolean };
 }
 
 /**
@@ -218,13 +218,15 @@ export function beginBattle(input: {
     const off = (i - (input.ours.length - 1) / 2) * 1.15;
     const x = at.x + Math.cos(toBand) * off;
     const z = at.z - Math.sin(toBand) * off;
-    fighters.push(mk({
+    const f = mk({
       id: r.id, side: 'you', name: r.name, npcId: r.npcId,
       x, z, y: ground(x, z), yaw: toBand,
       war: r.war, morale: 30 + (input.leadership ?? 50) * 0.25, isPlayer: !!r.isPlayer,
       driven: r.driven ?? !!r.isPlayer,
       reach: r.weapon?.reach ?? REACH, dmgMul: r.weapon?.dmgMul ?? 1,
-    }));
+    });
+    if (r.weapon?.bow) f.bow = true;
+    fighters.push(f);
   });
 
   for (let i = 0; i < band.count; i++) {
@@ -334,16 +336,26 @@ export function stepBattle(
     }
 
     /**
-     * 弓手的風箏:遠了追、近了退、十來步站定放箭。
-     * 貼到兩步半以內就掉進下面的近戰路 —— 他手裡只有一把短刀。
+     * 弓手的風箏:遠了追、近了退,<b>弦一滿就放,退著也放</b>。
+     *
+     * 第一版只有站定才射,空跑五十場弓 3 勝對拳 3 勝 —— 從被逼近到被貼身
+     * 的整段路上一箭不放,弓等於只在開場射了一兩下。現在射擊優先於走位:
+     * 放箭的那半秒(striking 相位)人是站住的,被追近一步半 —— 這就是
+     * 弓的代價,不必另外扣什麼。真被貼到一步七以內才掉進近戰,
+     * 手裡那根軟棍自己說話。
      */
     if (f.bow && !f.driven) {
       const foe = nearestFoe(f);
       if (foe) {
         const dx = foe.x - f.x, dz = foe.z - f.z;
         const d = Math.hypot(dx, dz);
-        if (d > 2.5) {
+        if (d > 1.7) {
           f.yaw = Math.atan2(dx, dz);
+          if (f.cool <= 0 && d <= BOW_RANGE) {
+            loose(f, foe, d);
+            f.cool = BOW_COOL + rand() * 0.9;
+            continue;
+          }
           if (d < BOW_KEEP) {
             // 退著走,臉還朝著你 —— 弓手最怕的就是讓你貼上
             const st = MOVE * 0.86 * dt;
@@ -359,10 +371,6 @@ export function stepBattle(
             f.phase = (f.phase + dt * 5) % 1;
           } else {
             f.stance = 'engaged';
-            if (f.cool <= 0) {
-              loose(f, foe, d);
-              f.cool = BOW_COOL + rand() * 0.9;
-            }
           }
           continue;
         }
@@ -434,8 +442,8 @@ function loose(f: Fighter, tgt: Fighter, d: number) {
     vz: (az - f.z) / t,
     side: f.side,
     // 一箭要配得上他頂替的那把刀:第一版 5.5+0.09war,空跑出來「有弓的寨
-    // 比沒弓的好打十五個點」—— 換走一個兇刀手,換來的威脅得夠斤兩
-    dmg: (8.0 + f.war * 0.12) * (0.75 + rand() * 0.5),
+    // 比沒弓的好打十五個點」;「退著也放」之後又收回一點,不然需人承諾壓線
+    dmg: (7.2 + f.war * 0.11) * (0.75 + rand() * 0.5),
     life: 2.4,
   });
   arrowTally.loosed++;
@@ -521,10 +529,30 @@ function attackersOn(target: Fighter, except: string): number {
   return n;
 }
 
-/** 玩家出手 — 由鍵盤觸發,不看冷卻以外的東西。 */
+/** 玩家出手 — 由鍵盤觸發,不看冷卻以外的東西。拿弓的人放的是箭。 */
 export function playerStrike(id: string): boolean {
   const f = fighterAt(id);
   if (!f || f.stance === 'down' || f.stance === 'striking' || f.cool > 0) return false;
+  if (f.bow && f.driven) {
+    /**
+     * 玩家的箭<b>朝你面對的方向</b>飛,不鎖定任何人 —— 和揮刀打扇區同一個
+     * 立場:瞄準是你的事。平射,十幾步外落地;誰站在這條線上誰挨。
+     */
+    const y0 = f.y + 1.35;
+    const t = 13 / ARROW_SPEED;
+    arrows.push({
+      x: f.x, y: y0, z: f.z,
+      vx: Math.sin(f.yaw) * ARROW_SPEED,
+      vy: -0.4 / t + 0.5 * ARROW_G * t,
+      vz: Math.cos(f.yaw) * ARROW_SPEED,
+      side: f.side,
+      // 和 loose() 同一條傷害式 —— 誰放的箭都是箭
+      dmg: (7.2 + f.war * 0.11) * (0.75 + rand() * 0.5),
+      life: 2.0,
+    });
+    arrowTally.loosed++;
+    f.cool = 1.7;               // 搭箭上弦比揮一刀慢 —— 弓的代價在節奏裡
+  }
   f.stance = 'striking';
   f.phase = 0;
   return true;
@@ -532,6 +560,9 @@ export function playerStrike(id: string): boolean {
 
 /** 命中判定。玩家打的是<b>面前的扇區</b>,不是鎖定的目標 —— 揮空要能揮空。 */
 function resolveStrike(f: Fighter) {
+  // 真人拿弓,striking 是拉弓的動作,傷害全在箭上 —— 這裡不再補一下近戰,
+  // 不然點著臉放箭等於箭刀齊下。被貼身的弓手的「防身」就是抵著放的那一箭
+  if (f.bow && f.driven) return;
   const tgt = f.isPlayer ? inFront(f) : (f.targetId ? fighterAt(f.targetId) : null);
   if (!tgt || !alive(tgt)) return;
   if (Math.hypot(tgt.x - f.x, tgt.z - f.z) > f.reach * 1.5) return;
