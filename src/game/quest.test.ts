@@ -56,10 +56,12 @@ describe('剿匪指的是地圖上真的那一夥', () => {
   });
 
   it('難度與人手是從那夥人身上算的 —— 一大夥就該標得比三兩個毛賊難', () => {
-    // 兩邊都用同一個身分,才量得到「賊窩大小」本身的效果
+    // 兩邊都用同一個身分,才量得到「賊窩大小」本身的效果。
+    // 「大的」取需人 8 的那一檔 —— 這是差事肯許諾的上限:
+    // 再大的窩(七個兇賊起)人多也啃不動,剿匪的活整個不開,見 errands.ts
     const small = everyErrand(village(), [band('s', { count: 2, fierce: 0.25 })], 200)
       .filter((e) => e.kind === 'bandits');
-    const big = everyErrand(village(), [band('s', { count: 7, fierce: 0.85 })], 200)
+    const big = everyErrand(village(), [band('s', { count: 6, fierce: 0.7 })], 200)
       .filter((e) => e.kind === 'bandits');
     expect(small.length).toBeGreaterThan(0);
     expect(big.length).toBeGreaterThan(0);

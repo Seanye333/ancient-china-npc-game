@@ -135,7 +135,17 @@ export function errandFrom(
       // 挑之前<b>先按身分濾一遍</b>:村民不會拉著一個白身去端最兇的那一夥。
       // 先隨機挑再讓身分門檻把它擋掉的話,結果是「這件活整個消失」——
       // 玩家看見的是一個沒人有事託他的村子,而不是一個看不起他的村子。
-      const live = bands.filter((b) => !b.routed && banditTier(b) <= ceiling);
+      /*
+       * 「需人」超過八個的窩<b>不開這個活</b>。
+       *
+       * 這條線是空跑逼出來的:圍毆有上限(MAX_ATTACKERS),人數優勢是
+       * 線性的、而且會飽和 —— 帶到第九第十個人,添的全是武力二十不到的
+       * 炮灰,七個兇賊的窩帶十個人照樣一成幾勝率。差事卡寫「需人 10」
+       * 而十個人打不下來,那行字就是騙人。啃不動的大窩另有兩條路:
+       * 縣衙的懸賞(賞格不許諾人數)和趁夜摸進去各個擊破。
+       */
+      const live = bands.filter((b) =>
+        !b.routed && banditTier(b) <= ceiling && menNeeded(b) <= 8);
       if (!live.length) continue;
       const b = live[Math.floor(rand() * live.length) % live.length];
       // 需人是空跑出來的,不是拍腦袋的 —— 見 menNeeded

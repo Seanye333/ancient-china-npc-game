@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  beginBattle, stepBattle, battleOver, fighters, alive, useBattle,
+  beginBattle, stepBattle, battleOver, fighters, alive, useBattle, arrowTally,
   type BattleTally,
 } from './combat';
 import { menNeeded } from './errands';
@@ -157,6 +157,19 @@ describe('打起來該是什麼節奏', () => {
     const r = runs(60, [58, 52, 50, 46], 6);
     expect(r.medianSeconds).toBeGreaterThan(8);
   });
+
+  /**
+   * 承諾的<b>邊界</b>也是規格:圍毆有上限,人數優勢會飽和,帶到第九第十個
+   * 人添的全是炮灰 —— 七個兇賊的窩帶十個人只有一兩成勝率(空跑量的)。
+   * 所以差事那頭立了一條線:需人超過八個的窩不開剿匪的活(errands.ts)。
+   * 這條測試釘住兩件事:線外的窩確實超線;線內最大的那一格仍然是真話
+   * (上面那條「帶足了就打得下來」蓋的就是線內的全部)。
+   */
+  it('人多買不來的仗,差事不許諾 —— 需人 8 是承諾的邊界', () => {
+    expect(menNeeded({ count: 7, fierce: 0.8 })).toBeGreaterThan(8);
+    expect(menNeeded({ count: 8, fierce: 0.8 })).toBeGreaterThan(8);
+    expect(menNeeded({ count: 6, fierce: 0.7 })).toBeLessThanOrEqual(8);
+  });
 });
 
 describe('收場的帳要對得上', () => {
@@ -230,6 +243,42 @@ describe('架總會打完', () => {
       over = battleOver();
     }
     expect(over, `兩百秒還沒打完 —— 這就是那個永遠不結束的局面`).not.toBeNull();
+    useBattle.getState().clear();
+  });
+});
+
+describe('弓手', () => {
+  /**
+   * 弓是「大夥」的形狀:四人以上一把、八人以上兩把,替換隊尾不是白加。
+   * 這一條和「差事寫的需人是真話」共同成立 —— 弓手改打法,不改承諾:
+   * menNeeded 那五格帶著弓手照樣要打得下來(見上面那條,它已經蓋到了)。
+   */
+  it('小股毛賊沒有弓,大寨有,而且真的在放箭', () => {
+    // sim() 收場時會 clear() 掉 fighters —— 弓的有無要在開打當下看
+    beginBattle({
+      ours: [{ id: 'u0', name: 'a', war: 58 }],
+      band: { id: 'b', x: 0, z: 12, fierce: 0.5, count: 3 },
+      at: { x: 0, z: 0 }, ground: flat, rng: seeded(77),
+    });
+    expect(fighters.some((f) => f.bow)).toBe(false);
+    useBattle.getState().clear();
+
+    beginBattle({
+      ours: [{ id: 'u0', name: 'a', war: 58 }, { id: 'u1', name: 'b', war: 40 }],
+      band: { id: 'b', x: 0, z: 12, fierce: 0.5, count: 5 },
+      at: { x: 0, z: 0 }, ground: flat, rng: seeded(78),
+    });
+    expect(fighters.filter((f) => f.bow).length).toBe(1);
+    for (let k = 0; k < 1200 && !battleOver(); k++) stepBattle(1 / 30, flat, nowhere);
+    expect(arrowTally.loosed, '打了一整場,弓手一箭沒放 —— 弓是擺設').toBeGreaterThan(1);
+    useBattle.getState().clear();
+
+    beginBattle({
+      ours: [{ id: 'u0', name: 'a', war: 58 }],
+      band: { id: 'b', x: 0, z: 12, fierce: 0.5, count: 8 },
+      at: { x: 0, z: 0 }, ground: flat, rng: seeded(79),
+    });
+    expect(fighters.filter((f) => f.bow).length).toBe(2);
     useBattle.getState().clear();
   });
 });

@@ -62,7 +62,28 @@ export interface Fighter {
   dmgMul: number;
   /** 最後一次挨打的時刻,用來閃紅。 */
   hurtAt: number;
+  /**
+   * 弓手 —— 大寨才有(見 beginBattle)。隔著十來步放箭,你逼近他就退。
+   *
+   * 他改變的不是數值,是<b>玩家的腳</b>:近戰誰站著誰吃虧只在圍毆裡成立,
+   * 有弓的場子裡「站著不動」本身就是挨箭的姿勢。箭有飛行時間,
+   * 側著跑就躲得開 —— 這是整個戰鬥第一個逼你走位的東西。
+   */
+  bow?: boolean;
 }
+
+/** 一支在飛的箭。命中判定在 stepArrows —— 躲箭靠腳,不靠擲骰。 */
+export interface Arrow {
+  x: number; y: number; z: number;
+  vx: number; vy: number; vz: number;
+  side: Side;
+  dmg: number;
+  life: number;
+}
+
+export const arrows: Arrow[] = [];
+/** 放過幾箭 —— 渲染端靠它配弓弦聲,測試靠它驗「弓手真的在射」。 */
+export const arrowTally = { loosed: 0 };
 
 /** 場上所有人 — 高頻資料,每幀動。 */
 export const fighters: Fighter[] = [];
@@ -89,7 +110,7 @@ const STALE_AFTER = 25;
  * 慢的只有<b>戰鬥模擬</b>,玩家自己的移動不慢 —— 放倒最後一個的那半秒,
  * 全場都凝住而你還能動,那半秒就是「是我砍倒他的」。
  */
-export const fx = { slow: 0, shake: 0 };
+export const fx = { slow: 0, shake: 0, finisher: 0 };
 
 /**
  * 打鬥的節奏參數 —— 調這裡就能改「一場架有多長」。
@@ -104,6 +125,17 @@ const HIT_AT = 0.42;                // 揮到這個相位判定命中
 const RECOVER = 0.62;               // 收招
 const MOVE = 2.5;                   // 接敵的腳程
 const FLEE = 4.6;                   // 逃命跑得比誰都快
+
+/**
+ * 弓的參數 —— 和近戰一樣是空跑調的,見 combat.balance.test.ts。
+ * 箭速決定「躲不躲得開」:十來步的距離飛過來要大半秒,
+ * 側著跑兩步就讓過去了;站樁的人(和直線衝鋒的同伴)才會挨。
+ */
+const BOW_RANGE = 15;               // 這個距離內才射
+const BOW_KEEP = 5.0;               // 逼近到這裡他就往後退
+const BOW_COOL = 2.3;               // 兩箭之間
+const ARROW_SPEED = 15;
+const ARROW_G = 7;                  // 拋物線的墜 — 樣式化的重力,別當物理讀
 
 /**
  * 圍攻:每多一個人貼著你,閃避就掉一截 —— 人數的價值在這裡。
@@ -162,15 +194,25 @@ export function beginBattle(input: {
    * 數值全在這裡,判定(摸得夠近、有沒有哨)在外面 —— 這個函式不看時辰。
    */
   sleeping?: boolean;
+  /** 弓手幾把 —— 平常由 count 推(見下),調參要能單獨關掉它量基線。 */
+  archers?: number;
   rng?: () => number;
 }) {
   rand = input.rng ?? Math.random;
   clock = 0;
   lastBlow = 0;
   fighters.length = 0;
+  arrows.length = 0;
+  arrowTally.loosed = 0;
 
   const { band, at, ground } = input;
   const toBand = Math.atan2(band.x - at.x, band.z - at.z);
+  /**
+   * 大寨有弓手 —— 四人以上一個,八人以上兩個,<b>替換</b>隊尾的刀手而不是白加。
+   * 這是「這夥人大不大」在打法上的兌現:小股毛賊撲上來就是了,
+   * 端大寨得一邊躲箭一邊突臉,不然同伴會在半路上被一支支釘下來。
+   */
+  const bowmen = input.archers ?? (band.count >= 8 ? 2 : band.count >= 4 ? 1 : 0);
 
   input.ours.forEach((r, i) => {
     const off = (i - (input.ours.length - 1) / 2) * 1.15;
@@ -187,18 +229,23 @@ export function beginBattle(input: {
 
   for (let i = 0; i < band.count; i++) {
     const chief = i === 0;
+    const bow = i >= band.count - bowmen;
     const off = (i - (band.count - 1) / 2) * 1.25;
-    const x = band.x + Math.cos(toBand) * off;
-    const z = band.z - Math.sin(toBand) * off;
+    // 弓手站在刀手身後幾步 —— 陣形本身就把「先破誰」擺給你看
+    const back = bow ? 3.2 : 0;
+    const x = band.x + Math.cos(toBand) * off + Math.sin(toBand) * back;
+    const z = band.z - Math.sin(toBand) * off + Math.cos(toBand) * back;
     // 賊是烏合之眾:單論身手不如你的人,可怕的是<b>數量</b>。
     // 第一版把他們調得比村民還能打,於是三打三只有一成勝率 —— 那不叫難,叫沒得打。
     const war = Math.round(24 + band.fierce * 36 + (chief ? 8 : 0) + rand() * 9);
     const f = mk({
-      id: `${band.id}-${i}`, side: 'foe', name: chief ? '賊首' : '山賊',
+      id: `${band.id}-${i}`, side: 'foe', name: bow ? '弓手' : chief ? '賊首' : '山賊',
       chief, x, z, y: ground(x, z), yaw: toBand + Math.PI,
       war, morale: 26 + band.fierce * 24 + (chief ? 18 : 0), isPlayer: false, driven: false,
-      reach: REACH, dmgMul: 1,
+      // 弓手貼了身只有短傢伙 —— 突進去他就是全場最軟的一個
+      reach: bow ? 1.0 : REACH, dmgMul: bow ? 0.7 : 1,
     });
+    if (bow) f.bow = true;
     if (input.sleeping) {
       /*
        * 夜襲的核心不是「他們變弱」,是<b>他們不會一起醒</b>。
@@ -272,13 +319,54 @@ export function stepBattle(
       const before = f.phase;
       f.phase += dt / SWING;
       if (before < HIT_AT && f.phase >= HIT_AT) resolveStrike(f);
-      if (f.phase >= 1) { f.stance = 'engaged'; f.phase = 0; f.cool = RECOVER + rand() * 0.35; }
+      // 收招的冷卻取較大者 —— 弓手放箭也走 striking 做拉弓動作,
+      // 直接覆寫會把 BOW_COOL 洗成收招的 0.7 秒,弓手就成了機關枪
+      if (f.phase >= 1) {
+        f.stance = 'engaged'; f.phase = 0;
+        f.cool = Math.max(f.cool, RECOVER + rand() * 0.35);
+      }
       continue;
     }
     if (f.stance === 'reeling') {
       f.phase += dt / 0.34;
       if (f.phase >= 1) { f.stance = 'engaged'; f.phase = 0; }
       continue;
+    }
+
+    /**
+     * 弓手的風箏:遠了追、近了退、十來步站定放箭。
+     * 貼到兩步半以內就掉進下面的近戰路 —— 他手裡只有一把短刀。
+     */
+    if (f.bow && !f.driven) {
+      const foe = nearestFoe(f);
+      if (foe) {
+        const dx = foe.x - f.x, dz = foe.z - f.z;
+        const d = Math.hypot(dx, dz);
+        if (d > 2.5) {
+          f.yaw = Math.atan2(dx, dz);
+          if (d < BOW_KEEP) {
+            // 退著走,臉還朝著你 —— 弓手最怕的就是讓你貼上
+            const st = MOVE * 0.86 * dt;
+            const got = slide(f.x, f.z, f.x - (dx / d) * st, f.z - (dz / d) * st);
+            f.x = got.x; f.z = got.z; f.y = ground(f.x, f.z);
+            f.stance = 'closing';
+            f.phase = (f.phase + dt * 5) % 1;
+          } else if (d > BOW_RANGE) {
+            const st = MOVE * dt;
+            const got = slide(f.x, f.z, f.x + (dx / d) * st, f.z + (dz / d) * st);
+            f.x = got.x; f.z = got.z; f.y = ground(f.x, f.z);
+            f.stance = 'closing';
+            f.phase = (f.phase + dt * 5) % 1;
+          } else {
+            f.stance = 'engaged';
+            if (f.cool <= 0) {
+              loose(f, foe, d);
+              f.cool = BOW_COOL + rand() * 0.9;
+            }
+          }
+          continue;
+        }
+      }
     }
 
     const tgt = pickTarget(f);
@@ -321,7 +409,73 @@ export function stepBattle(
     }
   }
 
+  stepArrows(dt, ground);
   reapAndRally();
+}
+
+/**
+ * 放一箭。瞄的是<b>此刻</b>的人 —— 不帶提前量。
+ *
+ * 這是刻意的:箭飛十來步要大半秒,朝著現在的位置射,側著跑的人自然讓過去。
+ * 「弓手可怕」和「箭躲得開」必須同時成立,躲開的辦法就是別站著。
+ * 散布隨距離放大 —— 遠箭是威嚇,近箭才要命。
+ */
+function loose(f: Fighter, tgt: Fighter, d: number) {
+  const t = d / ARROW_SPEED;
+  const spread = 0.4 + d * 0.055;
+  const ax = tgt.x + (rand() - 0.5) * spread;
+  const az = tgt.z + (rand() - 0.5) * spread;
+  const y0 = f.y + 1.35;
+  const ty = tgt.y + 0.95;
+  arrows.push({
+    x: f.x, y: y0, z: f.z,
+    vx: (ax - f.x) / t,
+    vy: (ty - y0) / t + 0.5 * ARROW_G * t,
+    vz: (az - f.z) / t,
+    side: f.side,
+    // 一箭要配得上他頂替的那把刀:第一版 5.5+0.09war,空跑出來「有弓的寨
+    // 比沒弓的好打十五個點」—— 換走一個兇刀手,換來的威脅得夠斤兩
+    dmg: (8.0 + f.war * 0.12) * (0.75 + rand() * 0.5),
+    life: 2.4,
+  });
+  arrowTally.loosed++;
+  // 拉弓也是個動作 —— 渲染端拿 striking 的相位做開弓,傷害不從這裡走
+  f.stance = 'striking';
+  f.phase = 0;
+}
+
+/** 箭往前飛。命中查的是<b>這一步掃過的線段</b>,不是端點 —— 箭一幀半步,查點會穿人。 */
+function stepArrows(dt: number, ground: (x: number, z: number) => number) {
+  for (let i = arrows.length - 1; i >= 0; i--) {
+    const a = arrows[i];
+    const px = a.x, py = a.y, pz = a.z;
+    a.vy -= ARROW_G * dt;
+    a.x += a.vx * dt; a.y += a.vy * dt; a.z += a.vz * dt;
+    a.life -= dt;
+
+    let hit = false;
+    for (const f of fighters) {
+      if (f.side === a.side || !alive(f)) continue;
+      if (segDist(px, py, pz, a.x, a.y, a.z, f.x, f.y + 1.0, f.z) < 0.55) {
+        applyHit(f, a.dmg);
+        hit = true;
+        break;
+      }
+    }
+    if (hit || a.life <= 0 || a.y < ground(a.x, a.z) + 0.04) arrows.splice(i, 1);
+  }
+}
+
+/** 點到線段的距離 —— 箭的掃掠命中用。 */
+function segDist(
+  x0: number, y0: number, z0: number, x1: number, y1: number, z1: number,
+  px: number, py: number, pz: number,
+): number {
+  const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
+  const L2 = dx * dx + dy * dy + dz * dz;
+  const t = L2 === 0 ? 0
+    : Math.max(0, Math.min(1, ((px - x0) * dx + (py - y0) * dy + (pz - z0) * dz) / L2));
+  return Math.hypot(px - (x0 + dx * t), py - (y0 + dy * t), pz - (z0 + dz * t));
 }
 
 /**
@@ -395,7 +549,14 @@ function resolveStrike(f: Fighter) {
   const chance = clampf(0.44 + (f.war - tgt.war) / 190 + crowd + reachEdge, 0.15, 0.90);
   if (rand() > chance) return;
 
-  const dmg = (6.5 + f.war * 0.10) * f.dmgMul * (0.75 + rand() * 0.6);
+  applyHit(tgt, (6.5 + f.war * 0.10) * f.dmgMul * (0.75 + rand() * 0.6));
+}
+
+/**
+ * 挨了一下 —— 刀和箭共用的那半段:掉血、閃紅、驚醒、頓幀、倒地與士氣。
+ * 刀在這之前擲過命中,箭沒有 —— 箭的「命中率」是空間裡飛出來的。
+ */
+function applyHit(tgt: Fighter, dmg: number) {
   lastBlow = clock;
   tgt.hp -= dmg;
   tgt.hurtAt = clock;
@@ -412,6 +573,15 @@ function resolveStrike(f: Fighter) {
     fx.slow = 0.42;
     fx.shake = Math.max(fx.shake, 0.45);
     shakeMorale(tgt);
+    /**
+     * 最後一個 —— 全場最重的一拍。慢鏡拉長,鏡頭壓低推近(見 Player.tsx)。
+     * 只認「放倒收尾」:對面全是嚇跑的就不擺這個譜,追著潰兵拍特寫很滑稽。
+     */
+    if (tgt.side === 'foe' && !fighters.some((g) => g.side === 'foe' && alive(g))
+        && fighters.some((g) => g.side === 'you' && alive(g))) {
+      fx.slow = 0.85;
+      fx.finisher = 1.3;
+    }
   } else if (tgt.stance !== 'striking') {
     tgt.stance = 'reeling';
     tgt.phase = 0;
@@ -553,6 +723,7 @@ export const useBattle = create<BattleState>((set) => ({
   finish: (tally) => set({ tally }),
   clear: () => {
     fighters.length = 0;
+    arrows.length = 0;
     set({ bandId: null, tally: null, sparring: false, sparWith: null, nightRaid: false });
   },
 }));
@@ -570,6 +741,7 @@ export function beginSpar(input: {
   clock = 0;
   lastBlow = 0;
   fighters.length = 0;
+  arrows.length = 0;
   const { at, ground } = input;
   fighters.push(mk({
     id: 'you', side: 'you', name: input.me.name,
