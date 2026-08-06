@@ -15,6 +15,7 @@ import { useHero } from '../game/hero';
 import { useVillage } from '../game/village';
 import { anyPerson } from '../game/countyfolk';
 import { walkable } from '../world/field';
+import { challengeChief } from '../world/Battle';
 import { MARKET } from '../world/sites';
 
 /**
@@ -220,6 +221,11 @@ export function BattleHud() {
     const d = Math.round(Math.hypot(near.x - playerPos.x, near.z - playerPos.z));
     const hr = useClock.getState().hour;
     const night = hr < 5.6 || hr > 19.2;
+    /**
+     * 叫陣要站得夠近才喊得到,而且不能已經接上戰(那時候喊什麼都晚了)。
+     * 夜裡不給喊 —— 摸黑靠近的價值就是他們沒醒,喊一嗓子等於自己叫醒全寨。
+     */
+    const canHail = d <= 26 && !night;
     return (
       <div style={{ ...wrap, top: 26, textAlign: 'center' }}>
         <div style={{
@@ -230,6 +236,26 @@ export function BattleHud() {
           <span style={{ opacity: .6 }}> · {bandWord(near)} · {d} 步</span>
           {night && <span style={{ color: '#a8d4b4' }}> · 夜深了 —— 摸得夠近,他們還在睡</span>}
         </div>
+        {canHail && (
+          <button
+            style={{
+              marginTop: '.4rem', pointerEvents: 'auto', cursor: 'pointer',
+              background: 'rgba(14,17,22,.8)', color: '#e6c98a',
+              border: '1px solid rgba(200,164,90,.5)', padding: '.3rem .9rem',
+              fontFamily: 'inherit', fontSize: '.8rem',
+            }}
+            onClick={() => {
+              const day = useClock.getState().day;
+              const accepted = challengeChief(near);
+              note(day, accepted
+                ? `在${near.name}外頭叫陣。賊首提刀出來了 —— 一對一,他的人在旁邊看著。`
+                : `在${near.name}外頭叫陣。裡頭罵了一句「找死」—— 一擁而上。`,
+                accepted ? 'good' : 'bad');
+            }}
+          >
+            叫陣 · 單挑賊首(他未必肯出來)
+          </button>
+        )}
       </div>
     );
   }

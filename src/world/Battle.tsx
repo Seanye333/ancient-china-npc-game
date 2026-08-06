@@ -6,7 +6,7 @@ import { groundAt, slideMove } from './field';
 import { bodyGeom, headGeom, FIG_BODY_H, FIG_HR } from './figure';
 import { playerPos } from '../game/interact';
 import { useHero, woundPenalty } from '../game/hero';
-import { useBands } from '../game/bands';
+import { useBands, chiefAccepts } from '../game/bands';
 import { raidParties, useRaids } from '../game/raids';
 import { useQuest } from '../game/quest';
 import { lifeTally } from '../game/daily';
@@ -64,6 +64,36 @@ function ourSide(
 
 const FOE_ROBE = '#4a3f42';
 const FOE_CHIEF_ROBE = '#5c3a33';
+
+/**
+ * 寨外叫陣 —— 賭一把:不帶人手也可能端得掉一窩。
+ *
+ * 兇的頭子好面子,多半肯出來單挑(0.35 + fierce*0.45);贏了他,
+ * 全夥樹倒猢猻散 —— 走的是既有的「打贏就 rout」那條路,count 開 1
+ * 就是單挑,開整夥就是罵完一擁而上。輸的代價也是現成的:
+ * 擊昏、掉錢、帶傷 —— 傷還沒好又輸一場,就是死。
+ * 回傳「他應沒應戰」,日誌那句話由呼叫端寫。
+ */
+export function challengeChief(b: {
+  id: string; x: number; z: number; fierce: number; count: number;
+}): boolean {
+  const hero = useHero.getState();
+  const villagers = makeVillagers(38);
+  const byId = Object.fromEntries(villagers.map((v) => [v.id, v]));
+  const accepted = Math.random() < chiefAccepts(b.fierce);
+  beginBattle({
+    // 應戰 = 你一個人上(單挑,你的人不插手);不應 = 全隊接一場硬仗
+    ours: accepted ? [ourSide(hero, byId)[0]] : ourSide(hero, byId),
+    band: {
+      id: b.id, x: b.x, z: b.z, fierce: b.fierce,
+      count: accepted ? 1 : b.count,
+    },
+    at: { x: playerPos.x, z: playerPos.z },
+    ground: groundAt,
+    leadership: hero.stats.leadership,
+  });
+  return accepted;
+}
 
 export function Battle() {
   const bands = useBands((s) => s.bands);

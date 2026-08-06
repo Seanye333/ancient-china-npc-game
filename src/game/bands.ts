@@ -141,3 +141,17 @@ export function bandWord(b: Band): string {
   if (w >= 4) return '有些人手';
   return '三兩個毛賊';
 }
+
+/**
+ * 叫陣 —— 賊首肯不肯出來單挑。
+ *
+ * 兇的頭子<b>更肯</b>應戰:面子是他坐這把交椅的本錢,當著全夥的面
+ * 被人在門口點名而縮著不出來,這個窩他就帶不下去了。
+ * 反過來,幾個毛賊的小股沒有這種包袱,罵一句一擁而上還更省事。
+ *
+ * 抽成純函式是為了能釘住:這條機率決定了「叫陣」是一門划算的生意
+ * 還是一場賭博 —— 埋在畫面檔裡就永遠沒人驗。
+ */
+export function chiefAccepts(fierce: number): number {
+  return 0.35 + fierce * 0.45;
+}
