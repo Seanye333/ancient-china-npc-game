@@ -28,6 +28,7 @@ export function Seasonals() {
   return (
     <>
       {season === 'autumn' && weather !== 'snow' && <FallingLeaves />}
+      {season === 'spring' && weather === 'clear' && <FallingLeaves petals />}
       {season === 'summer' && weather === 'clear' && night && <Fireflies />}
       {(season === 'spring' || season === 'summer') && weather === 'clear' && day && <Butterflies />}
       {season === 'summer' && weather !== 'snow' && day && <Dragonflies />}
@@ -41,21 +42,23 @@ export function Seasonals() {
 const LEAVES = 150;
 const LEAF_BOX = 40;              // 鏡頭周圍的作用範圍 —— 收小一圈,眼前才有密度
 const LEAF_COLORS = ['#c08a2e', '#b06a28', '#9a4a22', '#8a7a30'];
+const PETAL_COLORS = ['#e6c3cc', '#efe6dd', '#e0b4c0', '#f2ece4'];
 
-function FallingLeaves() {
+/** petals = 春天的花瓣:同一套飄落,片小、色淡、落得慢。 */
+function FallingLeaves({ petals = false }: { petals?: boolean }) {
   const mesh = useRef<THREE.InstancedMesh>(null);
   const { camera } = useThree();
 
   // 每片葉子:位置、下落速度、搖擺相位、翻滾軸速
   const leaves = useMemo(() => {
-    const rand = rng(1123);
+    const rand = rng(petals ? 1789 : 1123);
     return Array.from({ length: LEAVES }, () => ({
       x: 0, y: -999, z: 0,                       // -999 = 第一幀就重生
-      fall: 0.55 + rand() * 0.5,
+      fall: (petals ? 0.34 : 0.55) + rand() * (petals ? 0.3 : 0.5),
       phase: rand() * Math.PI * 2,
       spinX: (rand() - 0.5) * 4, spinZ: (rand() - 0.5) * 4,
     }));
-  }, []);
+  }, [petals]);
 
   const tmp = useMemo(() => ({ obj: new THREE.Object3D(), col: new THREE.Color() }), []);
 
@@ -90,14 +93,15 @@ function FallingLeaves() {
       args={[undefined, undefined, LEAVES]}
       frustumCulled={false}
       onUpdate={(im) => {
-        // 顏色和樹冠同一套秋色 —— 落的葉要像是從那些樹上掉的
+        // 顏色和樹冠同一套 —— 落的要像是從那些樹上掉的
+        const C = petals ? PETAL_COLORS : LEAF_COLORS;
         for (let i = 0; i < LEAVES; i++) {
-          im.setColorAt(i, tmp.col.set(LEAF_COLORS[i % LEAF_COLORS.length]));
+          im.setColorAt(i, tmp.col.set(C[i % C.length]));
         }
         if (im.instanceColor) im.instanceColor.needsUpdate = true;
       }}
     >
-      <planeGeometry args={[0.24, 0.32]} />
+      <planeGeometry args={petals ? [0.13, 0.15] : [0.24, 0.32]} />
       <meshStandardMaterial color="#ffffff" roughness={0.9} side={THREE.DoubleSide} />
     </instancedMesh>
   );

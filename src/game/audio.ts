@@ -171,6 +171,26 @@ export function bowSound() {
   blip({ type: 'bandpass', freq: 1500, q: 2.4, attack: 0.003, decay: 0.16, gain: 0.15, sweepTo: 420 });
 }
 
+/** 雷 —— 一聲悶滾。夏天的雨才配得上。 */
+export function thunderSound() {
+  if (!ctx || !master || muted) return;
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer(ctx, 2.6);
+  const f = ctx.createBiquadFilter();
+  f.type = 'lowpass';
+  f.frequency.value = 140;
+  f.Q.value = 1.2;
+  const g = ctx.createGain();
+  const t = ctx.currentTime;
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(0.5, t + 0.06);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 2.4);
+  f.frequency.exponentialRampToValueAtTime(60, t + 2.2);
+  src.connect(f).connect(g).connect(master);
+  src.start(t);
+  src.stop(t + 2.5);
+}
+
 /** 犬吠 —— 兩短聲。夜裡有賊靠近村子,狗先說話。 */
 export function barkSound() {
   blip({ type: 'bandpass', freq: 620, q: 3.5, attack: 0.006, decay: 0.12, gain: 0.13, sweepTo: 380 });

@@ -55,7 +55,9 @@ import { DOCKS } from './world/sites';
 import { useJournal } from './game/journal';
 import { originById } from './game/origin';
 import { ORIGIN_WEAPON } from './game/weapons';
-import { updateAmbience, isMuted, audioReady, musicState, nudgeMusic } from './game/audio';
+import {
+  updateAmbience, isMuted, audioReady, musicState, nudgeMusic, thunderSound,
+} from './game/audio';
 import { useEnding } from './game/ending';
 import { findPath, navStats, navOpen } from './world/nav';
 import { water, steerMove, walkable } from './world/field';
@@ -112,6 +114,7 @@ function TimedScene() {
   const { gl, scene } = useThree();
   const dirRef = useRef<THREE.DirectionalLight>(null);
   const hemiRef = useRef<THREE.HemisphereLight>(null);
+  const ambRef = useRef<THREE.AmbientLight>(null);
   /** 0 = 露天,1 = 在酒肆裡。進屋是漸變的 —— 光不能「啪」一下切。 */
   const indoor = useRef(0);
 
@@ -184,9 +187,33 @@ function TimedScene() {
         shadow-normalBias={0.035}
       />
       <hemisphereLight ref={hemiRef} args={[sky.skyColor, sky.groundColor, sky.hemiIntensity]} />
-      <ambientLight intensity={sky.ambient} color="#9fb4c8" />
+      <ambientLight ref={ambRef} intensity={sky.ambient} color="#9fb4c8" />
+      <Storm ambRef={ambRef} baseAmbient={sky.ambient} />
     </>
   );
+}
+
+/**
+ * 雷雨 — 夏天的大雨隔一陣劈一道:閃電是環境光猛地拉滿一瞬,
+ * 雷聲晚半拍到兩拍才到(光比聲快,這半拍就是「遠」)。
+ */
+function Storm({ ambRef, baseAmbient }: {
+  ambRef: React.RefObject<THREE.AmbientLight | null>; baseAmbient: number;
+}) {
+  const st = useRef({ next: 8, flashUntil: -1 });
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime;
+    const s = useClock.getState();
+    const storming = s.weather === 'rain' && s.season === 'summer';
+    if (storming && t > st.current.next) {
+      st.current.flashUntil = t + 0.13;
+      st.current.next = t + 9 + Math.random() * 20;
+      setTimeout(() => thunderSound(), 500 + Math.random() * 1600);
+    }
+    const a = ambRef.current;
+    if (a) a.intensity = baseAmbient + (t < st.current.flashUntil ? 2.4 : 0);
+  });
+  return null;
 }
 
 /** 截圖腳本用的相機把手。原型階段直接掛 window,正式版不會留。 */

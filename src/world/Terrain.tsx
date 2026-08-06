@@ -88,15 +88,22 @@ export function Terrain() {
   // roughness 一降,天光在地面上就有了反光;顏色壓一點,土是吃了水的土
   const matRef = useRef<THREE.MeshStandardMaterial>(null);
   const wet = useRef(0);
+  const snow = useRef(0);
   useFrame((_, dt) => {
-    const raining = useClock.getState().weather === 'rain';
-    wet.current = raining
+    const w = useClock.getState().weather;
+    wet.current = w === 'rain'
       ? Math.min(1, wet.current + dt / 10)
       : Math.max(0, wet.current - dt / 75);
+    // 積雪:下著慢慢白,停了慢慢化 —— 化得比乾得還慢,雪要「留一陣」
+    snow.current = w === 'snow'
+      ? Math.min(1, snow.current + dt / 22)
+      : Math.max(0, snow.current - dt / 130);
     const m = matRef.current;
     if (m) {
-      m.roughness = 0.95 - wet.current * 0.42;
-      const v = 1 - wet.current * 0.14;
+      m.roughness = 0.95 - wet.current * 0.42 + snow.current * 0.03;
+      // 濕了壓暗,積了雪往白裡抬 —— material.color 乘在頂點色上,
+      // 抬過 1 就是往雪色靠(頂點色本身永遠不動)
+      const v = (1 - wet.current * 0.14) * (1 + snow.current * 1.15);
       m.color.setRGB(v, v, v);
     }
   });

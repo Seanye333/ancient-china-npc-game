@@ -368,6 +368,18 @@ export function BroadLeaf() {
         return jitteredColor(pick, q.x, q.z, 0.012, 0.10, 0.10);
       };
     }
+    if (season === 'spring') {
+      // 春天四棵裡有一棵開花 —— 粉白兩色。同一棵樹每年春天開同一樹花,
+      // 這就是「春」的招牌:秋葉、夏螢、冬雪,春要有花
+      const BLOOM = [new THREE.Color('#e6c3cc'), new THREE.Color('#efe6dd')];
+      return (q: Placement) => {
+        const roll = rngGate(q.x * 2.9 + 11, q.z * 3.3 + 7);
+        if (roll < 0.25) {
+          return jitteredColor(BLOOM[roll < 0.13 ? 0 : 1], q.x, q.z, 0.008, 0.06, 0.05);
+        }
+        return jitteredColor(p.broadleaf, q.x, q.z, 0.018, 0.12, 0.11);
+      };
+    }
     return (q: Placement) => jitteredColor(p.broadleaf, q.x, q.z, 0.018, 0.12, 0.11);
   }, [p, season]);
   useInstanceColors(crown, items, colorOf);
