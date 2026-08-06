@@ -2,7 +2,6 @@ import { useHero } from './hero';
 import { useVillage } from './village';
 import { useBands } from './bands';
 import { useJournal } from './journal';
-import { makeVillagers } from './npcs';
 import {
   useFolk, deltaOf, livingVillagers, sickChance, deathChance, stepRumors, spreadRumor,
 } from './folk';
@@ -12,6 +11,7 @@ import {
 } from './calamity';
 import { useQuest } from './quest';
 import { moodOf, grumble, isGrieving } from './company';
+import { anyPerson } from './countyfolk';
 import { checkEnding, useEnding } from './ending';
 import { playerPos } from './interact';
 import { MARKET } from '../world/sites';
@@ -105,12 +105,11 @@ export function settleDay(day: number, season: Season): DayReport {
     journal.note(day, heads > 1 ? '斷糧了。跟著你的人今天沒吃上飯。' : '斷糧了。', 'bad');
 
     /* 餓著的人不會一直跟著你 —— 這是招募那條線真正的代價 */
-    const villagers = makeVillagers(38);
     for (const id of [...hero.followers]) {
       if (Math.random() > 0.34) continue;
       hero.dismiss(id);
       hero.addFavor(id, -4);
-      const name = villagers.find((v) => v.id === id)?.name ?? '同行';
+      const name = anyPerson(id)?.name ?? '同行';
       report.left.push(id);
       journal.note(day, `${name}餓了兩頓,跟你告了辭。`, 'bad');
       // 這種事村裡傳得最快 —— 跟著他的人吃不上飯,誰還敢跟你走
@@ -305,9 +304,8 @@ export function settleDay(day: number, season: Season): DayReport {
    */
   {
     const h = useHero.getState();
-    const people = makeVillagers(38);
     for (const id of [...h.followers]) {
-      const npc = people.find((p) => p.id === id);
+      const npc = anyPerson(id);
       if (!npc) continue;
       const grieving = isGrieving(id, day);
       const m = moodOf({
@@ -383,8 +381,7 @@ export function settleDay(day: number, season: Season): DayReport {
    */
   {
     const h = useHero.getState();
-    const people = makeVillagers(38);
-    const nameOf = (id: string) => people.find((p) => p.id === id)?.name ?? '某人';
+    const nameOf = (id: string) => anyPerson(id)?.name ?? '某人';
     const kind = checkEnding({
       starvingDays: lifeTally.starvingDays,
       sickDays: lifeTally.sickDays,

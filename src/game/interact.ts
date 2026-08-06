@@ -42,8 +42,19 @@ export const presences: Presence[] = [];
  */
 export const companions: Presence[] = [];
 
+/**
+ * 縣城裡的人 —— 第三張表。
+ *
+ * 不併進 presences,因為那張表是 Crowd <b>每幀清空重填</b>的:
+ * 別的元件往裡塞東西,下一幀就被抹掉,而且抹得很安靜。
+ * 誰維護誰的表,誰也不碰別人的 —— companions 那時就是這麼分出來的。
+ */
+export const cityfolk: Presence[] = [];
+
 export function findPresence(id: string): Presence | undefined {
-  return presences.find((p) => p.id === id) ?? companions.find((p) => p.id === id);
+  return presences.find((p) => p.id === id)
+    ?? companions.find((p) => p.id === id)
+    ?? cityfolk.find((p) => p.id === id);
 }
 
 interface InteractState {

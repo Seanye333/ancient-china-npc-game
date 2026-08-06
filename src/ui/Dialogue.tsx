@@ -13,6 +13,8 @@ import {
   makeVillagers, smallTalk, addressYou, mightWord, TRADE_LABEL, TEMPER_LABEL,
 } from '../game/npcs';
 import { useCalamity, CALAMITY_LABEL } from '../game/calamity';
+import { anyPerson, isCountyFolk } from '../game/countyfolk';
+import { countyPrice } from '../game/economy';
 import { raidParties } from '../game/raids';
 import { kinWord } from '../game/kin';
 import { deltaOf, isSick, spreadRumor } from '../game/folk';
@@ -48,10 +50,9 @@ export function Dialogue() {
   const [line, setLine] = useState<string | null>(null);
   const [shown, setShown] = useState<Errand | null>(null);
 
-  const villagers = useMemo(() => makeVillagers(38), []);
   const npc = useMemo(
-    () => villagers.find((v) => v.id === talkingTo) ?? null,
-    [villagers, talkingTo],
+    () => (talkingTo ? anyPerson(talkingTo) ?? null : null),
+    [talkingTo],
   );
 
   // 同一個人同一旬的活是固定的 —— 反覆搭話刷不出更好的差事。
@@ -60,10 +61,13 @@ export function Dialogue() {
   // 換季才換活,一季之內怎麼等都是同一件。現在有真的曆法了
   const span = useClock((s) => partsFor(s.day).xunIndex);
   const day = useClock((s) => s.day);
-  const errand = useMemo(
-    () => (npc ? errandFrom(npc, village, span, hero.merit, bands) : null),
-    [npc, village, span, hero.merit, bands],
-  );
+  const errand = useMemo(() => {
+    if (!npc) return null;
+    const e = errandFrom(npc, village, span, hero.merit, bands);
+    // 城裡人出手闊 —— 同一件活,城裡給一倍半。跑這一趟遠路才有人肯接
+    if (e && isCountyFolk(npc.id)) e.pay = Math.round(e.pay * 1.5);
+    return e;
+  }, [npc, village, span, hero.merit, bands]);
   // 差事指的那一夥 —— 有它,「西邊林子裡那夥人」才是地圖上一個真的地方
   const target = errand?.bandId ? bands.find((b) => b.id === errand.bandId) ?? null : null;
 
@@ -98,7 +102,11 @@ export function Dialogue() {
   const joined = hero.followers.includes(npc.id);
   const cal = useCalamity.getState().active;
   const ctx = {
-    hour, season, weather, village,
+    hour, season, weather,
+    // 城裡人講城裡的價 —— 門吏引村裡的米價,一開口就穿幫
+    village: isCountyFolk(npc.id)
+      ? { ...village, grainPrice: countyPrice(village) }
+      : village,
     calamity: cal ? CALAMITY_LABEL[cal.kind] : null,
     raiding: raidParties.find((r) => r.phase !== 'back')?.name ?? null,
   };

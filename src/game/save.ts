@@ -5,6 +5,9 @@ import { useQuest } from './quest';
 import { useJournal } from './journal';
 import { useFolk } from './folk';
 import { useCalamity } from './calamity';
+import { convoy, useConvoy } from './convoy';
+import { useEnding } from './ending';
+import { lifeTally } from './daily';
 import { useClock } from '../world/worldTime';
 import { settleGuard } from './daily';
 
@@ -38,6 +41,15 @@ interface SaveData {
   /** 村民後來怎麼了 —— 不存的話讀檔以後死人會復活。 */
   folk: unknown;
   calamity: unknown;
+  /** 押到一半的車。不存的話,押貨途中讀檔 = 貨憑空消失,而差事還掛著。 */
+  convoy: unknown;
+  /**
+   * 一生的流水帳(誰跟過你、剿了幾夥)與推掉過的收場。
+   * 不存的話,讀檔以後落幕那頁「跟過你的人」是空的 ——
+   * 而那一頁的全部意義就是名字。
+   */
+  tally: unknown;
+  declined: unknown;
 }
 
 function heroSlice() {
@@ -69,6 +81,13 @@ export function saveGame(): boolean {
       journal: useJournal.getState().entries,
       folk: useFolk.getState().deltas,
       calamity: useCalamity.getState().active,
+      convoy: convoy.car,
+      tally: {
+        ...lifeTally,
+        companions: [...lifeTally.companions],
+        lost: [...lifeTally.lost],
+      },
+      declined: useEnding.getState().declined,
     };
     localStorage.setItem(KEY, JSON.stringify(data));
     return true;
@@ -100,6 +119,21 @@ export function loadGame(): boolean {
     useJournal.setState({ entries: (data.journal as never) ?? [], unread: 0 });
     useFolk.setState({ deltas: (data.folk as never) ?? {} });
     useCalamity.setState({ active: (data.calamity as never) ?? null });
+    convoy.car = (data.convoy as never) ?? null;
+    useConvoy.getState().bump();
+    if (data.tally) {
+      const t = data.tally as {
+        starvingDays: number; sickDays: number; bandsCleared: number;
+        errandsDone: number; companions: string[]; lost: string[];
+      };
+      lifeTally.starvingDays = t.starvingDays ?? 0;
+      lifeTally.sickDays = t.sickDays ?? 0;
+      lifeTally.bandsCleared = t.bandsCleared ?? 0;
+      lifeTally.errandsDone = t.errandsDone ?? 0;
+      lifeTally.companions = new Set(t.companions ?? []);
+      lifeTally.lost = new Set(t.lost ?? []);
+    }
+    useEnding.setState({ declined: (data.declined as never) ?? [], life: null });
     useBands.setState((s) => ({
       bands: s.bands.map((b) => {
         const saved = data.bands.find((x) => x.id === b.id);

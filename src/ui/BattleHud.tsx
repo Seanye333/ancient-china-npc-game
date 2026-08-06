@@ -10,7 +10,7 @@ import { useQuest } from '../game/quest';
 import { convoy, endConvoy, lossPenalty } from '../game/convoy';
 import { useHero } from '../game/hero';
 import { useVillage } from '../game/village';
-import { makeVillagers } from '../game/npcs';
+import { anyPerson } from '../game/countyfolk';
 import { walkable } from '../world/field';
 import { MARKET } from '../world/sites';
 
@@ -189,8 +189,7 @@ function Aftermath(p: {
   onClose: () => void;
 }) {
   const [taken, setTaken] = useState<string | null>(null);
-  const villagers = makeVillagers(38);
-  const nameOf = (id: string) => villagers.find((v) => v.id === id)?.name ?? '同行';
+  const nameOf = (id: string) => anyPerson(id)?.name ?? '同行';
 
   return (
     <div style={{

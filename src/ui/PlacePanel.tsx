@@ -160,14 +160,15 @@ export function PlacePanel() {
               style={hero.grain >= qty ? btn : dim}
               onClick={() => {
                 if (hero.grain < qty) { setLine('沒那麼多糧可賣。'); return; }
-                const got = grainSale(market, qty);
+                const got = grainSale(market, qty, inCounty);
                 hero.addGrain(-qty);
                 hero.addGold(got);
                 setLine(`糶了 ${qty} 石,得 ${got} 錢。`);
                 note(day, `糶米 ${qty} 石 · ${got} 錢`);
               }}
             >
-              糶米 {qty} 石 · {grainSale(market, qty)} 錢
+              糶米 {qty} 石 · {grainSale(market, qty, inCounty)} 錢
+              {inCounty && <span style={{ opacity: .55 }}> · 城裡搶著收</span>}
             </button>
           </div>
         </div>

@@ -4,11 +4,12 @@ import { Billboard, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { terrainHeight, slopeAt, walkable, blocked } from './field';
 import {
-  playerPos, presences, companions, findPresence,
+  playerPos, presences, companions, cityfolk, findPresence,
   useInteract, TALK_RANGE, type Presence,
 } from '../game/interact';
 import { makeVillagers } from '../game/npcs';
 import { placeAt, placeById } from '../game/places';
+import { COUNTY_FOLK } from '../game/countyfolk';
 import { FIG_BODY_H } from './figure';
 
 /**
@@ -34,7 +35,7 @@ export function Interaction() {
 
   const villagers = useMemo(() => makeVillagers(38), []);
   const byId = useMemo(
-    () => Object.fromEntries(villagers.map((v) => [v.id, v])),
+    () => Object.fromEntries([...villagers, ...COUNTY_FOLK].map((v) => [v.id, v])),
     [villagers],
   );
 
@@ -118,7 +119,7 @@ export function Interaction() {
       acc.current = 0;
       let best: Presence | null = null;
       let bestD = TALK_RANGE;
-      for (const list of [presences, companions]) {
+      for (const list of [presences, companions, cityfolk]) {
         for (const p of list) {
           if (!p.visible) continue;
           const d = Math.hypot(p.x - playerPos.x, p.z - playerPos.z);

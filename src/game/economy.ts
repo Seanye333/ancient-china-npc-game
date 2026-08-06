@@ -40,13 +40,26 @@ export function mouths(followers: number, retinue: number): number {
  * 成為一個真的划算的決定,而不是無所謂的介面操作。
  */
 export function grainCost(village: VillageState, shi: number): number {
-  const bulk = shi >= 10 ? 0.88 : shi >= 4 ? 0.95 : 1;
+  /*
+   * 趸買折扣不能低於任何一個收購價(縣城 eager 收 0.9)。
+   * 第一版是 0.88 —— 於是在缺糧的縣城「買了就地賣掉」淨賺:
+   * 一台不用走路的印錢機,而且是測試「同一市集買賣必虧」抓出來的,
+   * 眼睛看報價完全看不出這件事。
+   */
+  const bulk = shi >= 10 ? 0.92 : shi >= 4 ? 0.96 : 1;
   return Math.max(1, Math.round(village.grainPrice * shi * bulk));
 }
 
-/** 賣糧只賣得到八成 —— 糧行不做慈善。 */
-export function grainSale(village: VillageState, shi: number): number {
-  return Math.max(0, Math.round(village.grainPrice * shi * 0.78));
+/**
+ * 賣糧。村裡的糧行只出七成八 —— 他們不缺糧,收你的是人情價。
+ *
+ * <b>缺糧的地方(eager)出到九成</b>:縣城不種田,糧全靠運進來,
+ * 糧行是搶著收的。這一成二的差,就是行商的全部利潤來源 ——
+ * 沒有它,「第二個價」只是擺著看的:趸買村裡 299、城裡賣 304,
+ * 賺五個錢,白走兩天路。這個數字是空跑出來的,見 trader.sim.test.ts。
+ */
+export function grainSale(village: VillageState, shi: number, eager = false): number {
+  return Math.max(0, Math.round(village.grainPrice * shi * (eager ? 0.9 : 0.78)));
 }
 
 /* ── 短工 ──────────────────────────────────────────── */

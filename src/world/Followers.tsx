@@ -6,7 +6,7 @@ import { ROBES, bodyGeom, headGeom, FIG_BODY_H } from './figure';
 import { playerPos, companions } from '../game/interact';
 import { useHero } from '../game/hero';
 import { useBattle } from '../game/combat';
-import { makeVillagers } from '../game/npcs';
+import { anyPerson } from '../game/countyfolk';
 
 /**
  * 隨行的人 — 跟在你身後那幾個。
@@ -32,10 +32,11 @@ export function Followers() {
   // 選擇器裡不能現生一個 [] —— 每次都是新的參考,zustand 會判定「變了」而無限重繪。
   // (第一版就是這樣把整個頁面凍住的。)
   const followers = inBattle ? NONE : all;
-  const villagers = useMemo(() => makeVillagers(38), []);
+
+  // 名字與武力都從 anyPerson 查 —— 縣城招來的人不在村民名冊裡
   const byId = useMemo(
-    () => Object.fromEntries(villagers.map((v) => [v.id, v])),
-    [villagers],
+    () => Object.fromEntries(followers.map((id) => [id, anyPerson(id)])),
+    [followers],
   );
 
   // 足跡環形緩衝 — 夠十個人跟

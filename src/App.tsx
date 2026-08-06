@@ -18,6 +18,7 @@ import { Followers } from './world/Followers';
 import { Camps } from './world/Camps';
 import { Raiders } from './world/Raiders';
 import { County, COUNTY } from './world/County';
+import { CountyFolk } from './world/CountyFolk';
 import { LostPerson } from './world/LostPerson';
 import { Cart } from './world/Cart';
 import { Battle } from './world/Battle';
@@ -39,7 +40,7 @@ import { useHero } from './game/hero';
 import { useVillage } from './game/village';
 import { settleDay, settleGuard } from './game/daily';
 import { saveGame, loadGame } from './game/save';
-import { useInteract } from './game/interact';
+import { useInteract, cityfolk } from './game/interact';
 import { placeById } from './game/places';
 import { DOCKS } from './world/sites';
 import { useJournal } from './game/journal';
@@ -170,6 +171,8 @@ function CamBridge() {
     (window as unknown as Record<string, unknown>).__water = () => water.offset;
     (window as unknown as Record<string, unknown>).__countyAt = () => [COUNTY.x, COUNTY.z];
     (window as unknown as Record<string, unknown>).__dockAt = () => [DOCKS[0][0], DOCKS[0][1]];
+    (window as unknown as Record<string, unknown>).__cityfolk = () =>
+      cityfolk.map((c) => ({ id: c.id, x: Math.round(c.x), z: Math.round(c.z) }));
     (window as unknown as Record<string, unknown>).__steer = (
       x: number, z: number, tx: number, tz: number, step: number,
     ) => {
@@ -278,6 +281,7 @@ export default function App() {
           <Crowd />
           <Player />
           <County />
+          <CountyFolk />
           <Camps />
           <Raiders />
           <LostPerson />
