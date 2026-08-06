@@ -34,6 +34,8 @@ export function newsFrom(input: {
   village: VillageState;
   at: { x: number; z: number };
   sickNames: string[];
+  /** 哪一夥正記著你的仇(還沒動手)。 */
+  hunted?: string | null;
   /** 亂兵:'coming' 的時候這句話值錢 —— 你還有兩天。 */
   marauders?: { phase: 'coming' | 'present' | null; daysLeft: number };
 }): string {
@@ -52,6 +54,10 @@ export function newsFrom(input: {
   if (raids.length) {
     const r = raids[0];
     return `「${r.name}的人下山了,這會兒在${wayWord(at.x, at.z, r.x, r.z)}。」`;
+  }
+  // 有人記你的仇 —— 這是酒肆最該賣的一句話:買到的是「還有兩天」
+  if (input.hunted) {
+    return `「${input.hunted}那邊的人在打聽你。夜裡把門閂上罷。」`;
   }
   if (input.sickNames.length) {
     return `「${input.sickNames[0]}病了些日子了,家裡揭不開鍋。」`;

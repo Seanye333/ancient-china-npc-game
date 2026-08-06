@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { fighters, alive, useBattle } from '../game/combat';
 import { playerPos, warpPlayer } from '../game/interact';
@@ -12,6 +12,8 @@ import { endLife } from '../game/daily';
 import { useFair, contenders, FAIR_PRIZE_GOLD, FAIR_PRIZE_RENOWN } from '../game/fair';
 import { festivalOn } from '../game/calendar';
 import { useHero } from '../game/hero';
+import { useVendetta } from '../game/vendetta';
+import { raidParties } from '../game/raids';
 import { useVillage } from '../game/village';
 import { anyPerson } from '../game/countyfolk';
 import { walkable } from '../world/field';
@@ -65,6 +67,24 @@ export function BattleHud() {
    * onClose —— 於是畫面先給你看「再睜眼時人已經在路邊」,點了按鈕才突然死。
    * 死不能是按鈕的副作用。
    */
+  /**
+   * 開打那一刻就把兩件事鎖下來:<b>這一場算在哪個窩頭上</b>、是不是找上門的仇家。
+   *
+   * 兩個坑都在這裡:
+   * 一、下山的那一夥開打時,useBattle.bandId 存的是<b>隊伍的 id</b>
+   *     (`band0-190`),不是窩的 id —— 拿它去記仇,記的是一個
+   *     永遠對不上任何一夥的鍵:仇家因此永遠不會來,而那筆爛帳還會
+   *     一直躺在存檔裡。隊伍身上的 bandId 才是窩。
+   * 二、Battle 的收場 effect 會把那一夥從 raidParties 裡刪掉,而收兵的
+   *     按鈕是玩家幾秒後才點的 —— 到那時候再查陣列,查到的永遠是空。
+   */
+  const engaged = useRef<{ band: string | null; hunting: boolean }>({ band: null, hunting: false });
+  useEffect(() => {
+    if (tally) return;
+    const party = raidParties.find((r) => r.id === bandId);
+    engaged.current = { band: party?.bandId ?? bandId, hunting: !!party?.hunting };
+  }, [tally, bandId]);
+
   useEffect(() => {
     if (!tally || sparring) return;
     if (tally.playerDown && useHero.getState().wounded > 0) {
@@ -115,6 +135,11 @@ export function BattleHud() {
 
   if (tally) {
     const band = bands.find((b) => b.id === bandId);
+    // 這一場是不是他們找上門來的 —— 收場的文案與帳都不一樣。
+    // 讀的是<b>開打那一刻鎖下來的</b>值:Battle 的收場 effect 會把那一夥
+    // 從 raidParties 裡刪掉,而收兵的按鈕是玩家幾秒後才點的 ——
+    // 到那時候再查陣列,查到的永遠是「不是尋仇」,這筆帳就結不掉
+    const { band: grudgeBand, hunting: huntingNow } = engaged.current;
     // 有人託你辦這件事嗎?這一句決定了這場架算「功勞」還是「私鬥」
     const commissioned = !!bandId && useQuest.getState().taken?.bandId === bandId;
     return (
@@ -143,6 +168,20 @@ export function BattleHud() {
                 ? '持刀的胳膊傷了筋 —— 這一個月,砍下去是輕的。'
                 : '臉上開了口子。就算長好,這道疤也跟定你了。', 'bad');
             hero.addGold(-Math.round(hero.gold * 0.25));
+          }
+          /*
+           * 跑掉的那幾個記住了你的臉 —— 「打散」從此有了長期的後果。
+           * 打贏才記:你要是輸了,他們沒什麼好記恨的(帳是他們占了便宜)。
+           */
+          if (tally.won && grudgeBand && tally.foesFled > 0) {
+            useVendetta.getState().remember(grudgeBand, tally.foesFled, useClock.getState().day);
+          }
+          // 尋仇的這一夥被你打了回去 —— 這筆帳結清了
+          if (tally.won && grudgeBand && huntingNow) {
+            useVendetta.getState().settle(grudgeBand);
+            useHero.setState((s) => ({ renown: s.renown + 3 }));
+            note(useClock.getState().day,
+              `他們是衝著你來的,又是空著手回去的。這事傳出去,沒人再敢輕易記你的仇。`, 'good');
           }
           // 倒下的人不會再跟著你走 —— 這一步就是招募那條線的代價
           for (const id of tally.fell) hero.dismiss(id);

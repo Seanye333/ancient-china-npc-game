@@ -23,6 +23,9 @@ import {
 import { rankForMerit } from './hero';
 import { DAYS_PER_XUN, DAYS_PER_YEAR, partsFor, festivalOn, daysToFestival } from './calendar';
 import { raidParties, useRaids, raidChance, raidSize, alreadyOut } from './raids';
+import {
+  useVendetta, shouldWarn, vendettaChance, vendettaSize,
+} from './vendetta';
 import { groundAt, water } from '../world/field';
 import { invalidateNav } from '../world/nav';
 import type { Season } from '../world/worldTime';
@@ -405,6 +408,46 @@ export function settleDay(day: number, season: Season): DayReport {
 
   /* 流言傳一天 —— 你做的事沿著血緣走,不會停在當事人身上 */
   stepRumors(Math.random);
+
+  /*
+   * 仇家 —— 從你手裡跑掉的那幾個,攢夠了人就來尋你。
+   *
+   * 兩段:先放風聲(酒肆裡有人打聽你住哪),過兩天人才到。
+   * 風聲一定在前 —— 半夜被堵在門口而事先毫無徵兆,那不叫難,那叫耍人。
+   */
+  {
+    const vd = useVendetta.getState();
+    for (const [bandId, g] of Object.entries(vd.grudges)) {
+      const band = useBands.getState().bands.find((b) => b.id === bandId);
+      if (!band) continue;
+      if (shouldWarn(g, day)) {
+        vd.warn(bandId, day);
+        journal.note(day,
+          `酒肆裡有人打聽你住哪 —— 從${band.name}跑掉的那幾個,還記著。`, 'bad');
+        continue;
+      }
+      /*
+       * 只擋<b>重複的仇家隊</b>,不擋普通下山的那一夥。
+       * 用 alreadyOut() 的話,愛下山的窩就永遠報不了仇 —— 而且說不通:
+       * 下山搶糧的和記你仇的本來就不是同一批人。
+       */
+      if (raidParties.some((r) => r.bandId === bandId && r.hunting)) continue;
+      if (Math.random() > vendettaChance(g, day, useHero.getState().renown)) continue;
+      const count = vendettaSize(g, Math.random);
+      raidParties.push({
+        id: `${bandId}-vendetta-${day}`, bandId, name: band.name,
+        count, fierce: Math.min(1, band.fierce + 0.15),   // 尋仇的比平常橫
+        x: band.x, y: groundAt(band.x, band.z), z: band.z, yaw: 0,
+        // 一夜的功夫 —— 找不著人天亮就撤(linger 在尋仇裡是「找多久」)。
+        // 110 秒實時 ≈ 十一個時辰:結算跑在子夜換日那一刻,
+        // 他們從窩裡走過來要四五個時辰 —— 摸到你門口正是後半夜
+        phase: 'out', linger: 110, since: day, hunting: true,
+      });
+      useRaids.getState().bump();
+      journal.note(day,
+        `${band.name}那幾個摸下山了 —— 這一趟不是為了糧,是為了你。`, 'bad');
+    }
+  }
 
   /* 有沒有人下山 —— 治安差、秋收前後最凶 */
   const village = useVillage.getState();

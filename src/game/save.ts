@@ -9,6 +9,7 @@ import { convoy, useConvoy } from './convoy';
 import { useEnding } from './ending';
 import { useMarauders } from './marauders';
 import { useRefugees } from './refugees';
+import { useVendetta } from './vendetta';
 import { useFair } from './fair';
 import { lifeTally } from './daily';
 import { useClock } from '../world/worldTime';
@@ -50,6 +51,7 @@ interface SaveData {
   convoy: unknown;
   marauders: unknown;
   refugees: unknown;
+  grudges: unknown;
   /** 擂台打到第幾場 —— 比到一半讀檔丟兩場勝利,那就是搶劫。 */
   fair: unknown;
   /**
@@ -93,6 +95,8 @@ export function saveGame(): boolean {
       convoy: convoy.car,
       marauders: { phase: useMarauders.getState().phase, daysLeft: useMarauders.getState().daysLeft },
       refugees: useRefugees.getState().band,
+      // 仇家記著你的臉 —— 讀了檔就忘,那筆帳等於沒發生過
+      grudges: useVendetta.getState().grudges,
       fair: {
         round: useFair.getState().round,
         out: useFair.getState().out,
@@ -138,6 +142,7 @@ export function loadGame(): boolean {
     convoy.car = (data.convoy as never) ?? null;
     if (data.marauders) useMarauders.setState(data.marauders as never);
     useRefugees.setState({ band: (data.refugees as never) ?? null });
+    useVendetta.getState().reset((data.grudges as never) ?? {});
     if (data.fair) useFair.setState(data.fair as never);
     useConvoy.getState().bump();
     if (data.tally) {

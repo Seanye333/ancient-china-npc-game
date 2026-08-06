@@ -30,6 +30,7 @@ import { menNeeded } from '../game/errands';
 import { bandWord } from '../game/bands';
 import { useBands } from '../game/bands';
 import { raidParties } from '../game/raids';
+import { hauntedBy } from '../game/vendetta';
 import { livingVillagers, deltaOf } from '../game/folk';
 import { playerPos } from '../game/interact';
 import { retinueCap, rankForMerit } from '../game/hero';
@@ -257,6 +258,7 @@ export function PlacePanel() {
               at: { x: playerPos.x, z: playerPos.z },
               sickNames: livingVillagers()
                 .filter((n) => deltaOf(n.id).sick > 0).map((n) => n.name),
+              hunted: hauntedBy(),
             }));
           }}>
             打聽 · {NEWS_PRICE} 錢<span style={{ opacity: .55 }}> · 這一帶出了什麼事</span>

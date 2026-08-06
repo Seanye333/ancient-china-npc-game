@@ -65,6 +65,8 @@ import { water, steerMove, walkable } from './world/field';
 import { useMarauders } from './game/marauders';
 import { useRefugees } from './game/refugees';
 import { useBands } from './game/bands';
+import { raidParties, useRaids } from './game/raids';
+import { hauntedBy, useVendetta } from './game/vendetta';
 import { newsFrom } from './game/tavern';
 import { bountyTarget, bountyPay } from './game/yamen';
 import { useCalamity } from './game/calamity';
@@ -289,8 +291,25 @@ function CamBridge() {
       bands: useBands.getState().bands, raids: [],
       marauders: useMarauders.getState(),
       village: useVillage.getState(), at: { x: 0, z: 0 }, sickNames: [],
+      hunted: hauntedBy(),
     });
     (window as unknown as Record<string, unknown>).__refugees = () => useRefugees.getState().band;
+    (window as unknown as Record<string, unknown>).__vendetta = () => useVendetta.getState().grudges;
+    (window as unknown as Record<string, unknown>).__grudge = (id: string, n: number, day: number) =>
+      useVendetta.getState().remember(id, n, day);
+    // 驗收用:讓仇家立刻出現在你旁邊,不必等機率湊齊
+    (window as unknown as Record<string, unknown>).__forceVendetta = (id: string) => {
+      const band = useBands.getState().bands.find((b) => b.id === id);
+      if (!band) return false;
+      raidParties.push({
+        id: `${id}-vendetta-force`, bandId: id, name: band.name,
+        count: 3, fierce: band.fierce,
+        x: playerPos.x + 22, y: 0, z: playerPos.z + 10, yaw: 0,
+        phase: 'out', linger: 110, since: useClock.getState().day, hunting: true,
+      });
+      useRaids.getState().bump();
+      return true;
+    };
     (window as unknown as Record<string, unknown>).__bandsStore = () => useBands;
     (window as unknown as Record<string, unknown>).__bounty = () => {
       const t = bountyTarget(useBands.getState().bands, useVillage.getState().order);

@@ -43,6 +43,14 @@ export interface RaidParty {
   fighting?: boolean;
   /** 出發那天,日誌上要說得出「這夥人出來三天了」。 */
   since: number;
+  /**
+   * 尋仇 —— 這一夥找的是<b>你</b>,不是村子。
+   *
+   * 下山搶糧是生計,尋仇是私怨,兩件事在畫面上要看得出分別:
+   * 一夥直奔村口,一夥直奔你站的地方。搶完了會賴一會兒再走,
+   * 尋仇的沒有「賴著」這一段 —— 找不到人就散了回去。
+   */
+  hunting?: boolean;
 }
 
 export const raidParties: RaidParty[] = [];

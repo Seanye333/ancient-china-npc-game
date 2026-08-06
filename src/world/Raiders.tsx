@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { groundAt, slideMove } from './field';
 import { MARKET } from './sites';
+import { playerPos } from '../game/interact';
 import { bodyGeom, headGeom, FIG_BODY_H, FIG_HR } from './figure';
 import { raidParties, useRaids } from '../game/raids';
 import { useBands } from '../game/bands';
@@ -61,13 +62,19 @@ export function Raiders() {
         r.linger -= step;
         if (r.linger <= 0) { r.phase = 'back'; changed = true; }
       } else {
+        // 尋仇的直奔你站的地方 —— 你走到哪他們追到哪(接戰交給 Battle 的 ENGAGE)
         const [tx, tz] = r.phase === 'out'
-          ? [MARKET[0], MARKET[1]]
+          ? (r.hunting ? [playerPos.x, playerPos.z] : [MARKET[0], MARKET[1]])
           : [camp?.x ?? r.x, camp?.z ?? r.z];
         const dx = tx - r.x, dz = tz - r.z;
         const d = Math.hypot(dx, dz);
 
-        if (r.phase === 'out' && d < ARRIVE) {
+        if (r.phase === 'out' && r.hunting && (r.linger -= step) <= 0) {
+          // 找了一整夜沒堵著人 —— 天亮前撤。找不到就是找不到,不會賴著等你
+          note(useClock.getState().day, `${r.name}那幾個在村外轉了一夜,天亮前走了。`, 'good');
+          r.phase = 'back';
+          changed = true;
+        } else if (r.phase === 'out' && !r.hunting && d < ARRIVE) {
           // 到村口了 —— 搶。你沒趕上,這就是代價
           const v = useVillage.getState();
           const bite = 3 + Math.round(r.count * 1.6 * (0.6 + r.fierce));
