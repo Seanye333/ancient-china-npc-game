@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { errandFrom, reward, odds, ERRAND_LABEL } from './errands';
+import { errandFrom, reward, ERRAND_LABEL } from './errands';
 import { bearing, paces, wayWord, useQuest } from './quest';
 import { makeVillagers } from './npcs';
 import type { Band } from './bands';
@@ -154,12 +154,6 @@ describe('手上一次只有一件活', () => {
 });
 
 describe('攤開的資訊還是誠實的', () => {
-  it('人手不足會把抽象差事的勝算壓下去', () => {
-    const e = { id: 'x', kind: 'escort' as const, patronId: 'n', tier: 2, wantMen: 4, pay: 40 };
-    const stats = { war: 58, leadership: 52, intelligence: 46, politics: 40, charisma: 55 };
-    expect(odds(e, stats, 0)).toBeLessThan(odds(e, stats, 4));
-  });
-
   it('每一種活都有名字可以顯示', () => {
     for (const k of ['bandits', 'escort', 'guard', 'search', 'harvest'] as const) {
       expect(ERRAND_LABEL[k]).toBeTruthy();

@@ -102,7 +102,7 @@ export function needWord(t: Taken): string {
     case 'harvest': return `下田搶收 ${t.done}/${t.need} 趟`;
     case 'guard': return `守夜 ${t.done}/${t.need} 宿`;
     case 'search': return t.done >= t.need ? '把人帶回去' : '尋人';
-    case 'escort': return '押著貨走一趟';
+    case 'escort': return t.done >= t.need ? '貨到了,回去覆命' : '押車往縣城';
   }
 }
 

@@ -3,6 +3,11 @@ import type { CSSProperties } from 'react';
 import { useInteract, playerPos } from '../game/interact';
 import { useBands, bandWord } from '../game/bands';
 import { useQuest, wayWord, needFor } from '../game/quest';
+import { startConvoy, endConvoy, cargoWorth } from '../game/convoy';
+import { DOCKS } from '../world/sites';
+import { groundAt } from '../world/field';
+import { findPath } from '../world/nav';
+import { COUNTY } from '../world/County';
 import { lostSpot } from '../game/places';
 import {
   makeVillagers, smallTalk, addressYou, mightWord, TRADE_LABEL, TEMPER_LABEL,
@@ -20,7 +25,7 @@ import { useVillage } from '../game/village';
 import { askToJoin, joinThreshold } from '../game/recruiting';
 import { retinueCap, rankForMerit } from '../game/hero';
 import {
-  errandFrom, odds, resolve, reward, errandBlurb, ERRAND_LABEL, type Errand,
+  errandFrom, reward, errandBlurb, ERRAND_LABEL, type Errand,
 } from '../game/errands';
 
 /**
@@ -116,6 +121,13 @@ export function Dialogue() {
     if (!npc) return;
     // 尋人:那個人真的在世界上某個地方,不是一個判定
     const lost = e.kind === 'search' ? lostSpot(e.id) : null;
+    // 押貨:碼頭上真的擺著一輛車,而且它會拖慢你
+    if (e.kind === 'escort') {
+      const [dx, dz] = DOCKS[0];
+      // 車自己認得路 —— 出發前就把整條算好
+      const road = findPath(dx, dz, COUNTY.x, COUNTY.z) ?? [];
+      startConvoy({ x: dx, y: groundAt(dx, dz), z: dz }, cargoWorth(e.pay), road);
+    }
     quest.accept({
       errand: e, patronName: npc.name, bandId: target?.id ?? null, cleared: false,
       done: 0, need: needFor(e.kind, e.tier),
@@ -127,6 +139,9 @@ export function Dialogue() {
         + `${e.wantMen > men ? '你這點人手⋯⋯多喊幾個一道去罷。' : '早去早回。'}`);
     } else if (lost) {
       setLine(`聽人說最後是在${wayWord(playerPos.x, playerPos.z, lost.x, lost.z)}那邊見著的。`);
+    } else if (e.kind === 'escort') {
+      setLine(`貨在碼頭上裝好了,${wayWord(playerPos.x, playerPos.z, DOCKS[0][0], DOCKS[0][1])}。`
+        + `往縣城走 —— 車比人慢,你得陪著它。`);
     } else if (e.kind === 'harvest') {
       setLine('那就有勞了。田頭見 —— 多下幾趟,趕在雨前收完。');
     } else {
@@ -143,33 +158,12 @@ export function Dialogue() {
     hero.addFavor(npc.id, r.favor);
     if (r.order) village.nudge({ order: village.order + r.order });
     lifeTally.errandsDone++;
+    endConvoy();
     quest.drop();
     setLine(`「這事你真辦成了。」 · 得錢 ${r.gold} · 功績 +${r.merit} · 人情 +${r.favor}`);
   };
 
-  const takeIt = (e: Errand) => {
-    const r = resolve(e, hero.stats, hero.followers.length + hero.retinue, hero.merit, Math.random);
-    hero.addGold(r.gold);
-    hero.addMerit(r.merit);
-    hero.addFavor(npc.id, r.favor);
-    if (r.wounded) hero.hurt(r.wounded);
-    if (r.losses) useHero.setState((s) => ({ retinue: Math.max(0, s.retinue - r.losses) }));
-    // 剿了匪治安就會好 —— 你做的事要在世界上留下痕跡
-    if (e.kind === 'bandits' && r.grade >= 2) {
-      village.nudge({ order: village.order + 6 + e.tier * 2 });
-    }
-    const bits = [r.text];
-    if (r.gold) bits.push(`得錢 ${r.gold}`);
-    if (r.merit) bits.push(`功績 +${r.merit}`);
-    if (r.losses) bits.push(`折了 ${r.losses} 人`);
-    if (r.wounded) bits.push(`你掛了彩,${r.wounded} 旬不能動`);
-    setLine(bits.join(' · '));
-    setShown(null);
-  };
-
   const men = hero.followers.length + hero.retinue;
-  const p = errand ? odds(errand, hero.stats, men) : 0;
-  const pct = Math.round(p * 100);
   const short = errand ? errand.wantMen > men : false;
   /** 手上這件活是不是這個人託的 —— 覆命只能找託你的那個人。 */
   const mine = quest.taken?.errand.patronId === npc.id;
@@ -218,7 +212,12 @@ export function Dialogue() {
         {line ?? (shown ? errandBlurb(shown, target, playerPos) : opening)}
       </p>
 
-      {/* 攤開賭注 —— 藏起來的風險不叫風險 */}
+      {/*
+        接活之前攤開的東西。
+        <b>這裡曾經有一條「勝算 72%」的槽</b>,那是抽象結算年代的儀表:
+        它告訴你這次擲骰的期望值。四種活現在都要自己走出去辦了,
+        那條槽也就跟著沒有意義 —— 剩下的是實話:要打誰、要幾趟、要走多遠。
+      */}
       {shown && (
         <div style={{
           border: '1px solid rgba(255,255,255,.16)', padding: '.6rem .8rem',
@@ -233,32 +232,16 @@ export function Dialogue() {
             </span>
             <span style={{ marginLeft: 'auto' }}>酬 {shown.pay}</span>
           </div>
-          {/*
-            要自己走出去辦的活<b>不給勝算</b>。
-            那條槽是抽象結算的儀表:它在告訴你「這次擲骰的期望值」。
-            剿匪已經不擲骰了,再擺一條就是騙人 —— 你的勝算是你帶了幾個人、
-            走過去的時候他們還剩幾個、以及你的手。
-          */}
-          {shown.kind !== 'escort' ? (
-            <div style={{ fontSize: '.78rem', opacity: .72, lineHeight: 1.7 }}>
-              {target
-                ? `${target.name} · ${bandWord(target)} · ${wayWord(playerPos.x, playerPos.z, target.x, target.z)}`
-                : shown.kind === 'harvest' ? `要下 ${needFor(shown.kind, shown.tier)} 趟田`
-                  : shown.kind === 'guard' ? `要守 ${needFor(shown.kind, shown.tier)} 個夜`
+          <div style={{ fontSize: '.78rem', opacity: .72, lineHeight: 1.7 }}>
+            {target
+              ? `${target.name} · ${bandWord(target)} · ${wayWord(playerPos.x, playerPos.z, target.x, target.z)}`
+              : shown.kind === 'harvest' ? `要下 ${needFor(shown.kind, shown.tier)} 趟田`
+                : shown.kind === 'guard' ? `要守 ${needFor(shown.kind, shown.tier)} 個夜`
+                  : shown.kind === 'escort'
+                    ? `碼頭裝車,往縣城 · ${wayWord(DOCKS[0][0], DOCKS[0][1], COUNTY.x, COUNTY.z)}`
                     : '得自己去找'}
-              <br />這一趟得自己走一遭。沒有人替你擲骰子。
-            </div>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
-              <span style={{ fontSize: '.78rem', opacity: .7 }}>勝算 {pct}%</span>
-              <div style={{ flex: 1, height: 4, background: 'rgba(255,255,255,.14)' }}>
-                <div style={{
-                  width: `${pct}%`, height: '100%',
-                  background: pct >= 70 ? '#6b9e63' : pct >= 45 ? '#c8a45a' : '#b25a48',
-                }} />
-              </div>
-            </div>
-          )}
+            <br />這一趟得自己走一遭。沒有人替你擲骰子。
+          </div>
         </div>
       )}
 
@@ -273,6 +256,7 @@ export function Dialogue() {
         {!shown && mine && !quest.taken!.cleared && (
           <button style={{ ...btn, opacity: .85 }} onClick={() => {
             hero.addFavor(npc.id, -2);
+            endConvoy();
             quest.drop();
             setLine(npc.temper === 'gruff' ? '「⋯⋯罷了。我另尋人便是。」'
               : '「不打緊,是我強人所難了。」（他嘴上這麼說）');
@@ -283,13 +267,13 @@ export function Dialogue() {
         {!shown && (
           <button style={btn} onClick={() => setLine(smallTalk(npc, ctx))}>再說兩句</button>
         )}
-        {!shown && errand && !(errand.kind !== 'escort' && quest.taken) && (
+        {!shown && errand && !quest.taken && (
           <button style={{ ...btn, borderColor: '#c8a45a', color: '#f0d9a0' }}
                   onClick={() => { setShown(errand); setLine(null); }}>
             有事要辦?
           </button>
         )}
-        {!shown && errand && errand.kind !== 'escort' && quest.taken && !mine && (
+        {!shown && errand && quest.taken && !mine && (
           <span style={{ ...btn, cursor: 'default', opacity: .5, borderStyle: 'dashed' }}>
             手上還有{quest.taken.patronName}託的事
           </span>
@@ -346,7 +330,7 @@ export function Dialogue() {
         {shown && (
           <>
             <button style={{ ...btn, borderColor: '#c8a45a', color: '#f0d9a0' }}
-                    onClick={() => (shown.kind === 'escort' ? takeIt(shown) : walkOut(shown))}>
+                    onClick={() => walkOut(shown)}>
               我去
             </button>
             <button style={btn} onClick={() => { setShown(null); setLine('改日再說罷。'); }}>

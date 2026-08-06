@@ -7,6 +7,7 @@ import { surrenderChance, surrenderCount } from '../game/raids';
 import { useClock } from '../world/worldTime';
 import { note } from '../game/journal';
 import { useQuest } from '../game/quest';
+import { convoy, endConvoy, lossPenalty } from '../game/convoy';
 import { useHero } from '../game/hero';
 import { useVillage } from '../game/village';
 import { makeVillagers } from '../game/npcs';
@@ -72,6 +73,22 @@ export function BattleHud() {
           for (const id of tally.fell) hero.dismiss(id);
           // 打輸了那夥人還在原地站著。不把你挪回路邊,收兵的視窗一關,
           // 下一幀就又撞上去 —— 一路輸到死,而那不是玩家的選擇
+          /*
+           * 押著貨打輸了,貨就沒了。
+           *
+           * 這是押貨這件差事唯一真正的風險 —— 少了它,「陪一輛車走半天」
+           * 就只是走得慢一點而已。
+           */
+          const car = convoy.car;
+          if (!tally.won && car && car.state === 'moving') {
+            car.state = 'lost';
+            const p = lossPenalty(car.worth, hero.gold);
+            hero.addGold(-p.paid);
+            useHero.setState((s) => ({ renown: s.renown + p.renown }));
+            note(useClock.getState().day, `貨叫人搶了。${p.line}`, 'bad');
+            endConvoy();
+            useQuest.getState().drop();
+          }
           if (!tally.won && band) warpPlayer(...retreatFrom(band.x, band.z));
           clear();
         }}

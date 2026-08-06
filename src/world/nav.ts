@@ -60,21 +60,8 @@ function build() {
     for (let ix = 0; ix < N; ix++) {
       const cx = -HALF + ix * CELL + CELL / 2;
       const cz = -HALF + iz * CELL + CELL / 2;
-      /*
-       * 中心站得住還不夠,<b>四條邊的中點也要站得住</b>。
-       *
-       * 因為路是「一格走到下一格」的直線,而中心可走不代表那條直線可走:
-       * 兩格中心之間夾著一棵樹的時候,圖上是通的,腳下不是。
-       * 走位函式會在那裡左右試探 —— 這一幀偏左繞、下一幀從新位置偏右繞,
-       * 一來一回淨位移為零。畫面上人原地擺動,而且<b>重算幾次路都一樣</b>,
-       * 因為每次都算出同一條穿不過去的路。
-       *
-       * 檢查邊中點等於要求「這一格和鄰格之間真的走得通」。
-       * 代價是林子裡的路會繞遠一些 —— 那本來就是走林子該有的樣子。
-       */
-      let open = walkable(cx, cz)
-        && walkable(cx + CELL / 2, cz) && walkable(cx - CELL / 2, cz)
-        && walkable(cx, cz + CELL / 2) && walkable(cx, cz - CELL / 2) ? 1 : 0;
+      // 一格通不通,只看它自己 —— 兩格之間過不過得去是「邊」的事,見 passable()
+      let open = walkable(cx, cz) ? 1 : 0;
       if (!open) {
         // 只為橋放寬 —— 板子是明確登記的東西,不是「碰巧有一角能站」
         for (let sz = -1; sz <= 1 && !open; sz++) {
@@ -91,6 +78,34 @@ function build() {
 
 const toCell = (v: number) => Math.max(0, Math.min(N - 1, Math.floor((v + HALF) / CELL)));
 const toWorld = (i: number) => -HALF + i * CELL + CELL / 2;
+
+/**
+ * 這兩格之間走得過去嗎 —— 看的是<b>邊</b>,不是格子。
+ *
+ * 這條檢查是被「人原地擺動」逼出來的:兩格中心都站得住,可是中間夾著一棵樹。
+ * 圖說通,腳說不通;走位函式這一幀偏左繞、下一幀從新位置偏右繞,淨位移為零,
+ * 而且重算幾次路都一樣 —— 每次都算出同一條穿不過去的路。
+ *
+ * 第一版把它做進建圖:一格要「中心加四個邊中點都站得住」才算通。
+ * 結果<b>關掉了兩千一百格</b>,把碼頭所在的那條河灘整條切了出去 ——
+ * 車從碼頭出發永遠算不出路。那是把「邊的性質」硬塞進「格子的性質」的下場。
+ *
+ * 現在放回它該在的地方:A* 展開鄰格的時候才檢查兩點之間那一小段。
+ * 貴一點(每條邊多一次取樣),但貴得有道理。
+ */
+function passable(a: number, b: number): boolean {
+  const ax = toWorld(a % N), az = toWorld(Math.floor(a / N));
+  const bx = toWorld(b % N), bz = toWorld(Math.floor(b / N));
+  // 沿著這條邊取三個點,不是只取中點。
+  // 只取中點的話,一棵長在四分之一處的樹會整條漏掉 —— 而漏掉的下場是
+  // 規劃出一條「圖上通、腳下不通」的路,東西走到那裡就在原地打轉。
+  for (const t of [0.25, 0.5, 0.75]) {
+    const mx = ax + (bx - ax) * t;
+    const mz = az + (bz - az) * t;
+    if (!walkable(mx, mz) && deckAt(mx, mz) === null) return false;
+  }
+  return true;
+}
 
 /** 這一格能不能站人 —— 診斷用,也給測試看。 */
 export function navOpen(x: number, z: number): boolean {
@@ -123,16 +138,22 @@ export function findPath(
 
   const sx = toCell(x0), sz = toCell(z0);
   let tx = toCell(x1), tz = toCell(z1);
-  const start = sz * N + sx;
-  let goal = tz * N + tx;
 
-  // 目標落在走不到的格子上(賊窩邊上、水裡)—— 退而求其次找最近的空格
-  if (!g[goal]) {
+  /**
+   * 起點和終點都要能<b>退到最近站得住的格子</b>。
+   *
+   * 先前只退終點,起點站不住就直接回 null —— 而「起點站不住」比想像中常見:
+   * 碼頭本來就搭在水邊,車停在碼頭上,於是「從碼頭出發」永遠算不出路來,
+   * 車一步都不會動。而畫面上看到的是「車就是不走」,沒有任何線索。
+   */
+  const snap = (ci: number): number => {
+    if (g[ci]) return ci;
+    const cx0 = ci % N, cz0 = Math.floor(ci / N);
     let best = -1, bestD = Infinity;
     for (let r = 1; r <= 6 && best < 0; r++) {
       for (let dz = -r; dz <= r; dz++) {
         for (let dx = -r; dx <= r; dx++) {
-          const cx = tx + dx, cz = tz + dz;
+          const cx = cx0 + dx, cz = cz0 + dz;
           if (cx < 0 || cz < 0 || cx >= N || cz >= N) continue;
           if (!g[cz * N + cx]) continue;
           const d = dx * dx + dz * dz;
@@ -140,10 +161,13 @@ export function findPath(
         }
       }
     }
-    if (best < 0) return null;
-    goal = best; tx = goal % N; tz = Math.floor(goal / N);
-  }
-  if (!g[start]) return null;
+    return best;
+  };
+
+  const start = snap(sz * N + sx);
+  let goal = snap(tz * N + tx);
+  if (start < 0 || goal < 0) return null;
+  tx = goal % N; tz = Math.floor(goal / N);
   if (start === goal) return [];
 
   const open = [start];
@@ -177,6 +201,8 @@ export function findPath(
         if (!g[ni] || seen.has(ni)) continue;
         // 斜著走要兩邊都通,否則人會從兩棵樹中間的縫穿過去
         if (dx && dz && (!g[cz * N + nx] || !g[nz * N + cx])) continue;
+        // 兩格之間那一段也要走得過去 —— 中心站得住不代表中間沒有樹
+        if (!passable(cur, ni)) continue;
         const step = dx && dz ? 1.414 : 1;
         const tentative = (gScore.get(cur) ?? Infinity) + step;
         if (tentative >= (gScore.get(ni) ?? Infinity)) continue;

@@ -17,8 +17,9 @@ import { Interaction } from './world/Interaction';
 import { Followers } from './world/Followers';
 import { Camps } from './world/Camps';
 import { Raiders } from './world/Raiders';
-import { County } from './world/County';
+import { County, COUNTY } from './world/County';
 import { LostPerson } from './world/LostPerson';
+import { Cart } from './world/Cart';
 import { Battle } from './world/Battle';
 import { Dialogue } from './ui/Dialogue';
 import { BattleHud } from './ui/BattleHud';
@@ -40,12 +41,13 @@ import { settleDay, settleGuard } from './game/daily';
 import { saveGame, loadGame } from './game/save';
 import { useInteract } from './game/interact';
 import { placeById } from './game/places';
+import { DOCKS } from './world/sites';
 import { useJournal } from './game/journal';
 import { originById } from './game/origin';
 import { updateAmbience, isMuted, audioReady } from './game/audio';
 import { useEnding } from './game/ending';
 import { findPath, navStats, navOpen } from './world/nav';
-import { water } from './world/field';
+import { water, steerMove, walkable } from './world/field';
 import { useCalamity } from './game/calamity';
 import { lifeTally } from './game/daily';
 
@@ -166,6 +168,17 @@ function CamBridge() {
     ) => ({ path: findPath(x0, z0, x1, z1), stats: navStats() });
     (window as unknown as Record<string, unknown>).__navOpen = (x: number, z: number) => navOpen(x, z);
     (window as unknown as Record<string, unknown>).__water = () => water.offset;
+    (window as unknown as Record<string, unknown>).__countyAt = () => [COUNTY.x, COUNTY.z];
+    (window as unknown as Record<string, unknown>).__dockAt = () => [DOCKS[0][0], DOCKS[0][1]];
+    (window as unknown as Record<string, unknown>).__steer = (
+      x: number, z: number, tx: number, tz: number, step: number,
+    ) => {
+      const dx = tx - x, dz = tz - z; const d = Math.hypot(dx, dz) || 1;
+      const got = steerMove(x, z, dx / d, dz / d, step);
+      return { moved: +Math.hypot(got.x - x, got.z - z).toFixed(3),
+               to: [+got.x.toFixed(1), +got.z.toFixed(1)],
+               walkHere: walkable(x, z) };
+    };
     (window as unknown as Record<string, unknown>).__flood = () => useCalamity.getState()
       .begin({ kind: 'flood', since: useClock.getState().day, daysLeft: 40 });
     (window as unknown as Record<string, unknown>).__audio = () => ({
@@ -268,6 +281,7 @@ export default function App() {
           <Camps />
           <Raiders />
           <LostPerson />
+          <Cart />
           <Followers />
           <Battle />
           <Interaction />

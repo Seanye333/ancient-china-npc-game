@@ -271,17 +271,33 @@ export function blockerAt(x: number, z: number, pad = 0): Blocker | null {
  * 兩個軸和切線同時被擋,人就永遠貼在那裡。實測時主角就這樣停在半路。
  * 人遇到這種地形會繞一下再走,這個函式就是那個「繞一下」。
  */
+const FAN = [0, 0.42, -0.42, 0.88, -0.88, 1.35, -1.35, 1.9, -1.9, 2.5, -2.5, Math.PI];
+
 export function steerMove(
   x: number, z: number, wantX: number, wantZ: number, step: number,
-): { x: number; z: number; yaw: number } {
+  /**
+   * 上一次是往哪一邊繞的(-1 左 / +1 右 / 0 沒有偏)。
+   *
+   * <b>繞路要認一邊繞到底</b>,這是這個函式最要緊的一條,也是踩了三次才想通的:
+   * 每一幀都重新挑「最省的那一邊」,人就會在障礙前面左一下右一下 ——
+   * 這一幀從左邊試著繞、下一幀站到新位置又覺得右邊近,一來一回淨位移為零。
+   * 從外面看是「他站在那裡發抖」,而且<b>重算幾次路都一樣</b>,
+   * 因為路根本沒錯,錯的是每一幀都改主意。
+   */
+  prefer = 0,
+): { x: number; z: number; yaw: number; side: number } {
   // 先往前試,不行就往兩邊偏,最後連回頭都試 ——
-  // 走進死胡同的時候,退出來是唯一的出路
-  for (const a of [0, 0.42, -0.42, 0.88, -0.88, 1.35, -1.35, 1.9, -1.9, 2.5, -2.5, Math.PI]) {
+  // 走進死胡同的時候,退出來是唯一的出路。
+  // 上次繞哪一邊,這次就先試哪一邊
+  const fan = prefer < 0 ? FAN.map((a) => -a) : FAN;
+  for (const a of fan) {
     const c = Math.cos(a), s = Math.sin(a);
     const dx = wantX * c - wantZ * s;
     const dz = wantX * s + wantZ * c;
     const nx = x + dx * step, nz = z + dz * step;
-    if (walkable(nx, nz)) return { x: nx, z: nz, yaw: Math.atan2(dx, dz) };
+    if (walkable(nx, nz)) {
+      return { x: nx, z: nz, yaw: Math.atan2(dx, dz), side: Math.sign(a) };
+    }
   }
 
   /*
@@ -309,20 +325,32 @@ export function steerMove(
    * 這一步允許中途不可走(本來就是在硬擠),但只要三步之內存在活路,
    * 人就出得去 —— 對所有卡法都成立,不必枚舉。
    */
+  const stranded = !walkable(x, z);
   for (const r of [0.7, 1.3, 2.1, 3.2, 4.4]) {
     for (let i = 0; i < 12; i++) {
       const a = (i / 12) * Math.PI * 2;
       const ex = x + Math.sin(a) * r;
       const ez = z + Math.cos(a) * r;
       if (!walkable(ex, ez)) continue;
+      /*
+       * 腳下本來就不能站的時候,<b>一步跨到那個站得住的點</b>,不要一點一點挪。
+       *
+       * 這是踩過的坑:原本無論如何都只挪 0.12,於是「人在不能站的地方」
+       * 這個壞狀態會一直維持著 —— 這一幀往安全的方向挪一點,
+       * 下一幀又被目標方向拉回來,兩邊各挪一點,淨位移為零。
+       * 從外面看就是「他站在那裡發抖」,而且怎麼重算路都沒有用。
+       *
+       * 站在不能站的地方是個<b>壞狀態,不是一段距離</b>,要立刻修好而不是慢慢修。
+       */
+      if (stranded) return { x: ex, z: ez, yaw: Math.atan2(ex - x, ez - z), side: prefer };
       const k = Math.max(step, 0.12) / r;
       return {
         x: x + (ex - x) * k, z: z + (ez - z) * k,
-        yaw: Math.atan2(ex - x, ez - z),
+        yaw: Math.atan2(ex - x, ez - z), side: prefer,
       };
     }
   }
-  return { x, z, yaw: Math.atan2(wantX, wantZ) };
+  return { x, z, yaw: Math.atan2(wantX, wantZ), side: prefer };
 }
 
 /** 這裡站得住嗎(pad = 身體半徑)。 */

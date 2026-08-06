@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { beforeAll } from 'vitest';
 import { findPath, navOpen, navStats, invalidateNav } from './nav';
-import { meanderAt, MARKET, BRIDGE } from './sites';
+import { meanderAt, MARKET, BRIDGE, DOCKS } from './sites';
 import { walkable, registerDecks, registerBlockers, clearBlockers, steerMove } from './field';
 
 /**
@@ -148,5 +148,41 @@ describe('走位不會把人永遠釘住', () => {
     expect(Math.hypot(p.x - MARKET[0] - 24, p.z - MARKET[1] - 24), '沒有離開障礙的中心')
       .toBeGreaterThan(1);
     clearBlockers('test-stuck');
+  });
+});
+
+describe('起點站不住也要算得出路', () => {
+  /**
+   * 碼頭本來就搭在水邊。先前只退終點、起點站不住就回 null ——
+   * 於是「從碼頭出發」永遠算不出路,押貨的車一步都不會動,
+   * 而畫面上只是「車就是不走」,沒有任何線索。
+   */
+  it('從碼頭(水邊)出發找得到路', () => {
+    const [dx, dz] = DOCKS[0];
+    expect(walkable(dx, dz), '碼頭要是本來就站得住,這條測試就沒有意義').toBe(false);
+    const path = findPath(dx, dz, MARKET[0], MARKET[1]);
+    expect(path, '從碼頭出發算不出路').not.toBeNull();
+    expect(path!.length).toBeGreaterThan(0);
+  });
+});
+
+describe('站在站不住的地方', () => {
+  /**
+   * 「人在不能站的地方」是個壞狀態,不是一段距離。原本無論如何都只挪 0.12,
+   * 於是這一幀往安全處挪一點、下一幀被目標拉回來,淨位移為零 ——
+   * 從外面看就是站在那裡發抖,而且怎麼重算路都沒有用。
+   */
+  it('一步跨回站得住的地方,不是一點一點挪', () => {
+    // 挑<b>岸邊</b>而不是河心:河心四步之內本來就沒有活路,
+    // 那量到的是「河很寬」,不是這條規則
+    // 挑一段<b>沒有橋</b>的河岸:橋那一排連河心都站得住(板子上),
+    // 量到的就不是岸邊了
+    const z = 40;
+    let edge = meanderAt(z);
+    while (!walkable(edge, z) && edge < meanderAt(z) + 20) edge += 0.5;
+    const off = edge - 1.2;                     // 退回水裡一點點
+    expect(walkable(off, z), '沒找到岸邊').toBe(false);
+    const got = steerMove(off, z, -1, 0, 0.03);
+    expect(walkable(got.x, got.z), '挪完還是站不住').toBe(true);
   });
 });

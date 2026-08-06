@@ -84,6 +84,8 @@ export function Player() {
    * 所以盯著「有沒有在靠近下一個航點」。停滯超過一秒半就從當下重算一條。
    */
   const stall = useRef({ t: 0, d: Infinity });
+  /** 上次往哪一邊繞。認一邊繞到底 —— 每幀改主意就會在障礙前面發抖 */
+  const side = useRef(0);
   useEffect(() => {
     // 診斷:走不動的時候要分得清是「沒路」「被擋住」還是「根本沒在走」
     (window as unknown as Record<string, unknown>).__walkState = () => ({
@@ -229,7 +231,8 @@ export function Player() {
       const speed = (k.ShiftLeft || k.ShiftRight) ? RUN : WALK;
       if (goto.current) {
         // 自動走:遇到樹叢會自己繞 —— 直線走法過不了凹角
-        const got = steerMove(m.x, m.z, tmp.want.x, tmp.want.z, speed * step);
+        const got = steerMove(m.x, m.z, tmp.want.x, tmp.want.z, speed * step, side.current);
+        if (got.side !== 0) side.current = got.side;
         m.x = got.x; m.z = got.z; m.yaw = got.yaw;
       } else {
         // 你自己按的方向照走,擋住就沿著障礙滑 —— 河是河,山是牆

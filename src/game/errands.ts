@@ -2,7 +2,7 @@ import type { Npc, Trade } from './npcs';
 import type { VillageState } from './village';
 import type { Band } from './bands';
 import { rng } from '../world/field';
-import { rankForMerit, RANK_COMMONER, RANK_RETAINER, type Stats } from './hero';
+import { rankForMerit, RANK_COMMONER, RANK_RETAINER } from './hero';
 import { wayWord } from './quest';
 
 /**
@@ -16,10 +16,10 @@ import { wayWord } from './quest';
  *     船工託你的事在河上。給錯了人,對話就不可信。
  * 三、<b>會賠</b>。人手不夠硬接會折人、會傷。這條不成立的話,
  *     所有的「要不要接」都不是選擇。
- * 四、<b>剿匪指的是地圖上真的那一夥</b>。難度、要幾個人、酬勞多少,
- *     全部從那夥人實際有幾個、有多兇算出來 —— 委託人說的話和你走過去
- *     看見的東西必須是同一件事。剩下三種活目前還是抽象結算(resolve),
- *     那是誠實的欠帳,不是設計。
+ * 四、<b>每一種活都要自己走出去辦</b>。剿匪打地圖上真的那一夥,搶收下那幾趟田,
+ *     護院是天亮時你人在不在村裡,尋人是那個人真的蹲在田埂上,
+ *     押貨是陪一輛牛車走到縣城。委託人說的話和你走過去看見的東西
+ *     必須是同一件事 —— 這個檔案裡曾經有一整套擲骰結算,現在一行都不剩。
  */
 
 export type ErrandKind = 'bandits' | 'escort' | 'guard' | 'search' | 'harvest';
@@ -142,7 +142,9 @@ export function errandFrom(
       pool.push({ kind, tier: banditTier(b), bandId: b.id, want: menNeeded(b) });
     } else if (kind === 'escort') {
       if (village.trade < 40) continue;              // 商路斷了沒鏢可押
-      pool.push({ kind, tier: 2, want: 4 });
+      // 路上越不太平,越要人跟著 —— 貨走的是同一條路,賊也在那條路上
+      const tier = village.order < 35 ? 3 : 2;
+      pool.push({ kind, tier, want: tier });
     } else if (kind === 'harvest') {
       if (village.harvest < 45) continue;            // 沒糧可收
       pool.push({ kind, tier: 1, want: 0 });
@@ -169,81 +171,15 @@ export function errandFrom(
   };
 }
 
-/**
- * 勝算 0..1 — 抽出來是為了讓玩家<b>看得見自己在賭什麼</b>。
- * 不給資訊的風險不叫風險。
+/*
+ * 這裡曾經有 odds() 和 resolve() —— 一整套「擲一次骰子決定差事成敗」的東西,
+ * 連同它的四個等第、折損人數、受傷旬數。
+ *
+ * <b>四種活現在都要自己走出去辦了</b>(剿匪打那一夥、搶收下那幾趟田、
+ * 護院守那幾個夜、押貨陪那輛車走到縣城),所以它們全部沒有了用處。
+ * 刪掉而不是留著:留著的話,下一個人會以為還有一條抽象結算的路可以走,
+ * 而這個遊戲最要緊的一句話就是<b>事情要在世界上真的發生</b>。
  */
-export function odds(e: Errand, stats: Stats, men: number): number {
-  const skill = e.kind === 'search'
-    ? stats.intelligence * 0.7 + stats.charisma * 0.3
-    : e.kind === 'harvest'
-      ? stats.leadership * 0.5 + stats.politics * 0.5
-      : stats.war * 0.55 + stats.leadership * 0.45;
-  const skillPull = Math.max(0, Math.min(1, (skill - 35) / 55));
-  const manning = e.wantMen <= 0 ? 1 : Math.max(0, Math.min(1.15, men / e.wantMen));
-  return Math.max(0.05, Math.min(0.95,
-    0.34 + skillPull * 0.44 + (manning - 0.5) * 0.32 - (e.tier / 5) * 0.30,
-  ));
-}
-
-export interface ErrandResult {
-  /** 0 大敗 · 1 沒辦成 · 2 辦成 · 3 漂亮 */
-  grade: 0 | 1 | 2 | 3;
-  gold: number;
-  merit: number;
-  favor: number;
-  /** 折損的人。 */
-  losses: number;
-  /** 主角受傷幾旬。 */
-  wounded: number;
-  /** 對村子的影響 — 剿了匪治安就會好。 */
-  village: Partial<Pick<VillageState, 'order' | 'harvest' | 'trade'>>;
-  text: string;
-}
-
-export function resolve(
-  e: Errand,
-  stats: Stats,
-  men: number,
-  heroMerit: number,
-  roll: () => number,
-): ErrandResult {
-  const p = odds(e, stats, men);
-  const r = roll();
-  const grade: 0 | 1 | 2 | 3 = r < p * 0.26 ? 3 : r < p ? 2 : r < p + 0.30 ? 1 : 0;
-
-  const rank = rankForMerit(heroMerit);
-  // 白身的第一件差事該有份量 —— 同一件活,越低微的人做越算數
-  const meritMul = rank >= RANK_COMMONER ? 1.7 : rank >= RANK_RETAINER ? 1.3 : 1.0;
-  const shortfall = e.wantMen <= 0 ? 0 : Math.max(0, 1 - men / e.wantMen);
-
-  if (grade >= 2) {
-    const good = grade === 3;
-    return {
-      grade,
-      gold: Math.round(e.pay * (good ? 1.5 : 1)),
-      merit: Math.round(e.tier * 2.4 * meritMul * (good ? 1.6 : 1)),
-      favor: good ? 3 + e.tier : 2 + Math.floor(e.tier / 2),
-      losses: Math.round(men * 0.05 * e.tier * (good ? 0.4 : 1) * roll()),
-      wounded: 0,
-      village: e.kind === 'bandits' ? { order: undefined } : {},
-      text: good ? `${ERRAND_LABEL[e.kind]}辦得漂亮` : `${ERRAND_LABEL[e.kind]}辦成了`,
-    };
-  }
-
-  const routed = grade === 0;
-  const hurt = routed && roll() < 0.26 + shortfall * 0.45;
-  return {
-    grade,
-    gold: 0,
-    merit: 0,
-    favor: routed ? -(3 + e.tier) : -2,
-    losses: Math.round(men * (0.12 + shortfall * 0.34) * (routed ? 1.7 : 1)),
-    wounded: hurt ? (roll() < 0.25 ? 3 : 1) : 0,
-    village: {},
-    text: routed ? `${ERRAND_LABEL[e.kind]}大敗` : `${ERRAND_LABEL[e.kind]}沒辦成`,
-  };
-}
 
 /**
  * 覆命的酬勞。
