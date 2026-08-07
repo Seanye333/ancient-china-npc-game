@@ -26,6 +26,7 @@ import { raidParties, useRaids, raidChance, raidSize, alreadyOut } from './raids
 import {
   useVendetta, shouldWarn, vendettaChance, vendettaSize,
 } from './vendetta';
+import { deathMul, recoverChance } from './herbs';
 import { groundAt, water } from '../world/field';
 import { invalidateNav } from '../world/nav';
 import type { Season } from '../world/worldTime';
@@ -52,6 +53,15 @@ export const settleGuard = { skipUntil: -1 };
 
 /** 抱怨過一次的人。走之前一定先抱怨 —— 這張表就是那個「先」。 */
 const warnedOnce = new Set<string>();
+
+/**
+ * 「坡上有藥」這句話說過沒有。
+ *
+ * 一片山十二叢藥草,不告訴玩家的話他一輩子也不會走上去 ——
+ * 而說的時機必須是<b>他第一次帶著傷、手上又沒藥的那天</b>:
+ * 開局就講等於說明書,傷好了再講等於馬後炮。
+ */
+let toldAboutHerbs = false;
 
 /**
  * 一生的流水帳。
@@ -198,10 +208,22 @@ export function settleDay(day: number, season: Season): DayReport {
     }
   }
 
+  if (!toldAboutHerbs && hero.wounded > 0 && hero.herbs <= 0) {
+    toldAboutHerbs = true;
+    journal.note(day, '傷處一跳一跳地疼。有人說坡上長著草藥,識得的人採回來敷,好得快些。');
+  }
+
   /* 傷勢按旬好轉 —— 有片瓦遮頭好得快 */
   if (hero.wounded > 0 && day % DAYS_PER_XUN === 0) {
+    const scarsBefore = useHero.getState().scars;
     useHero.getState().heal();
-    journal.note(day, '傷好了些。');
+    const now = useHero.getState();
+    // 疤是在這一刻長出來的 —— 收口那天不說一聲,玩家永遠不知道自己什麼時候破了相
+    journal.note(day,
+      now.wounded > 0 ? '傷好了些。'
+        : now.scars > scarsBefore ? '傷口收了口。臉上那道,是留下了。'
+          : '傷好利索了。',
+      now.wounded > 0 ? 'plain' : 'good');
   }
 
   /*
@@ -346,16 +368,34 @@ export function settleDay(day: number, season: Season): DayReport {
   for (const p of livingVillagers()) {
     const d = deltaOf(p.id);
     if (d.sick > 0) {
-      if (Math.random() < deathChance(p.age, d.sick)) {
-        folkStore.patch(p.id, { dead: true, sick: 0, diedOn: day });
-        journal.note(day, `${p.name}沒能熬過去。`, 'bad');
+      const dosed = !!d.dosed;
+      if (Math.random() < deathChance(p.age, d.sick) * deathMul(dosed)) {
+        folkStore.patch(p.id, { dead: true, sick: 0, dosed: false, diedOn: day });
+        journal.note(day, dosed
+          ? `${p.name}還是沒能熬過去。你那副藥,終究是晚了。`
+          : `${p.name}沒能熬過去。`, 'bad');
         // 死了要有人記得 —— 親眷會低落一陣子,而這是流言傳得最快的時候
         for (const kid of relatives(p.id)) folkStore.bumpRegard(kid, -1);
         const v = useVillage.getState();
         v.nudge({ order: v.order - 1 });
         continue;
       }
-      folkStore.patch(p.id, { sick: Math.random() < 0.22 ? 0 : d.sick + 1 });
+      if (Math.random() < recoverChance(dosed)) {
+        folkStore.patch(p.id, { sick: 0, dosed: false });
+        /*
+         * 藥救回來的人要有一句話。
+         *
+         * 沒有這一句的話,送藥這件事的回音只是一個看不見的機率 ——
+         * 而這個系統想換到的東西恰恰是那句話:全村都知道是誰的藥。
+         */
+        if (dosed) {
+          journal.note(day, `${p.name}下地了。他家裡人逢人就說,是你那副藥。`, 'good');
+          useHero.setState((s) => ({ renown: s.renown + 2 }));
+          spreadRumor({ text: `${p.name}那條命是他救的。`, delta: 2, life: 5, aboutId: p.id });
+        }
+      } else {
+        folkStore.patch(p.id, { sick: d.sick + 1 });
+      }
       continue;
     }
     if (Math.random() < sickChance(p.age, v0.harvest, winter) * sickMul) {

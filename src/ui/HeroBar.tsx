@@ -9,6 +9,10 @@ import { renownWord } from '../game/folk';
 import { WEAPONS } from '../game/weapons';
 import { useCalamity, CALAMITY_LABEL } from '../game/calamity';
 
+const WOUND_WORD: Record<'leg' | 'arm' | 'face', string> = {
+  leg: '腿', arm: '臂', face: '面',
+};
+
 /** 主角欄 — 你是誰、爬到哪、養得起幾個人。沒有這一條,玩家不知道自己在玩什麼。 */
 export function HeroBar() {
   const merit = useHero((s) => s.merit);
@@ -17,6 +21,8 @@ export function HeroBar() {
   const followers = useHero((s) => s.followers);
   const lead = useHero((s) => s.stats.leadership);
   const wounded = useHero((s) => s.wounded);
+  const woundKind = useHero((s) => s.woundKind);
+  const herbs = useHero((s) => s.herbs);
   const grain = useHero((s) => s.grain);
   const renown = useHero((s) => s.renown);
   const lodging = useHero((s) => s.lodging);
@@ -77,7 +83,17 @@ export function HeroBar() {
       {wounded > 0 && (
         <div style={cell}>
           <span style={k}>傷</span>
-          <span style={{ ...v, color: '#d07862' }}>{wounded}</span>
+          {/* 傷在哪要寫出來 —— 一個光禿禿的數字說不出「你為什麼走這麼慢」 */}
+          <span style={{ ...v, color: '#d07862', fontSize: '.86rem' }}>
+            {WOUND_WORD[woundKind ?? 'leg']}
+            <span style={{ opacity: .6 }}> {wounded}</span>
+          </span>
+        </div>
+      )}
+      {herbs > 0 && (
+        <div style={cell}>
+          <span style={k}>藥</span>
+          <span style={v}>{herbs}<span style={{ opacity: .5, fontSize: '.72rem' }}> 株</span></span>
         </div>
       )}
       <div style={cell}>

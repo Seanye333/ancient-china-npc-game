@@ -21,9 +21,16 @@ import { FIG_BODY_H } from './figure';
  * 偵測刻意<b>每 0.15 秒才跑一次</b>而不是每幀:三十幾個人的距離比較很便宜,
  * 但它會 set 到 store,每幀 set 就是每幀重繪整棵樹。
  */
+/**
+ * 牌子上那個動詞。
+ *
+ * 新加一種場所<b>一定要在這裡補一行</b> —— 漏了的話牌子上會寫「F · undefined」,
+ * 而那是只有走到跟前才看得見的錯:面板本身好端端的,測試也全綠。
+ */
 const PLACE_VERB: Record<string, string> = {
   market: '糴糶', work: '做活', home: '歇息', tavern: '進去',
   inn: '投宿', yamen: '進去', refugees: '上前', fair: '湊過去',
+  herb: '採藥', apothecary: '進去', sickbed: '探病',
 };
 
 export function Interaction() {

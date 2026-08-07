@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Lodging } from './economy';
 import type { WeaponId } from './weapons';
+import { DOSE_SELF } from './herbs';
 
 /**
  * 主角 — 這個遊戲的狀態以<b>一個人</b>為中心,不是以勢力為中心。
@@ -114,6 +115,15 @@ interface HeroState {
   woundKind: 'leg' | 'arm' | 'face' | null;
   /** 臉上的疤 —— 好不了的那種痕跡。 */
   scars: number;
+  /** 手上的藥草,以株計。山上採的,或藥鋪買的。 */
+  herbs: number;
+  /**
+   * 這道傷上次敷藥是哪一天(null = 從沒敷過)。
+   *
+   * 兩個用處:一是一旬只能敷一次(藥讓傷好一倍快,不是立刻好);
+   * 二是<b>敷過藥的破相不留疤</b> —— 疤是「那次沒藥可敷」的紀念。
+   */
+  dressedOn: number | null;
 
   addMerit: (n: number) => void;
   addGold: (n: number) => void;
@@ -127,8 +137,31 @@ interface HeroState {
   /** 招他同行。人頭超過品階上限會拒絕。 */
   recruit: (id: string) => boolean;
   dismiss: (id: string) => void;
+  addHerbs: (n: number) => void;
   hurt: (spans: number, kind?: 'leg' | 'arm' | 'face') => void;
   heal: () => void;
+  /** 敷一次藥 —— 扣藥、傷減一分。能不能敷由 herbs.ts 的 canDress 說了算。 */
+  dress: (day: number) => boolean;
+}
+
+/**
+ * 傷結掉一分。
+ *
+ * 自然痊癒和敷藥走<b>同一個出口</b>:兩邊各寫一次的話,
+ * 「破相留不留疤」遲早會長出兩個版本,而那種錯只有玩家會發現。
+ */
+function closeWound(
+  s: { wounded: number; woundKind: 'leg' | 'arm' | 'face' | null; scars: number },
+  treated: boolean,
+) {
+  const left = Math.max(0, s.wounded - 1);
+  if (left > 0) return { wounded: left };
+  return {
+    wounded: 0,
+    woundKind: null,
+    dressedOn: null,
+    scars: s.scars + (s.woundKind === 'face' && !treated ? 1 : 0),
+  };
 }
 
 export const useHero = create<HeroState>((set, get) => ({
@@ -150,6 +183,8 @@ export const useHero = create<HeroState>((set, get) => ({
   wounded: 0,
   woundKind: null,
   scars: 0,
+  herbs: 0,
+  dressedOn: null,
 
   addMerit: (n) => set((s) => ({ merit: Math.max(0, s.merit + n) })),
   addGold: (n) => set((s) => ({ gold: Math.max(0, s.gold + n) })),
@@ -190,21 +225,22 @@ export const useHero = create<HeroState>((set, get) => ({
     return true;
   },
   dismiss: (id) => set((s) => ({ followers: s.followers.filter((f) => f !== id) })),
+  addHerbs: (n) => set((s) => ({ herbs: Math.max(0, s.herbs + n) })),
   hurt: (spans, kind) => set((s) => ({
     wounded: Math.max(s.wounded, spans),
     // 舊傷未愈又添新傷:傷處以新的為準 —— 帳只有一本,別疊兩種減益
     woundKind: kind ?? s.woundKind ?? 'leg',
   })),
-  heal: () => set((s) => {
-    const left = Math.max(0, s.wounded - 1);
-    if (left > 0) return { wounded: left };
-    // 好利索了 —— 破相的傷收口成疤,疤不會再掉
-    return {
-      wounded: 0,
-      woundKind: null,
-      scars: s.scars + (s.woundKind === 'face' ? 1 : 0),
-    };
-  }),
+  // 好利索了 —— 破相而沒敷過藥的收口成疤,疤不會再掉
+  heal: () => set((s) => closeWound(s, s.dressedOn !== null)),
+  dress: (day) => {
+    const s = get();
+    if (s.wounded <= 0 || s.herbs < DOSE_SELF) return false;
+    // dressedOn 擺在展開之前:傷這一下剛好結掉的話,closeWound 會把它清成 null,
+    // 而那是對的 —— 下一道傷要重新算「敷過沒有」
+    set({ herbs: s.herbs - DOSE_SELF, dressedOn: day, ...closeWound(s, true) });
+    return true;
+  },
 }));
 
 /**

@@ -12,6 +12,8 @@ import {
 } from './world/Vegetation';
 import { Birds, Chickens, Dogs, FishSplash, TavernFlag } from './world/Life';
 import { Details } from './world/Details';
+import { Herbs } from './world/Herbs';
+import { Sickbeds } from './world/Sickbeds';
 import { Landmarks } from './world/Landmarks';
 import { Farmland, Roads } from './world/Landuse';
 import { Settlement } from './world/Settlement';
@@ -51,7 +53,9 @@ import { useVillage } from './game/village';
 import { settleDay, settleGuard } from './game/daily';
 import { saveGame, loadGame } from './game/save';
 import { useInteract, cityfolk } from './game/interact';
-import { placeById } from './game/places';
+import { placeById, homeOf } from './game/places';
+import { herbSpots, spotReady } from './game/herbs';
+import { useFolk } from './game/folk';
 import { DOCKS } from './world/sites';
 import { useJournal } from './game/journal';
 import { originById } from './game/origin';
@@ -310,6 +314,25 @@ function CamBridge() {
       useRaids.getState().bump();
       return true;
     };
+    // 採藥:藥叢在哪、採空了幾叢、手上幾株
+    (window as unknown as Record<string, unknown>).__herbs = () => ({
+      spots: herbSpots().map((s) => ({
+        id: s.id, at: [Math.round(s.x), Math.round(s.z)], wild: s.wild,
+        ready: spotReady(s.id, useClock.getState().day),
+      })),
+      onHand: useHero.getState().herbs,
+      wounded: useHero.getState().wounded,
+      woundKind: useHero.getState().woundKind,
+      dressedOn: useHero.getState().dressedOn,
+      scars: useHero.getState().scars,
+    });
+    // 讓某個人病倒 —— 等他自己病要等好幾旬,驗收等不起
+    (window as unknown as Record<string, unknown>).__makeSick = (id: string, days = 3) => {
+      useFolk.getState().patch(id, { sick: days });
+      return homeOf(id);
+    };
+    (window as unknown as Record<string, unknown>).__folk = (id: string) =>
+      useFolk.getState().deltas[id] ?? null;
     (window as unknown as Record<string, unknown>).__bandsStore = () => useBands;
     (window as unknown as Record<string, unknown>).__bounty = () => {
       const t = bountyTarget(useBands.getState().bands, useVillage.getState().order);
@@ -339,6 +362,11 @@ function CamBridge() {
       useJournal.getState().entries.map((e) => `${e.day}: ${e.text}`);
     (window as unknown as Record<string, unknown>).__nearPlace = () =>
       useInteract.getState().nearPlace;
+    // 場所在哪 —— 驗收要瞬移過去(__walkToPlace 是<b>用走的</b>,跨半個村子要好幾十秒)
+    (window as unknown as Record<string, unknown>).__placePos = (id: string) => {
+      const p = placeById(id);
+      return p ? [p.x, p.z] : null;
+    };
     (window as unknown as Record<string, unknown>).__walkToPlace = (id: string) => {
       const p = placeById(id);
       if (p) (window as unknown as Record<string, (x: number, z: number) => void>)
@@ -458,6 +486,8 @@ export default function App() {
           <FishSplash />
           <TavernFlag />
           <Details />
+          <Herbs />
+          <Sickbeds />
           <Lanterns />
           <Conifers />
           <BroadLeaf />

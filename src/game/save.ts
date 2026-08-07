@@ -10,6 +10,7 @@ import { useEnding } from './ending';
 import { useMarauders } from './marauders';
 import { useRefugees } from './refugees';
 import { useVendetta } from './vendetta';
+import { useHerbs } from './herbs';
 import { useFair } from './fair';
 import { lifeTally } from './daily';
 import { useClock } from '../world/worldTime';
@@ -31,9 +32,10 @@ import { settleGuard } from './daily';
  */
 
 const KEY = 'baishen.save.v1';
-// 2:傷有了形狀(woundKind/scars)。版本不合就丟 —— 舊檔缺欄位,
+// 2:傷有了形狀(woundKind/scars)
+// 3:採藥(herbs/dressedOn/採空的藥叢)。版本不合就丟 —— 舊檔缺欄位,
 // undefined 混進帳裡是 NaN 的溫床
-const VERSION = 2;
+const VERSION = 3;
 
 interface SaveData {
   v: number;
@@ -52,6 +54,8 @@ interface SaveData {
   marauders: unknown;
   refugees: unknown;
   grudges: unknown;
+  /** 採空的藥叢 —— 不存的話,讀一次檔全山的藥就都長回來了。 */
+  herbs: unknown;
   /** 擂台打到第幾場 —— 比到一半讀檔丟兩場勝利,那就是搶劫。 */
   fair: unknown;
   /**
@@ -70,6 +74,7 @@ function heroSlice() {
     stats: h.stats, merit: h.merit, gold: h.gold, grain: h.grain,
     retinue: h.retinue, followers: h.followers, renown: h.renown, weapon: h.weapon,
     favors: h.favors, wounded: h.wounded, woundKind: h.woundKind, scars: h.scars,
+    herbs: h.herbs, dressedOn: h.dressedOn,
     lodging: h.lodging, rentPaidThrough: h.rentPaidThrough, toil: h.toil,
   };
 }
@@ -97,6 +102,7 @@ export function saveGame(): boolean {
       refugees: useRefugees.getState().band,
       // 仇家記著你的臉 —— 讀了檔就忘,那筆帳等於沒發生過
       grudges: useVendetta.getState().grudges,
+      herbs: useHerbs.getState().picked,
       fair: {
         round: useFair.getState().round,
         out: useFair.getState().out,
@@ -143,6 +149,7 @@ export function loadGame(): boolean {
     if (data.marauders) useMarauders.setState(data.marauders as never);
     useRefugees.setState({ band: (data.refugees as never) ?? null });
     useVendetta.getState().reset((data.grudges as never) ?? {});
+    useHerbs.getState().reset((data.herbs as never) ?? {});
     if (data.fair) useFair.setState(data.fair as never);
     useConvoy.getState().bump();
     if (data.tally) {

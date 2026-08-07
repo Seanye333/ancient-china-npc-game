@@ -1,6 +1,7 @@
 import { MARKET, DOCKS, fieldSites, houseSites, meanderAt } from '../world/sites';
 import { terrainHeight, rng } from '../world/field';
 import { COUNTY } from '../world/County';
+import { herbSpots } from './herbs';
 import type { JobKind } from './economy';
 
 /**
@@ -15,7 +16,8 @@ import type { JobKind } from './economy';
  */
 
 export type PlaceKind =
-  | 'market' | 'work' | 'home' | 'tavern' | 'inn' | 'yamen' | 'refugees' | 'fair';
+  | 'market' | 'work' | 'home' | 'tavern' | 'inn' | 'yamen' | 'refugees' | 'fair'
+  | 'herb' | 'apothecary' | 'sickbed';
 
 export interface Place {
   id: string;
@@ -105,12 +107,43 @@ export function places(): Place[] {
       id: 'county-yamen', kind: 'yamen', label: '縣衙', radius: 7,
       ...at(COUNTY.x, COUNTY.z - 26 + 12 + 9),
     },
+    /*
+     * 藥鋪只有縣城有。
+     *
+     * 村裡買不到藥,這一條是故意的 —— 不然「上山採藥」就永遠不會發生:
+     * 家門口二十步能買到的東西,沒有人會走三里山路去摘。
+     */
+    {
+      id: 'county-apothecary', kind: 'apothecary', label: '藥鋪', radius: 6,
+      ...at(COUNTY.x - 17, COUNTY.z + 8),
+    },
     {
       id: 'home', kind: 'home', label: '落腳處', radius: 5,
       ...at(home.door[0], home.door[1]),
     },
+    // 山坡上的藥草 —— 位置是決定論的,所以「西邊那叢柴胡」記得住
+    ...herbSpots().map((s): Place => ({
+      id: s.id, kind: 'herb', label: s.wild ? '深山的藥草' : '坡上的藥草',
+      radius: 4.5, x: s.x, z: s.z, y: s.y,
+    })),
   ];
   return cache;
+}
+
+/**
+ * 這個村民住哪一棟。
+ *
+ * 抄的是 Crowd.tsx 分房子的那條規矩(第 i 個人住第 i 棟)。
+ * 抄一份是有風險的,但兩邊<b>必須</b>對上:病家的門口要是和他真正的家
+ * 不是同一棟,你就會端著藥站在別人家門前。所以這裡是唯一的出口,
+ * 將來要改就改這裡,Crowd 改成調用它。
+ */
+export function homeOf(npcId: string): { x: number; z: number; door: [number, number] } | null {
+  const i = Number(npcId.replace(/^v/, ''));
+  if (!Number.isFinite(i)) return null;
+  const houses = houseSites();
+  const h = houses[i % houses.length];
+  return h ? { x: h.x, z: h.z, door: h.door } : null;
 }
 
 /** 站在哪個地方上 —— 沒有就回 null。 */
