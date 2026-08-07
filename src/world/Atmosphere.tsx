@@ -42,7 +42,16 @@ export function Seasonals() {
 const LEAVES = 150;
 const LEAF_BOX = 40;              // 鏡頭周圍的作用範圍 —— 收小一圈,眼前才有密度
 const LEAF_COLORS = ['#c08a2e', '#b06a28', '#9a4a22', '#8a7a30'];
-const PETAL_COLORS = ['#e6c3cc', '#efe6dd', '#e0b4c0', '#f2ece4'];
+/*
+ * 花瓣不能用近白色。
+ *
+ * 第一版是 0.13×0.15 的小片、配 #f2ece4 這種近白 —— 春天的截圖裡
+ * 整個畫面撒著幾百個白點,遠處的那些不到一個像素,讀起來<b>像螢幕壞點</b>,
+ * 不像下著花。同一條規矩的另一面:秋天的葉子片大色濃,一直都沒事。
+ * 所以花瓣改成粉紅那一側、片子放大一號 —— 「認不出來就等於不存在」
+ * 還算好的,「認錯了」比不存在更糟。
+ */
+const PETAL_COLORS = ['#f0b9c8', '#e8a7ba', '#f2cdd6', '#e6c3cc'];
 
 /** petals = 春天的花瓣:同一套飄落,片小、色淡、落得慢。 */
 function FallingLeaves({ petals = false }: { petals?: boolean }) {
@@ -101,7 +110,7 @@ function FallingLeaves({ petals = false }: { petals?: boolean }) {
         if (im.instanceColor) im.instanceColor.needsUpdate = true;
       }}
     >
-      <planeGeometry args={petals ? [0.13, 0.15] : [0.24, 0.32]} />
+      <planeGeometry args={petals ? [0.22, 0.24] : [0.24, 0.32]} />
       <meshStandardMaterial color="#ffffff" roughness={0.9} side={THREE.DoubleSide} />
     </instancedMesh>
   );

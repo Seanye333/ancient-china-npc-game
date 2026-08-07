@@ -13,6 +13,30 @@ import { useClock } from './worldTime';
 const BOX = 90;          // 相機周圍的作用範圍
 const TOP = 46;
 
+/**
+ * 一顆軟邊的圓點。
+ *
+ * pointsMaterial 不給貼圖的話,每顆粒子是一個<b>方塊</b> —— 雨點小看不出來,
+ * 雪片 0.30 那麼大就很明顯:冬天的截圖裡飄的是一堆白紙片,不是雪。
+ * (和春天的花瓣同一種毛病:遠遠認不出來還算好的,認錯了更糟。)
+ */
+let flakeTex: THREE.Texture | null = null;
+function flakeTexture() {
+  if (flakeTex) return flakeTex;
+  const s = 32;
+  const c = document.createElement('canvas');
+  c.width = c.height = s;
+  const g = c.getContext('2d')!;
+  const grad = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+  grad.addColorStop(0, '#fff');
+  grad.addColorStop(0.45, 'rgba(255,255,255,.85)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, s, s);
+  flakeTex = new THREE.CanvasTexture(c);
+  return flakeTex;
+}
+
 export function Weather() {
   const weather = useClock((s) => s.weather);
   const ref = useRef<THREE.Points>(null);
@@ -63,10 +87,11 @@ export function Weather() {
     <points ref={ref} geometry={geom} frustumCulled={false}>
       <pointsMaterial
         color={weather === 'rain' ? '#9db9cc' : '#eef4fa'}
-        size={weather === 'rain' ? 0.16 : 0.30}
+        size={weather === 'rain' ? 0.16 : 0.26}
         sizeAttenuation
         transparent
-        opacity={weather === 'rain' ? 0.55 : 0.85}
+        alphaMap={flakeTexture()}
+        opacity={weather === 'rain' ? 0.55 : 0.8}
         depthWrite={false}
       />
     </points>
