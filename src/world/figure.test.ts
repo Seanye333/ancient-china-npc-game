@@ -31,7 +31,7 @@ function vertsOfColor(g: THREE.BufferGeometry, c: THREE.Color) {
   return out;
 }
 
-const head = headGeom(false, false);
+const head = headGeom();
 const body = bodyGeom(new THREE.Color('#3f5568'));
 
 describe('五官貼在臉上', () => {

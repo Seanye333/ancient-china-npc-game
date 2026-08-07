@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { groundAt, rng, slideMove, dryLandNear } from './field';
@@ -32,6 +32,8 @@ interface Agent {
   /** 對應 npcs.ts 的身份 — 有名字才談得上搭話。 */
   npcId: string;
   variant: number;
+  /** 身量 —— 這個人比別人高矮胖瘦多少。 */
+  build: number;
   /** 上了年紀 —— 白髮、弓背、腳程慢。年紀要穿在身上,不能只寫在對話裡。 */
   old: boolean;
   home: [number, number];
@@ -108,13 +110,26 @@ export function Crowd() {
             ? (() => { const d = DOCKS[Math.floor(rand() * DOCKS.length)];
                        return dryLandNear(d[0] + (rand() - 0.5) * 3, d[1] + (rand() - 0.5) * 3); })()
             : [MARKET[0] + (rand() - 0.5) * 6, MARKET[1] + (rand() - 0.5) * 6];
-      // 衣裳跟著行當走:農褐、埠青、市綠;上了年紀一律灰袍白髮。
-      // 遠遠一看衣色就知道他是幹什麼的 —— 這就是「行當穿在身上」
-      const variant = old ? 3 : job === 'farm' ? 0 : job === 'dock' ? 1 : 2;
-      rand();                                  // 佔位:原本的 variant 抽數
+      /*
+       * 衣裳跟著行當走:農褐、埠青、市綠;上了年紀一律灰袍白髮。
+       * 遠遠一看衣色就知道他是幹什麼的 —— 這就是「行當穿在身上」。
+       *
+       * 同一個行當再分兩種頭(露髻 / 裹幘),於是四種變體變成八種。
+       * 這一步是為了一件事:三十八個人共用四張臉,那不是一個村子,
+       * 是一批複製人 —— 站在市集上一眼就看出來。
+       */
+      const trade = old ? 3 : job === 'farm' ? 0 : job === 'dock' ? 1 : 2;
+      const variant = trade + (rand() < 0.45 ? 4 : 0);
+      /*
+       * 身量。<b>一村子的人不會一般高</b> —— 這是複製人感最便宜的解藥:
+       * 矩陣裡本來就有縮放這一欄,一個數字都不必多算。
+       * 老人再矮一號(背也弓,見 lean)。
+       */
+      const build = (0.93 + rand() * 0.13) * (old ? 0.94 : 1);
       out.push({
         npcId: villagers[i].id,
         variant,
+        build,
         old,
         home: [h.x, h.z], door: h.door, work, job,
         state: 'home',
@@ -134,18 +149,35 @@ export function Crowd() {
   // 0 農(褐+笠) 1 埠(青+笠) 2 市(綠) 3 老(灰+白髮)
   const variants = useMemo(
     () => [
-      { robe: '#6b5741', hat: true, old: false },
-      { robe: '#3f5568', hat: true, old: false },
-      { robe: '#4a6b52', hat: false, old: false },
-      { robe: '#6a6350', hat: false, old: true },
+      // 露髻的四種
+      { robe: '#6b5741', head: { hat: true } },
+      { robe: '#3f5568', head: { hat: true } },
+      { robe: '#4a6b52', head: {} },
+      { robe: '#6a6350', head: { old: true, beard: true } },
+      // 裹幘的四種 —— 同樣的行當、同樣的衣色,換一種頭
+      { robe: '#6b5741', head: { cloth: true, beard: true } },
+      { robe: '#3f5568', head: { cloth: true } },
+      { robe: '#4a6b52', head: { cloth: true, beard: true } },
+      { robe: '#6a6350', head: { old: true, cloth: true } },
     ].map((v, i) => ({
       body: bodyGeom(new THREE.Color(v.robe)),
-      head: headGeom(v.hat, v.old),
+      head: headGeom(v.head),
       leg: legGeom(),
       idx: agents.map((a, k) => (a.variant === i ? k : -1)).filter((k) => k >= 0),
     })),
     [agents],
   );
+
+  // 原型階段的把手:一村子的人分成幾種、身量差多少
+  useEffect(() => {
+    (window as unknown as Record<string, unknown>).__crowdStat = () => {
+      const byVariant: Record<number, number> = {};
+      const builds = agents.map((a) => +a.build.toFixed(3));
+      for (const a of agents) byVariant[a.variant] = (byVariant[a.variant] ?? 0) + 1;
+      return { n: agents.length, byVariant,
+               build: { min: Math.min(...builds), max: Math.max(...builds) } };
+    };
+  }, [agents]);
 
   const bodyRefs = useRef<Array<THREE.InstancedMesh | null>>([]);
   const headRefs = useRef<Array<THREE.InstancedMesh | null>>([]);
@@ -272,7 +304,7 @@ export function Crowd() {
         tmp.p.set(a.x, a.y + bob, a.z);
         tmp.e.set(lean, a.yaw, sway);
         tmp.q.setFromEuler(tmp.e);
-        tmp.s.setScalar(a.old ? 0.94 : 1);
+        tmp.s.setScalar(a.build);
         tmp.m.compose(tmp.p, tmp.q, tmp.s);
         bm.setMatrixAt(slot, tmp.m);
 
@@ -283,7 +315,7 @@ export function Crowd() {
         const nod = a.state === 'talk' ? Math.sin(t * 2.6 + a.phase) * 0.07 : 0;
         tmp.p.set(
           a.x + Math.sin(a.yaw) * lean * 0.5,
-          a.y + bob + FIG_BODY_H * 0.99 * (a.old ? 0.94 : 1),
+          a.y + bob + FIG_BODY_H * 0.99 * a.build,
           a.z + Math.cos(a.yaw) * lean * 0.5,
         );
         tmp.e.set(nod + lean * 0.6, a.yaw + look, sway * 0.6);
@@ -291,8 +323,8 @@ export function Crowd() {
         tmp.m.compose(tmp.p, tmp.q, tmp.s);
         hm.setMatrixAt(slot, tmp.m);
 
-        // 腿。老人矮一號,腿也跟著矮 —— 縮放要一路帶到胯的高度上
-        const sc = a.old ? 0.94 : 1;
+        // 腿。身量要一路帶到胯的高度上,不然矮個子的腿會戳進地裡
+        const sc = a.build;
         for (const side of [-1, 1] as const) {
           poseLeg(tmp.leg, side, a.x, a.y + bob * 0.5 + FIG_LEG_H * sc, a.z, a.yaw,
             legSwing(step, side, moving), sc);

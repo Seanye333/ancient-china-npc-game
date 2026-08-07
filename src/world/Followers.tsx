@@ -49,7 +49,7 @@ export function Followers() {
   const geoms = useMemo(
     () => ROBES.map((hex, i) => ({
       body: bodyGeom(new THREE.Color(hex)),
-      head: headGeom(i % 2 === 1),
+      head: headGeom({ hat: i % 2 === 1, cloth: i % 3 === 1, beard: i % 4 === 2 }),
     })),
     [],
   );

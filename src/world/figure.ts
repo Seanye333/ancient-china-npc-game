@@ -309,7 +309,25 @@ function faceStrip(o: {
  * 每一件都貼著臉皮擺(faceZ),不是憑感覺填 z —— 憑感覺的下場是
  * 嘴浮在臉前面一公分,側面看像貼了張紙。
  */
-export function headGeom(hat: boolean, oldHair = false) {
+/**
+ * 一顆頭長什麼樣。
+ *
+ * 分開成一個物件而不是幾個位置參數,是因為<b>這裡遲早會長</b>:
+ * 三十八個村民要是共用兩種頭,那不是一個村子,是一批複製人。
+ */
+export interface HeadStyle {
+  /** 斗笠 —— 下田扛包的戴。 */
+  hat?: boolean;
+  /** 白髮。 */
+  old?: boolean;
+  /** 幘(頭巾)—— 庶民束髮最常見的一種,和露髻的挑著用。 */
+  cloth?: boolean;
+  /** 鬍子。 */
+  beard?: boolean;
+}
+
+export function headGeom(style: HeadStyle = {}) {
+  const { hat = false, old: oldHair = false, cloth = false, beard = false } = style;
   const gs: THREE.BufferGeometry[] = [];
   const HAIR_C = oldHair ? new THREE.Color('#d6d0c4') : HAIR;
   const cy = FIG_HR * 0.84;
@@ -397,6 +415,43 @@ export function headGeom(hat: boolean, oldHair = false) {
     0, cy + R * 1.14, R * 0.26), HAIR_C));
   gs.push(tint(at(new THREE.TorusGeometry(R * 0.24, R * 0.045, 5, 10).rotateX(Math.PI * 0.42),
     0, cy + R * 0.90, R * 0.22), oldHair ? new THREE.Color('#8b8378') : TRIM));
+
+  /*
+   * 幘 —— 庶民把髮包起來的那塊布。
+   *
+   * 和露髻的挑著用,一個村子才不會人人一個模子。做法是沿著髮面再放大一點
+   * 鋪一層(同一條輪廓線,所以還是處處平行),額前收一道折邊。
+   */
+  if (cloth) {
+    /*
+     * 幘的顏色要<b>比頭髮淺、比皮膚深</b>,而且不能發亮。
+     * 第一版 #6d6a62 在暗處讀成一頂銀灰的盔 —— 一群裹幘的賊看起來像戴著鋼盔。
+     */
+    const CLOTH_C = oldHair ? new THREE.Color('#8b857a') : new THREE.Color('#4a453d');
+    gs.push(tint(at(lathe(profileAbove(HEAD_P, HAIRLINE + 0.06), R * 1.075, R * 1.075, 16),
+      0, cy, 0, 1, 1, FACE_SQUASH), CLOTH_C));
+    // 額前那道折 —— 沒有它就只是一頂泳帽
+    gs.push(tint(faceStrip({
+      x: 0, y: cy + R * (HAIRLINE + 0.10), py: HAIRLINE + 0.10,
+      w: R * 1.05, h: R * 0.095, d: R * 0.07, tilt: 0, R: R * 1.075,
+    }), CLOTH_C.clone().multiplyScalar(0.78)));
+  }
+
+  /*
+   * 鬍子。上了年紀的、或是幾個壯年,臉下半就不再是一片空白 ——
+   * 這副臉本來只有眉眼,下巴那一塊是最大的一片留白。
+   */
+  if (beard) {
+    const BEARD_C = oldHair ? new THREE.Color('#b9b2a6') : new THREE.Color('#33292c');
+    // 頷下一撮
+    gs.push(tint(at(new THREE.SphereGeometry(R * 0.30, 8, 6),
+      0, cy - R * 0.74, faceZ(-0.74, -R * 0.06), 0.85, 0.95, 0.75), BEARD_C));
+    // 髭 —— 鼻下兩撇
+    for (const side of [-1, 1]) {
+      gs.push(tint(at(rot(slab(R * 0.16, R * 0.05, R * 0.05), 0, 0, side * 0.30),
+        side * R * 0.10, cy - R * 0.36, faceZ(-0.36, -R * 0.004)), BEARD_C));
+    }
+  }
 
   if (hat) {
     // 斗笠 —— 加一圈笠緣,錐面才不像一個紙帽子

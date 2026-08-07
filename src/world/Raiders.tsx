@@ -30,7 +30,7 @@ export function Raiders() {
   const version = useRaids((s) => s.version);
   const geoms = useMemo(() => ({
     body: bodyGeom(new THREE.Color('#4a3f42')),
-    head: headGeom(false),
+    head: headGeom({ beard: true }),
   }), []);
   const bladeGeom = useMemo(() => {
     const g = new THREE.BoxGeometry(0.05, 0.5, 0.1);

@@ -50,7 +50,7 @@ export function Player() {
   const weapon = useHero((s) => s.weapon);
   const geom = useMemo(() => ({
     body: bodyGeom(new THREE.Color('#3f5568')),
-    head: headGeom(false),
+    head: headGeom(),
     leg: legGeom(),
   }), []);
 

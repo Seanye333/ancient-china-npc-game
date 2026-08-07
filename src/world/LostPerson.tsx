@@ -30,7 +30,7 @@ export function LostPerson() {
   const group = useRef<THREE.Group>(null);
   const geom = useMemo(() => ({
     body: bodyGeom(new THREE.Color('#7a6a4e')),
-    head: headGeom(false),
+    head: headGeom(),
   }), []);
   const trail = useRef({ x: 0, z: 0 });
 

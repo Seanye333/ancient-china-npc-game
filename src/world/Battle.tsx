@@ -113,9 +113,9 @@ export function Battle() {
   );
 
   const geoms = useMemo(() => ({
-    foe: { body: bodyGeom(new THREE.Color(FOE_ROBE)), head: headGeom(false) },
-    chief: { body: bodyGeom(new THREE.Color(FOE_CHIEF_ROBE)), head: headGeom(true) },
-    mate: { body: bodyGeom(new THREE.Color('#6b5741')), head: headGeom(false) },
+    foe: { body: bodyGeom(new THREE.Color(FOE_ROBE)), head: headGeom({ cloth: true }) },
+    chief: { body: bodyGeom(new THREE.Color(FOE_CHIEF_ROBE)), head: headGeom({ hat: true, beard: true }) },
+    mate: { body: bodyGeom(new THREE.Color('#6b5741')), head: headGeom() },
   }), []);
 
   // 刀 = 柄 + 護手 + 身。三塊而已,但少了護手就只是一根白棍子

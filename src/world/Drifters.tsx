@@ -27,8 +27,8 @@ export function Drifters() {
   const phase = useMarauders((s) => s.phase);
 
   const geoms = useMemo(() => ({
-    poor: { body: bodyGeom(new THREE.Color('#5d564a')), head: headGeom(false) },
-    troop: { body: bodyGeom(new THREE.Color('#3a3d46')), head: headGeom(false) },
+    poor: { body: bodyGeom(new THREE.Color('#5d564a')), head: headGeom({ cloth: true }) },
+    troop: { body: bodyGeom(new THREE.Color('#3a3d46')), head: headGeom({ beard: true }) },
   }), []);
   const spear = useMemo(() => {
     const g = new THREE.CylinderGeometry(0.035, 0.035, 2.6, 5);

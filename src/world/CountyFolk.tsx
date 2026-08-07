@@ -45,7 +45,10 @@ export function CountyFolk() {
 
   const geoms = useMemo(() => COUNTY_FOLK.map((p, i) => ({
     body: bodyGeom(new THREE.Color(ROBES[i % ROBES.length])),
-    head: headGeom(p.trade === 'market' && p.age > 40),
+    head: headGeom({
+      hat: p.trade === 'market' && p.age > 40,
+      old: p.age > 55, cloth: i % 3 === 0, beard: p.age > 44,
+    }),
   })), []);
 
   const groups = useRef<Record<string, THREE.Group | null>>({});
