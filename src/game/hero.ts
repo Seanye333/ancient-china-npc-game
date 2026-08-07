@@ -72,6 +72,12 @@ interface HeroState {
   courtesy: string;
   /** 籍貫 — 同鄉是這個世界最強的一條人脈。 */
   hometown: string;
+  /**
+   * 歲數。過年長一歲,和村裡所有人同一套規矩 ——
+   * 這個世界的人不會永遠二十五,主角也不該是例外。
+   * (結義排年齒要用到它;在此之前這裡是一個寫死的 28。)
+   */
+  age: number;
   stats: Stats;
   merit: number;
   gold: number;
@@ -168,6 +174,7 @@ export const useHero = create<HeroState>((set, get) => ({
   name: '無名',
   courtesy: '',
   hometown: 'valley',
+  age: 24,
   stats: { war: 58, leadership: 52, intelligence: 46, politics: 40, charisma: 55 },
   merit: 0,
   gold: 30,

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import { fighters, alive, useBattle } from '../game/combat';
+import { fighters, alive, useBattle, fx } from '../game/combat';
 import { playerPos, warpPlayer } from '../game/interact';
 import { useBands, bandWord } from '../game/bands';
 import { surrenderChance, surrenderCount } from '../game/raids';
@@ -12,6 +12,7 @@ import { endLife } from '../game/daily';
 import { useFair, contenders, FAIR_PRIZE_GOLD, FAIR_PRIZE_RENOWN } from '../game/fair';
 import { festivalOn } from '../game/calendar';
 import { useHero } from '../game/hero';
+import { useOath, isSworn } from '../game/oath';
 import { useVendetta } from '../game/vendetta';
 import { raidParties } from '../game/raids';
 import { useVillage } from '../game/village';
@@ -184,7 +185,22 @@ export function BattleHud() {
               `他們是衝著你來的,又是空著手回去的。這事傳出去,沒人再敢輕易記你的仇。`, 'good');
           }
           // 倒下的人不會再跟著你走 —— 這一步就是招募那條線的代價
-          for (const id of tally.fell) hero.dismiss(id);
+          for (const id of tally.fell) {
+            /*
+             * 義兄弟沒回來,要單獨記一筆。
+             *
+             * 混進 lifeTally.lost 就完了的話,落幕那一頁上「跟過你的人」
+             * 和「替你死的兄弟」會是同一行字 —— 而這個系統的全部意義
+             * 就是那兩件事不一樣。
+             */
+            if (isSworn(id)) {
+              useOath.getState().mourn(id);
+              note(useClock.getState().day,
+                `${anyPerson(id)?.name ?? '兄弟'}沒能跟你回來。你們結義那天的酒,還沒喝完。`,
+                'bad');
+            }
+            hero.dismiss(id);
+          }
           // 打輸了那夥人還在原地站著。不把你挪回路邊,收兵的視窗一關,
           // 下一幀就又撞上去 —— 一路輸到死,而那不是玩家的選擇
           /*
@@ -212,6 +228,7 @@ export function BattleHud() {
         foesFled={tally.foesFled}
         fell={tally.fell}
         scattered={tally.scattered}
+        shielded={fx.shielded}
         commissioned={commissioned}
         bandName={band?.name ?? '那夥人'}
       />
@@ -374,6 +391,8 @@ function retreatFrom(bx: number, bz: number): [number, number] {
 function Aftermath(p: {
   won: boolean; playerDown: boolean; foesDown: number; foesFled: number;
   fell: string[]; scattered: string[]; bandName: string; commissioned: boolean;
+  /** 這一場有人替你擋了那一刀嗎 —— 是誰。 */
+  shielded: string | null;
   onClose: () => void;
 }) {
   const [taken, setTaken] = useState<string | null>(null);
@@ -425,6 +444,16 @@ function Aftermath(p: {
           </p>
         )}
 
+        {/*
+          擋刀那一句擺在傷亡名單<b>前面</b>:他的名字多半也在下面那張單子上,
+          先看見「沒能跟你回來」再看見「他替你擋的」,順序反了,那一刀就白挨了。
+        */}
+        {p.shielded && (
+          <p style={{ margin: 0, fontSize: '.92rem', color: '#f0d9a0', lineHeight: 1.75 }}>
+            那一刀本來是你的。{nameOf(p.shielded)}橫過來擋在前頭 ——
+            你聽見的是他悶哼了一聲。
+          </p>
+        )}
         {p.fell.length > 0 && (
           <div style={{
             border: '1px solid rgba(190,110,80,.35)', padding: '.6rem .8rem',

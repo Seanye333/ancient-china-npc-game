@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { pickShield } from './oath';
 
 /**
  * 打架 — 這個遊戲最險的一塊。
@@ -70,6 +71,13 @@ export interface Fighter {
    * 側著跑就躲得開 —— 這是整個戰鬥第一個逼你走位的東西。
    */
   bow?: boolean;
+  /**
+   * 義兄弟 —— 他會替你擋那一刀(見 applyHit)。
+   *
+   * 由外面填而不是在這裡查 oath 的狀態:戰鬥是純邏輯,空跑的場子要能
+   * 單獨擺出「帶一個義弟」和「帶一個雇工」兩組來比。
+   */
+  sworn?: boolean;
 }
 
 /** 一支在飛的箭。命中判定在 stepArrows —— 躲箭靠腳,不靠擲骰。 */
@@ -118,7 +126,11 @@ const STALE_AFTER = 25;
  * 慢的只有<b>戰鬥模擬</b>,玩家自己的移動不慢 —— 放倒最後一個的那半秒,
  * 全場都凝住而你還能動,那半秒就是「是我砍倒他的」。
  */
-export const fx = { slow: 0, shake: 0, finisher: 0 };
+export const fx = {
+  slow: 0, shake: 0, finisher: 0,
+  /** 這一場有沒有人替你擋過刀,擋的是誰 —— 收場那一頁要點名。 */
+  shielded: null as string | null,
+};
 
 /**
  * 打鬥的節奏參數 —— 調這裡就能改「一場架有多長」。
@@ -181,6 +193,8 @@ export interface Recruit {
   driven?: boolean;
   /** 手上的傢伙。省略 = 尋常的刀(1.35 / 1.0)。bow = 空白鍵放的是箭。 */
   weapon?: { reach: number; dmgMul: number; bow?: boolean };
+  /** 結過義的 —— 你要倒下的那一下,他頂上去。 */
+  sworn?: boolean;
 }
 
 /**
@@ -212,6 +226,7 @@ export function beginBattle(input: {
   fighters.length = 0;
   arrows.length = 0;
   arrowTally.loosed = 0;
+  fx.shielded = null;
 
   const { band, at, ground } = input;
   const toBand = Math.atan2(band.x - at.x, band.z - at.z);
@@ -234,6 +249,7 @@ export function beginBattle(input: {
       reach: r.weapon?.reach ?? REACH, dmgMul: r.weapon?.dmgMul ?? 1,
     });
     if (r.weapon?.bow) f.bow = true;
+    if (r.sworn) f.sworn = true;
     fighters.push(f);
   });
 
@@ -610,6 +626,43 @@ function resolveStrike(f: Fighter) {
  */
 function applyHit(tgt: Fighter, dmg: number) {
   lastBlow = clock;
+  /*
+   * 義兄弟替你擋那一刀。
+   *
+   * 判在「這一下會要了你」的時候,不是每一下都擋 —— 擋成一層護甲的話,
+   * 它就從一個時刻變成一個數值。一場只擋一次(fx.shielded 記帳),
+   * 而且擋的人自己倒下:誓言值錢,恰恰在它讓他付出一切的那一刻。
+   */
+  if (tgt.isPlayer && tgt.hp - dmg <= 0 && fx.shielded === null) {
+    const guard = pickShield(fighters.filter(
+      (f) => f.side === tgt.side && f.sworn && alive(f) && !f.isPlayer));
+    if (guard) {
+      fx.shielded = guard.npcId ?? guard.id;
+      guard.hp = 0;
+      guard.stance = 'down';
+      guard.phase = 0;
+      // 他把你推開了。留下的不能只是一口氣 —— 空跑出來的:
+      // 撈回一成八的血,下一刀照樣要你的命,倒地率一個點都沒動
+      tgt.hp = Math.max(1, tgt.maxHp * 0.35);
+      tgt.hurtAt = clock;
+      fx.slow = 0.85;
+      fx.shake = Math.max(fx.shake, 0.7);
+      /*
+       * 這一下<b>不能走 shakeMorale</b>。
+       *
+       * 那個函式算的是「我方少了一個人」:我方 −15、對面 +5 ——
+       * 於是他替你死的那一刻,反而幫了對面一把。可是一個肯橫過來擋刀的人,
+       * 在場上兩邊看見的根本不是同一件事:你這邊是死戰,對面是
+       * 「這夥人是肯替人死的」。所以兩邊都往同一個方向動,而且動得比誰倒下都大。
+       */
+      for (const g of fighters) {
+        if (!alive(g)) continue;
+        if (g.side === guard.side) g.morale += 18;
+        else g.morale -= 22;
+      }
+      return;
+    }
+  }
   tgt.hp -= dmg;
   tgt.hurtAt = clock;
   // 睡夢裡挨刀的人也醒了 —— 不清這個 cool,他會站著挨砍到排程醒來,像個木樁

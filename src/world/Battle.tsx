@@ -6,6 +6,7 @@ import { groundAt, slideMove } from './field';
 import { bodyGeom, headGeom, FIG_BODY_H, FIG_HR } from './figure';
 import { playerPos } from '../game/interact';
 import { useHero, woundPenalty } from '../game/hero';
+import { isSworn } from '../game/oath';
 import { useBands, chiefAccepts } from '../game/bands';
 import { raidParties, useRaids } from '../game/raids';
 import { useQuest } from '../game/quest';
@@ -58,6 +59,9 @@ function ourSide(
     ...hero.followers.map((id) => ({
       id: `mate-${id}`, npcId: id,
       name: byId[id]?.name ?? '同行', war: byId[id] ? might(byId[id]) : 40,
+      // 義兄弟的旗子在這裡插上 —— 戰鬥自己不查 oath 的狀態,
+      // 那樣空跑就沒法單獨擺出「帶一個義弟」和「帶一個雇工」兩組來比
+      sworn: isSworn(id),
     })),
   ];
 }
@@ -172,10 +176,13 @@ export function Battle() {
       me: fighters.find((f) => f.isPlayer)
         ? { hp: Math.round(fighters.find((f) => f.isPlayer)!.hp), stance: fighters.find((f) => f.isPlayer)!.stance }
         : null,
-      list: fighters.map((f) => ({ id: f.id, side: f.side, hp: Math.round(f.hp), stance: f.stance, bow: !!f.bow })),
+      list: fighters.map((f) => ({ id: f.id, side: f.side, hp: Math.round(f.hp),
+        stance: f.stance, bow: !!f.bow, sworn: !!f.sworn })),
       arrows: arrows.length,
       loosed: arrowTally.loosed,
-      fx: { slow: +fx.slow.toFixed(2), finisher: +fx.finisher.toFixed(2) },
+      // shielded 一定要露出來 —— 少了它,「他替你擋了那一刀」在瀏覽器裡驗不到,
+      // 而探針只會安靜地報「這一場沒人需要擋」
+      fx: { slow: +fx.slow.toFixed(2), finisher: +fx.finisher.toFixed(2), shielded: fx.shielded },
     });
     w.__strike = () => playerStrike('you');
     // 走向還站著的敵人 —— 診斷用,也是將來「鎖定目標」的雛形
@@ -196,6 +203,7 @@ export function Battle() {
           ...hero.followers.map((id) => ({
             id: `mate-${id}`, npcId: id,
             name: byId[id]?.name ?? '同行', war: byId[id] ? might(byId[id]) : 40,
+            sworn: isSworn(id),
           })),
         ],
         band: { id: 'spar', x, z, fierce, count },

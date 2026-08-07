@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { groundAt, dryLandNear } from './field';
 import { useFolk, livingVillagers } from '../game/folk';
-import { homeOf, registerPlace, unregisterPlace } from '../game/places';
+import { houseOf, registerPlace, unregisterPlace } from '../game/places';
 
 /**
  * 病家 —— 門口掛白布的那幾戶。
@@ -24,7 +24,7 @@ export function Sickbeds() {
     const out: Array<{ id: string; name: string; x: number; z: number; y: number }> = [];
     for (const p of livingVillagers()) {
       if ((deltas[p.id]?.sick ?? 0) <= 0) continue;
-      const h = homeOf(p.id);
+      const h = houseOf(p.id);
       if (!h) continue;
       // 門前一步是<b>往外</b>算的,算到河裡去的不在少數 ——
       // 挑白布的竿子插在水面上,那一戶看著就像淹了不是病了

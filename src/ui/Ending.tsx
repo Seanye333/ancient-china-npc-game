@@ -68,6 +68,30 @@ export function Ending({ onRestart }: { onRestart: () => void }) {
           </div>
         </div>
 
+        {/*
+          義兄弟擺在最前面。一生裡跟過你的人可能有二十個,
+          結過義的最多兩個 —— 那兩個名字不該埋在名單中間。
+        */}
+        {(life.sworn?.length || life.swornLost?.length) ? (
+          <div style={{ ...panel, padding: '.8rem 1rem',
+                        background: 'rgba(200,164,90,.07)', borderColor: 'rgba(200,164,90,.35)' }}>
+            <div style={{ fontSize: '.68rem', letterSpacing: '.16em', opacity: .55,
+                          marginBottom: '.4rem' }}>
+              結過義的兄弟
+            </div>
+            {life.sworn?.length > 0 && (
+              <div style={{ fontSize: '.94rem', lineHeight: 1.9, color: '#f0d9a0' }}>
+                {life.sworn.join('、')}
+              </div>
+            )}
+            {life.swornLost?.length > 0 && (
+              <div style={{ fontSize: '.9rem', lineHeight: 1.9, color: '#d8a898' }}>
+                {life.swornLost.join('、')} —— 沒能跟你回來。
+              </div>
+            )}
+          </div>
+        ) : null}
+
         {/* 這一段才是重點:名字,不是數字 */}
         {life.companions.length > 0 && (
           <div style={{ ...panel, padding: '.8rem 1rem', background: 'rgba(255,255,255,.04)' }}>

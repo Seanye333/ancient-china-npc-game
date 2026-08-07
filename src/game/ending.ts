@@ -39,6 +39,14 @@ export interface Life {
   companions: string[];
   /** 沒能跟你回來的人。 */
   lost: string[];
+  /**
+   * 結過義的兄弟 —— 還在的,和沒回來的。
+   *
+   * 和 companions/lost 分開列,因為這兩件事不一樣:
+   * 跟過你的人是一段共事,結過義的人是一句你許出去的話。
+   */
+  sworn: string[];
+  swornLost: string[];
   /** 剿了幾夥。 */
   bandsCleared: number;
   /** 辦成幾件差事。 */

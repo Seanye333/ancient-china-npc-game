@@ -53,9 +53,11 @@ import { useVillage } from './game/village';
 import { settleDay, settleGuard } from './game/daily';
 import { saveGame, loadGame } from './game/save';
 import { useInteract, cityfolk } from './game/interact';
-import { placeById, homeOf } from './game/places';
+import { placeById, houseOf } from './game/places';
 import { herbSpots, spotReady } from './game/herbs';
 import { useFolk } from './game/folk';
+import { useOath, payrollCount } from './game/oath';
+import { makeVillagers } from './game/npcs';
 import { DOCKS } from './world/sites';
 import { useJournal } from './game/journal';
 import { originById } from './game/origin';
@@ -329,10 +331,27 @@ function CamBridge() {
     // 讓某個人病倒 —— 等他自己病要等好幾旬,驗收等不起
     (window as unknown as Record<string, unknown>).__makeSick = (id: string, days = 3) => {
       useFolk.getState().patch(id, { sick: days });
-      return homeOf(id);
+      return houseOf(id);
     };
     (window as unknown as Record<string, unknown>).__folk = (id: string) =>
       useFolk.getState().deltas[id] ?? null;
+    // 結義:狀態、月錢份數,以及一個「挑個不怕事的人」——
+    // 怕事的擔不起結義這種事,驗收隨手抓一個是會抓到的
+    (window as unknown as Record<string, unknown>).__oath = () => ({
+      sworn: useOath.getState().sworn,
+      swornOn: useOath.getState().swornOn,
+      fallen: useOath.getState().fallen,
+    });
+    (window as unknown as Record<string, unknown>).__payroll = () => {
+      const h = useHero.getState();
+      return payrollCount(h.followers, h.retinue);
+    };
+    (window as unknown as Record<string, unknown>).__braveIds = () =>
+      makeVillagers(38).filter((v) => v.temper !== 'timid').map((v) => v.id);
+    (window as unknown as Record<string, unknown>).__pickBrave = () => {
+      const v = makeVillagers(38).find((p) => p.temper !== 'timid')!;
+      return { id: v.id, name: v.name, temper: v.temper, age: v.age };
+    };
     (window as unknown as Record<string, unknown>).__bandsStore = () => useBands;
     (window as unknown as Record<string, unknown>).__bounty = () => {
       const t = bountyTarget(useBands.getState().bands, useVillage.getState().order);

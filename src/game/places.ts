@@ -133,12 +133,16 @@ export function places(): Place[] {
 /**
  * 這個村民住哪一棟。
  *
+ * 刻意<b>不叫 homeOf</b> —— company.ts 早就有一個 homeOf,回的是籍貫(一個字串)。
+ * 兩個同名函式擺在不同檔案裡,import 錯了型別剛好都過不去還算走運;
+ * 真正可怕的是哪天有人讓其中一個回物件。
+ *
  * 抄的是 Crowd.tsx 分房子的那條規矩(第 i 個人住第 i 棟)。
  * 抄一份是有風險的,但兩邊<b>必須</b>對上:病家的門口要是和他真正的家
  * 不是同一棟,你就會端著藥站在別人家門前。所以這裡是唯一的出口,
  * 將來要改就改這裡,Crowd 改成調用它。
  */
-export function homeOf(npcId: string): { x: number; z: number; door: [number, number] } | null {
+export function houseOf(npcId: string): { x: number; z: number; door: [number, number] } | null {
   const i = Number(npcId.replace(/^v/, ''));
   if (!Number.isFinite(i)) return null;
   const houses = houseSites();

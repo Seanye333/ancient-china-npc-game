@@ -11,6 +11,7 @@ import { useMarauders } from './marauders';
 import { useRefugees } from './refugees';
 import { useVendetta } from './vendetta';
 import { useHerbs } from './herbs';
+import { useOath } from './oath';
 import { useFair } from './fair';
 import { lifeTally } from './daily';
 import { useClock } from '../world/worldTime';
@@ -33,9 +34,10 @@ import { settleGuard } from './daily';
 
 const KEY = 'baishen.save.v1';
 // 2:傷有了形狀(woundKind/scars)
-// 3:採藥(herbs/dressedOn/採空的藥叢)。版本不合就丟 —— 舊檔缺欄位,
+// 3:採藥(herbs/dressedOn/採空的藥叢)
+// 4:義結金蘭(sworn/swornOn/fallen)+ 主角有了歲數。版本不合就丟 —— 舊檔缺欄位,
 // undefined 混進帳裡是 NaN 的溫床
-const VERSION = 3;
+const VERSION = 4;
 
 interface SaveData {
   v: number;
@@ -56,6 +58,8 @@ interface SaveData {
   grudges: unknown;
   /** 採空的藥叢 —— 不存的話,讀一次檔全山的藥就都長回來了。 */
   herbs: unknown;
+  /** 結義。不存的話讀個檔兄弟就變回雇工了 —— 而且他會開始領月錢。 */
+  oath: unknown;
   /** 擂台打到第幾場 —— 比到一半讀檔丟兩場勝利,那就是搶劫。 */
   fair: unknown;
   /**
@@ -70,7 +74,7 @@ interface SaveData {
 function heroSlice() {
   const h = useHero.getState();
   return {
-    name: h.name, courtesy: h.courtesy, hometown: h.hometown,
+    name: h.name, courtesy: h.courtesy, hometown: h.hometown, age: h.age,
     stats: h.stats, merit: h.merit, gold: h.gold, grain: h.grain,
     retinue: h.retinue, followers: h.followers, renown: h.renown, weapon: h.weapon,
     favors: h.favors, wounded: h.wounded, woundKind: h.woundKind, scars: h.scars,
@@ -103,6 +107,11 @@ export function saveGame(): boolean {
       // 仇家記著你的臉 —— 讀了檔就忘,那筆帳等於沒發生過
       grudges: useVendetta.getState().grudges,
       herbs: useHerbs.getState().picked,
+      oath: {
+        sworn: useOath.getState().sworn,
+        swornOn: useOath.getState().swornOn,
+        fallen: useOath.getState().fallen,
+      },
       fair: {
         round: useFair.getState().round,
         out: useFair.getState().out,
@@ -150,6 +159,7 @@ export function loadGame(): boolean {
     useRefugees.setState({ band: (data.refugees as never) ?? null });
     useVendetta.getState().reset((data.grudges as never) ?? {});
     useHerbs.getState().reset((data.herbs as never) ?? {});
+    useOath.getState().reset((data.oath as never) ?? undefined);
     if (data.fair) useFair.setState(data.fair as never);
     useConvoy.getState().bump();
     if (data.tally) {

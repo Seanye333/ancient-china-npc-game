@@ -27,6 +27,7 @@ import {
   useVendetta, shouldWarn, vendettaChance, vendettaSize,
 } from './vendetta';
 import { deathMul, recoverChance } from './herbs';
+import { mayLeave, payrollCount, useOath } from './oath';
 import { groundAt, water } from '../world/field';
 import { invalidateNav } from '../world/nav';
 import type { Season } from '../world/worldTime';
@@ -121,6 +122,8 @@ export function settleDay(day: number, season: Season): DayReport {
 
     /* 餓著的人不會一直跟著你 —— 這是招募那條線真正的代價 */
     for (const id of [...hero.followers]) {
+      // 別人餓兩頓就散,義兄弟不散 —— 這是全遊戲唯一一條帳本管不到的關係
+      if (!mayLeave(id)) continue;
       if (Math.random() > 0.34) continue;
       hero.dismiss(id);
       hero.addFavor(id, -4);
@@ -159,7 +162,8 @@ export function settleDay(day: number, season: Season): DayReport {
    */
   if (day > 0 && day % DAYS_PER_XUN === 0) {
     const h = useHero.getState();
-    const men = h.followers.length + h.retinue;
+    // 義兄弟不領月錢 —— 結義最實在的那份好處,一年替你省下三十六個錢
+    const men = payrollCount(h.followers, h.retinue);
     if (men > 0) {
       const owe = men * UPKEEP_PER_MAN;
       if (h.spend(owe)) {
@@ -409,7 +413,9 @@ export function settleDay(day: number, season: Season): DayReport {
     for (const p of livingVillagers()) {
       folkStore.patch(p.id, { aged: deltaOf(p.id).aged + 1 });
     }
-    journal.note(day, '又是一年。', 'plain');
+    // 主角也長一歲 —— 全村都在老,只有你不老的話,那個村子就是佈景
+    useHero.setState((s) => ({ age: s.age + 1 }));
+    journal.note(day, `又是一年。你今年${useHero.getState().age}歲了。`, 'plain');
   }
 
   /*
@@ -423,6 +429,7 @@ export function settleDay(day: number, season: Season): DayReport {
     for (const id of [...h.followers]) {
       const npc = anyPerson(id);
       if (!npc) continue;
+      if (!mayLeave(id)) continue;      // 你名聲爛到全村側目,他還在
       const grieving = isGrieving(id, day);
       const m = moodOf({
         npc, favor: h.favors[id] ?? 0, renown: h.renown,
@@ -577,11 +584,16 @@ export function settleDay(day: number, season: Season): DayReport {
 export function endLife(kind: EndingKind, day: number) {
   const h = useHero.getState();
   const nameOf = (id: string) => anyPerson(id)?.name ?? '某人';
+  const oath = useOath.getState();
   useEnding.getState().end({
     kind, days: day, merit: h.merit, renown: h.renown, gold: h.gold,
     lodging: h.lodging,
-    companions: [...lifeTally.companions].map(nameOf),
-    lost: [...lifeTally.lost].map(nameOf),
+    // 結過義的人不重複列進「跟過你的人」—— 那一頁上,他們自己有一行
+    companions: [...lifeTally.companions]
+      .filter((id) => !oath.sworn.includes(id) && !oath.fallen.includes(id)).map(nameOf),
+    lost: [...lifeTally.lost].filter((id) => !oath.fallen.includes(id)).map(nameOf),
+    sworn: oath.sworn.map(nameOf),
+    swornLost: oath.fallen.map(nameOf),
     bandsCleared: lifeTally.bandsCleared,
     errandsDone: lifeTally.errandsDone,
   });

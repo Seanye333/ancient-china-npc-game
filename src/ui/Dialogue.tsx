@@ -32,6 +32,9 @@ import { retinueCap, rankForMerit } from '../game/hero';
 import {
   errandFrom, reward, errandBlurb, ERRAND_LABEL, type Errand,
 } from '../game/errands';
+import {
+  useOath, isSworn, canSwear, oathWords, heroIsElder, OATH_GOLD, OATH_GRAIN,
+} from '../game/oath';
 import { Portrait } from './Portrait';
 
 /**
@@ -205,7 +208,13 @@ export function Dialogue() {
           <span style={{ fontSize: '.74rem', padding: '.05rem .4rem',
                          border: '1px solid #b25a48', color: '#d8a898' }}>病中</span>
         )}
-        {joined && (
+        {isSworn(npc.id) && (
+          <span style={{ fontSize: '.74rem', padding: '.05rem .4rem',
+                         border: '1px solid #c8a45a', color: '#f0d9a0' }}>
+            義兄弟 · 不領月錢,不會走
+          </span>
+        )}
+        {joined && !isSworn(npc.id) && (
           <span style={{ fontSize: '.74rem', padding: '.05rem .4rem',
                          border: '1px solid #7fb08a', color: '#a8d4b4' }}>
             隨行 · {moodOf({
@@ -331,6 +340,40 @@ export function Dialogue() {
             {joined ? '已隨你左右' : '跟我走吧'}
           </button>
         )}
+        {/*
+          結義 —— 全遊戲唯一一條不由錢維持的關係。
+          它擺在「跟我走吧」後面是有道理的:得先一起走過路,才談得上生死。
+        */}
+        {!shown && joined && !isSworn(npc.id) && (() => {
+          const gate = canSwear({
+            npc, favor, joined,
+            count: useOath.getState().sworn.length,
+            gold: hero.gold, grain: hero.grain,
+          });
+          return (
+            <button style={gate.ok
+              ? { ...btn, borderColor: '#c8a45a', color: '#f0d9a0' }
+              : { ...btn, opacity: .45 }}
+              onClick={() => {
+                if (!gate.ok) { setLine(gate.why); return; }
+                if (!hero.spend(OATH_GOLD)) { setLine('酒錢都湊不出來。'); return; }
+                hero.addGrain(-OATH_GRAIN);
+                useOath.getState().swear(npc.id, day);
+                useHero.setState((st) => ({ renown: st.renown + 4 }));
+                spreadRumor({
+                  text: `他和${npc.name}結了異姓兄弟。`, delta: 1.6, life: 6, aboutId: npc.id,
+                });
+                setLine(oathWords(
+                  npc, hero.name,
+                  heroIsElder(hero.age, npc.age + deltaOf(npc.id).aged),
+                ));
+              }}>
+              義結金蘭<span style={{ opacity: .55 }}>
+                {' · '}{gate.ok ? `擺一桌 ${OATH_GOLD} 錢、${OATH_GRAIN} 石糧` : gate.why}
+              </span>
+            </button>
+          );
+        })()}
         {/* 切磋 —— 怕事的不肯;比武是直脾氣世界的社交 */}
         {!shown && !joined && npc.temper !== 'timid' && (
           <button style={btn} onClick={() => {
@@ -345,7 +388,8 @@ export function Dialogue() {
             切磋一場<span style={{ opacity: .55 }}> · 點到為止</span>
           </button>
         )}
-        {!shown && joined && (
+        {/* 結了就退不掉 —— 他佔著你的人頭上限,一輩子 */}
+        {!shown && joined && !isSworn(npc.id) && (
           <button style={{ ...btn, opacity: .85 }} onClick={() => {
             hero.dismiss(npc.id);
             setLine(npc.temper === 'gruff' ? '⋯⋯行罷。要用得著我,再來喊一聲。'

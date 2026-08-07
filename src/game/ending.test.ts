@@ -44,7 +44,8 @@ describe('落幕', () => {
     for (const kind of Object.keys(ENDING_TITLE) as Array<keyof typeof ENDING_TITLE>) {
       const life: Life = {
         kind, days: 400, merit: 30, renown: 20, gold: 500, lodging: 'owned',
-        companions: ['王安'], lost: [], bandsCleared: 2, errandsDone: 5,
+        companions: ['王安'], lost: [], sworn: [], swornLost: [],
+        bandsCleared: 2, errandsDone: 5,
       };
       expect(epitaph(life).length).toBeGreaterThan(20);
     }
@@ -90,7 +91,8 @@ describe('推掉的收場不再問第二次', () => {
     useEnding.getState().reset();
     const life: Life = {
       kind: 'rooted', days: 200, merit: 10, renown: 5, gold: 500,
-      lodging: 'owned', companions: [], lost: [], bandsCleared: 0, errandsDone: 2,
+      lodging: 'owned', companions: [], lost: [], sworn: [], swornLost: [],
+      bandsCleared: 0, errandsDone: 2,
     };
     useEnding.getState().end(life);
     expect(useEnding.getState().life).not.toBeNull();
