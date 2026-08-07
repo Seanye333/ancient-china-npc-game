@@ -84,10 +84,13 @@ const clock = async (h, s, w = 'clear') => {
 };
 /** 站到某處,把鏡頭擺到指定位置,<b>立刻</b>截。 */
 async function pose(px, pz, cam, look, wait = 1900) {
+  await page.evaluate(() => window.__freezeCam(false));
   await page.evaluate(([x, z]) => window.__place(x, z), [px, pz]);
   await page.waitForTimeout(wait);
+  // 凍住解算器再擺機位 —— 不凍的話它每幀往主角肩後拉,遠景擺不住
+  await page.evaluate(() => window.__freezeCam(true));
   await page.evaluate(([c, l]) => window.__setCam(c, l), [cam, look]);
-  await page.waitForTimeout(30);
+  await page.waitForTimeout(60);
 }
 
 console.log('── 取景');

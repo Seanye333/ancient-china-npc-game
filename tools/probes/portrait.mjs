@@ -6,7 +6,7 @@ import { chromium } from '@playwright/test';
 const PORT = process.env.PORT || 5180;
 const OUT = process.env.OUT || 'docs/art-research';
 const b = await chromium.launch({ headless: false });
-const page = await b.newPage({ viewport: { width: 900, height: 900 } });
+const page = await b.newPage({ viewport: { width: 700, height: 900 } });
 page.on('pageerror', (e) => console.log('ERR', String(e)));
 await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'load', timeout: 60000 });
 await page.bringToFront();
@@ -41,14 +41,30 @@ console.log('丘', JSON.stringify(top));
 await page.evaluate(([x, z]) => window.__place(x, z), [top.x, top.z]);
 await page.waitForTimeout(2600);
 const py = top.h;
-const R = 1.9;
-for (const [name, ang] of [['front', 0], ['q34', 0.8], ['side', 1.57], ['back', 3.14]]) {
+/*
+ * 角度<b>相對於他面朝的方向</b>算,不是相對於世界。
+ * 拍之前不問他朝哪邊,拍出來的「正面」十有八九是後腦勺。
+ */
+const yaw = await page.evaluate(() => window.__probe().yaw);
+// 凍住鏡頭解算 —— 不凍的話湊近的機位擺完二十六毫秒就被拉回肩後了
+await page.evaluate(() => window.__freezeCam(true));
+const SHOTS = [
+  // 名稱, 繞人的角度(0 = 正面), 距離, 鏡頭高, 看向的高
+  ['face', 0, 1.05, 0.98, 0.92],
+  ['front', 0, 2.4, 1.05, 0.62],
+  ['q34', 0.85, 1.6, 1.00, 0.78],
+  ['side', 1.57, 1.6, 1.00, 0.78],
+  ['back', 3.14, 1.9, 1.05, 0.72],
+];
+for (const [name, rel, dist, camY, lookY] of SHOTS) {
+  const a = yaw + Math.PI + rel;      // 他面朝 yaw,所以正面在 yaw+π 那一側
   await page.evaluate(([c, l]) => window.__setCam(c, l),
-    [[top.x + Math.sin(ang) * R, py + 0.42, top.z + Math.cos(ang) * R],
-     [top.x, py + 0.82, top.z]]);
-  await page.waitForTimeout(26);
+    [[top.x + Math.sin(a) * dist, py + camY, top.z + Math.cos(a) * dist],
+     [top.x, py + lookY, top.z]]);
+  await page.waitForTimeout(90);
   await page.bringToFront();
   await page.screenshot({ path: `${OUT}/fig-${name}.png`, timeout: 60000 });
   console.log(name);
 }
+await page.evaluate(() => window.__freezeCam(false));
 await b.close();

@@ -92,6 +92,18 @@ export function radiusAt(profile: Array<[number, number]>, py: number): number {
   return profile[profile.length - 1][0];
 }
 
+/**
+ * 把一條輪廓線從某個高度切上去,切口處補一個插值點。
+ *
+ * 用途是「帽蓋要和顱骨同一個形狀」:另拿一顆球蓋上去的話,兩張面在髮線
+ * 附近互相穿插,畫面上是一條鋸齒狀的爛邊。同一條線放大一點,處處平行。
+ */
+function profileAbove(profile: Array<[number, number]>, y0: number): Array<[number, number]> {
+  const out: Array<[number, number]> = [[radiusAt(profile, y0), y0]];
+  for (const p of profile) if (p[1] > y0) out.push(p);
+  return out;
+}
+
 /** 一塊薄板 —— 五官、衣襟、腰帶垂頭都是它。 */
 function slab(w: number, h: number, d: number) {
   return new THREE.BoxGeometry(w, h, d);
@@ -159,10 +171,43 @@ function robeR(y: number): number {
   return radiusAt(BODY_P, (y - FIG_LEG_H) / ROBE_SPAN) * FIG_HR * 1.02;
 }
 
+/**
+ * 沿著袍子的正面鋪一條斜帶(衣襟)——<b>切成幾小段,一段一段找自己的深度</b>。
+ *
+ * 和眉毛是同一個道理:胸口是圓的,一整塊平板貼上去只有正中間貼得住。
+ * 而且衣襟這一條又長又斜,平板做出來是「胸前貼了兩張白紙」,
+ * 不是「兩片襟交在一起」。
+ */
+function robeStrip(o: {
+  x0: number; y0: number; x1: number; y1: number; w: number; d: number;
+}): THREE.BufferGeometry {
+  const SEG = 5;
+  const gs: THREE.BufferGeometry[] = [];
+  const ang = Math.atan2(o.y1 - o.y0, o.x1 - o.x0);
+  const len = Math.hypot(o.x1 - o.x0, o.y1 - o.y0);
+  for (let i = 0; i < SEG; i++) {
+    const t = (i + 0.5) / SEG;
+    const x = o.x0 + (o.x1 - o.x0) * t;
+    const y = o.y0 + (o.y1 - o.y0) * t;
+    const r = robeR(y);
+    const z = -Math.sqrt(Math.max(0, r * r - x * x)) + o.d * 0.25;
+    gs.push(at(rot(slab((len / SEG) * 1.5, o.w, o.d), 0, 0, ang), x, y, z));
+  }
+  return mergeGeometries(gs, false)!;
+}
+
 export function bodyGeom(robe: THREE.Color) {
   const gs: THREE.BufferGeometry[] = [];
-  // 衣緣比袍身深一號 —— 用同一個色壓暗,四種袍色各自配得上,不必再挑四個緣色
-  const edge = robe.clone().multiplyScalar(0.62);
+  /*
+   * 衣緣是<b>淺色</b>的,不是把袍色壓暗。
+   *
+   * 第一版取 robe×0.62 當緣色,想著「四種袍色各自配得上」。結果是:
+   * 深藍袍上的深藍領,正面看根本不存在 —— 交領那個 V 只在四分之三角度、
+   * 而且要湊得很近才看得出來,等於白做。
+   * 漢代的深衣本來就是拿另一色的布鑲緣;素色的麻緣配什麼袍子都成立,
+   * 而且是<b>離多遠都讀得出來</b>的一筆。
+   */
+  const edge = new THREE.Color('#ddd2ba').lerp(robe, 0.16);
 
   // 下擺從胯起算 —— 側影不變,只是短了一截,底下那一截交給腿
   gs.push(tint(at(lathe(BODY_P, FIG_HR * 1.02, ROBE_SPAN, 14), 0, FIG_LEG_H, 0), robe));
@@ -174,18 +219,17 @@ export function bodyGeom(robe: THREE.Color) {
    * 這是整副身子上<b>最便宜也最管用</b>的一筆:在這之前袍子是一個光溜溜的
    * 錐體,加了這個 V 才有「衣服」而不是「套子」。
    */
-  const yTop = FIG_LEG_H + ROBE_SPAN * 0.86;      // 肩口
-  const yCross = FIG_LEG_H + ROBE_SPAN * 0.50;    // 交在腰上一點
+  const yTop = FIG_LEG_H + ROBE_SPAN * 0.90;      // 肩口
+  const yCross = FIG_LEG_H + ROBE_SPAN * 0.58;    // 交在腰帶正上方
   for (const side of [-1, 1]) {
-    const yMid = (yTop + yCross) / 2;
-    const r = robeR(yMid);
-    const dx = side * FIG_HR * 0.34;
-    // 外襟(左)比內襟(右)略寬略前 —— 壓著的那一片才看得出是壓著
+    // 外襟(左)壓在內襟上,所以略寬、略往前 —— 壓著的那一片要看得出是壓著
     const outer = side < 0;
-    gs.push(tint(at(
-      rot(slab(FIG_HR * (outer ? 0.46 : 0.40), (yTop - yCross) * 1.06, FIG_HR * 0.07),
-        0, 0, side * 0.62),
-      dx * 0.55, yMid, -r * (outer ? 0.92 : 0.86)), edge));
+    gs.push(tint(robeStrip({
+      x0: side * robeR(yTop) * 0.66, y0: yTop,
+      x1: side * FIG_HR * 0.045, y1: yCross,
+      w: FIG_HR * (outer ? 0.15 : 0.13),
+      d: FIG_HR * (outer ? 0.075 : 0.055),
+    }), edge));
   }
   // 領緣 —— 繞脖子一圈的那道深邊,把兩片衣襟收在一起
   gs.push(tint(at(new THREE.TorusGeometry(robeR(yTop) * 0.62, FIG_HR * 0.055, 5, 12)
@@ -226,6 +270,36 @@ function faceZ(py: number, out = 0): number {
 }
 
 /**
+ * 貼在臉上的一道橫紋(眉、口)—— <b>切成幾小段,一段一段找自己的深度</b>。
+ *
+ * 一整條直板貼在圓臉上,只有正中間那一點是貼著的:眉毛有 0.32R 寬,
+ * 到了外眼角那一頭,臉皮已經往後退了將近 0.05R —— 於是眉尾翹起來浮在空中,
+ * 四分之三角度看得一清二楚(而正面完全看不出來,所以很容易一直錯下去)。
+ *
+ * 每一段自己算 z,就順著臉彎過去了。三段就夠 —— 這副臉本來就是低面數的。
+ */
+function faceStrip(o: {
+  x: number; y: number; py: number;
+  w: number; h: number; d: number; tilt: number; R: number;
+}): THREE.BufferGeometry {
+  const SEG = 4;
+  const gs: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < SEG; i++) {
+    const t = (i + 0.5) / SEG - 0.5;              // -1/3 .. +1/3
+    const sx = o.x + t * o.w;
+    // 這一段所在的橫向位置上,臉皮退到多深(橢球:x 越偏,z 越淺)
+    const rx = radiusAt(HEAD_P, o.py) * o.R;
+    const k = Math.min(1, Math.abs(sx) / Math.max(rx, 1e-4));
+    const z = -Math.sqrt(Math.max(0, 1 - k * k)) * rx * FACE_SQUASH + o.d * 0.30;
+    // 疊 45%:第一版只疊 12%,順著臉彎過去以後每一段的 z 各不相同,
+    // 斜著看縫就開了 —— 一條眉毛讀成一條虛線
+    gs.push(at(rot(slab((o.w / SEG) * 1.45, o.h, o.d), 0, 0, o.tilt),
+      sx, o.y + t * o.w * Math.tan(o.tilt), z));
+  }
+  return mergeGeometries(gs, false)!;
+}
+
+/**
  * 頭。
  *
  * 五官<b>不是裝飾</b>。在加眉鼻口之前,這張臉是一顆膚色的蛋加兩隻大眼睛 ——
@@ -242,44 +316,81 @@ export function headGeom(hat: boolean, oldHair = false) {
   const R = FIG_HR;
   gs.push(tint(at(lathe(HEAD_P, R, R, 16), 0, cy, 0, 1, 1, FACE_SQUASH), SKIN));
 
-  // 眼 —— 保持大眼睛(這個世界的人本來就是靠剪影認的),但加上眼上那一筆
+  /*
+   * 五官的深度<b>從臉皮算,不是憑感覺</b>。
+   *
+   * 第一版眼睛是一顆半深 0.062R 的球,球心又擺在臉皮外 0.06R —— 眼球凸出
+   * 臉面 0.12R,四分之三角度一看就是<b>兩隻黏上去的護目鏡</b>,連頭的側影
+   * 都被它頂出去。眉毛同理:板子的背面露在外頭,像浮在臉前一公分。
+   *
+   * 現在的規矩:先算這一件的半深,再讓它<b>只凸出 proud 那麼多</b>,
+   * 其餘埋進臉裡。凸多少是一個看得懂的數字,而不是兩個座標湊出來的結果。
+   */
+  const EYE_R = R * 0.25;
+  const EYE_FLAT = 0.16;                       // 眼球壓扁到只剩這麼厚
+  const eyeHalf = EYE_R * EYE_FLAT;
   for (const side of [-1, 1]) {
-    const ex = side * R * 0.43;
-    gs.push(tint(at(new THREE.SphereGeometry(R * 0.28, 10, 7),
-      ex, cy - R * 0.10, faceZ(-0.10, R * 0.06), 1, 1.10, 0.22), INK));
-    gs.push(tint(at(new THREE.SphereGeometry(R * 0.11, 6, 5),
-      ex - R * 0.07, cy + R * 0.01, faceZ(-0.10, R * 0.13), 1, 1, 0.3),
+    const ex = side * R * 0.42;
+    // 凸 0.02R:看得出是一顆球,又不至於頂出臉的側影
+    gs.push(tint(at(new THREE.SphereGeometry(EYE_R, 10, 7),
+      ex, cy - R * 0.10, faceZ(-0.10, R * 0.02 - eyeHalf), 1, 1.12, EYE_FLAT), INK));
+    gs.push(tint(at(new THREE.SphereGeometry(R * 0.095, 6, 5),
+      ex - side * R * 0.06, cy + R * 0.02, faceZ(-0.10, R * 0.035), 1, 1, 0.26),
       new THREE.Color('#f2f0ea')));
-    // 眉 —— 外高內低斜著一撇。老人的眉淡而長
-    gs.push(tint(at(
-      rot(slab(R * (oldHair ? 0.40 : 0.34), R * 0.075, R * 0.06), 0, 0, side * -0.20),
-      ex + side * R * 0.02, cy + R * (oldHair ? 0.26 : 0.23), faceZ(0.24, R * 0.02)),
-      oldHair ? new THREE.Color('#8e867c') : BROW));
-    // 耳 —— 側面剪影上少了它就是一顆球
-    gs.push(tint(at(new THREE.SphereGeometry(R * 0.17, 6, 5),
-      side * R * 0.97, cy - R * 0.06, R * 0.04, 0.42, 1, 0.72), SKIN_D));
+    // 眉 —— 外高內低斜著一撇。<b>切成三小段</b>,一段一段貼上去
+    gs.push(tint(faceStrip({
+      x: ex + side * R * 0.02, y: cy + R * (oldHair ? 0.25 : 0.22), py: 0.22,
+      w: R * (oldHair ? 0.38 : 0.32), h: R * 0.062, d: R * 0.045,
+      tilt: side * -0.22, R,
+    }), oldHair ? new THREE.Color('#8e867c') : BROW));
+    /*
+     * 耳。膚色不是深一號的灰 —— 深色的一小塊掛在頭側,讀作一顆疣。
+     * 而且要<b>貼著頭</b>:第一版擺在 0.97R、又往外撐,整隻耳朵浮在頭外面。
+     */
+    gs.push(tint(at(new THREE.SphereGeometry(R * 0.155, 6, 5),
+      side * R * 0.90, cy - R * 0.05, R * 0.03, 0.34, 1.05, 0.80), SKIN));
+    gs.push(tint(at(new THREE.SphereGeometry(R * 0.06, 5, 4),
+      side * R * 0.95, cy - R * 0.05, R * 0.03, 0.30, 0.90, 0.55), SKIN_D));
   }
 
-  // 鼻 —— 一小塊斜著的楔子。它撐起整張臉的立體感,只花六個三角形
-  gs.push(tint(at(rot(slab(R * 0.13, R * 0.30, R * 0.14), 0.34, 0, 0),
-    0, cy - R * 0.13, faceZ(-0.13, R * 0.02)), SKIN_D));
-  // 口 —— 一道短橫。不畫笑也不畫哭,留白比表情耐看
-  gs.push(tint(at(slab(R * 0.24, R * 0.055, R * 0.05),
-    0, cy - R * 0.45, faceZ(-0.45, R * 0.01)), LIP));
+  /*
+   * 鼻 —— 一個往前戳的三稜錐,不是一塊貼在臉上的板。
+   *
+   * 第一版是薄板,而且埋進了臉裡:正面看是一條深色的直槓,像用筆畫上去的。
+   * 鼻子是整張臉上<b>唯一凸出來</b>的東西,它一平,臉就是一張紙。
+   */
+  const noseTip = R * 0.085;                    // 鼻尖凸出臉皮多少
+  gs.push(tint(at(rot(new THREE.ConeGeometry(R * 0.085, R * 0.30, 3), Math.PI * 0.42, 0, 0),
+    0, cy - R * 0.14, faceZ(-0.14, noseTip - R * 0.13)), SKIN));
+  // 口 —— 一道短橫,細而不豔。不畫笑也不畫哭,留白比表情耐看
+  gs.push(tint(faceStrip({
+    x: 0, y: cy - R * 0.46, py: -0.46,
+    w: R * 0.20, h: R * 0.042, d: R * 0.045, tilt: 0, R,
+  }), LIP));
 
   /*
-   * 髮。
+   * 髮 —— 用<b>頭本身的輪廓</b>放大一點,不是另拿一顆球蓋上去。
    *
-   * 舊版是一顆壓扁成 0.42 的球蓋在頭上,從四分之三角度看是一塊<b>帶硬邊的黑板</b>。
-   * 改成三件:一頂沿著顱骨的帽蓋(球,但只取上半)、兩鬢、加頂上的髻與髮帶。
+   * 第一版是一顆球截了上半當帽蓋。球和顱骨是兩種形狀、段數也不同,
+   * 兩張面在髮線附近互相穿插 —— 畫面上是一條<b>鋸齒狀的爛邊</b>,
+   * 遠看像貼圖破了。同一條輪廓線放大 5%,兩張面處處平行、永不相交,
+   * 髮線就是一個乾淨的圈。
+   *
    * 髮線退到額頭上方,露出額角,人才有臉。
    */
-  const cap = new THREE.SphereGeometry(R * 1.045, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.62);
-  gs.push(tint(at(cap, 0, cy + R * 0.04, R * 0.05, 1, 1.06, FACE_SQUASH * 1.02), HAIR_C));
+  const HAIRLINE = 0.30;                    // 輪廓座標:0 是眉心高度,1 是頭頂
+  gs.push(tint(at(lathe(profileAbove(HEAD_P, HAIRLINE), R * 1.05, R * 1.05, 16),
+    0, cy, 0, 1, 1, FACE_SQUASH), HAIR_C));
   for (const side of [-1, 1]) {
-    // 鬢角 —— 順著臉側垂下來一綹
-    gs.push(tint(at(new THREE.SphereGeometry(R * 0.30, 7, 6),
-      side * R * 0.80, cy + R * 0.02, R * 0.10, 0.55, 1.25, 0.85), HAIR_C));
+    /*
+     * 鬢角在<b>鬢</b>上,不在臉頰上。
+     *
+     * 第一版擺在 cy+0.02R、也就是眼睛那一層,還往前壓到 z=+0.06 ——
+     * 於是四分之三角度上,一團深色貼在顴骨旁邊,讀作臉上長了塊東西。
+     * 挪到太陽穴的高度、再往後靠,它才是「耳朵前面那一綹」。
+     */
+    gs.push(tint(at(new THREE.SphereGeometry(R * 0.22, 7, 6),
+      side * R * 0.84, cy + R * 0.24, R * 0.20, 0.50, 1.15, 0.90), HAIR_C));
   }
   // 髻與束髮的帶子
   gs.push(tint(at(new THREE.SphereGeometry(R * 0.29, 8, 6),

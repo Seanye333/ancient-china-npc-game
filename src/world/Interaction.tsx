@@ -113,6 +113,8 @@ export function Interaction() {
       }
       return {
         player: [Math.round(playerPos.x), Math.round(playerPos.z)],
+        // 面朝哪 —— 拍人物近照要靠它才知道哪一面是正面
+        yaw: playerPos.yaw,
         presences: presences.length + companions.length, visible,
         nearest: Number.isFinite(nearest) ? Math.round(nearest) : null,
         toward: [bx, bz],

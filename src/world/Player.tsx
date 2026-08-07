@@ -95,6 +95,12 @@ export function Player() {
   const bodyRef = useRef<THREE.Mesh>(null);
   const headRef = useRef<THREE.Mesh>(null);
   const legRefs = useRef<Array<THREE.Mesh | null>>([]);
+  /** 看美術用:凍住鏡頭解算,好把機位擺到臉前面。 */
+  const camFrozen = useRef(false);
+  useEffect(() => {
+    (window as unknown as Record<string, unknown>).__freezeCam =
+      (on = true) => { camFrozen.current = !!on; };
+  }, []);
 
   // 玩家的位置活在 ref 裡,不進 zustand —— 每幀寫 store 會讓整棵樹重繪
   const me = useRef({
@@ -343,6 +349,15 @@ export function Player() {
         weaponRef.current.rotation.set(-0.85, m.yaw, 0.2);
       }
     }
+
+    /*
+     * 原型階段的把手:凍住鏡頭。
+     *
+     * 看美術要湊到跟前,可是解算器每幀把鏡頭往肩後拉 —— 湊得越近它推得越狠,
+     * 一公尺的機位根本擺不住(擺完二十六毫秒就被拉回去了)。
+     * 凍住它,截圖腳本才拍得到臉。
+     */
+    if (camFrozen.current) return;
 
     /**
      * 鏡頭跟隨。第三人稱最常見的破綻就是鏡頭埋進東西裡,所以這裡不是
