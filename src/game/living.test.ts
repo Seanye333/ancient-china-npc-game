@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { partsFor, seasonOf, dateWord, numberWord, firstDayOf, DAYS_PER_YEAR } from './calendar';
 import { grainCost, grainSale, jobsToday, mouths, DAYS_PER_SHI, restQuality } from './economy';
 import { settleDay, grainDays } from './daily';
@@ -148,6 +148,15 @@ describe('過一天要結的帳', () => {
   });
 
   it('村子每旬推一次,不是每天 —— 按天推就是六天把一村收成歸零', () => {
+    /*
+     * 這一條要把骰子按住。
+     *
+     * settleDay 每天擲一次天災(旱澇蝗疫),而天災是<b>按天</b>扣收成的 ——
+     * 一旬之內湊巧來一場,「旬內不動」就不成立,測試三跑一炸。
+     * 炸的時候看起來像是「按旬推」壞了,其實是另一條規則插進來。
+     * 0.99 讓每一發都不中,量的才是旬與天的差別本身。
+     */
+    const dice = vi.spyOn(Math, 'random').mockReturnValue(0.99);
     const before = useVillage.getState().harvest;
     // 一旬之內不動
     for (let d = 1; d <= 9; d++) settleDay(d, 'winter');
@@ -155,6 +164,7 @@ describe('過一天要結的帳', () => {
     // 跨過旬首才結
     settleDay(10, 'winter');
     expect(useVillage.getState().harvest).toBeLessThan(before);
+    dice.mockRestore();
   });
 
   it('村子自己往前走 —— 這一段從前一次都沒跑過', () => {

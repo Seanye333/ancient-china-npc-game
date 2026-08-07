@@ -172,28 +172,61 @@ function robeR(y: number): number {
 }
 
 /**
- * 沿著袍子的正面鋪一條斜帶(衣襟)——<b>切成幾小段,一段一段找自己的深度</b>。
+ * 沿著袍子的正面鋪一條斜帶(衣襟)—— 一條<b>貼著胸口彎過去的緞帶</b>。
  *
- * 和眉毛是同一個道理:胸口是圓的,一整塊平板貼上去只有正中間貼得住。
- * 而且衣襟這一條又長又斜,平板做出來是「胸前貼了兩張白紙」,
- * 不是「兩片襟交在一起」。
+ * 前一版是把幾個方塊排成一條線,每塊各自算自己的深度。方向是對的,
+ * 可是方塊有角:排在 45 度的斜線上、每塊的 z 又不一樣,邊緣就成了一排缺口,
+ * 遠看是一條有鋸齒的帶子。改成一條真的帶子 —— 沿線取樣,每一站算出
+ * 表面上的點與法線,左右各推半個帶寬,站與站之間補三角形。沒有角,就沒有缺口。
  */
-function robeStrip(o: {
-  x0: number; y0: number; x1: number; y1: number; w: number; d: number;
+function robeRibbon(o: {
+  x0: number; y0: number; x1: number; y1: number; w: number; lift: number;
 }): THREE.BufferGeometry {
-  const SEG = 5;
-  const gs: THREE.BufferGeometry[] = [];
-  const ang = Math.atan2(o.y1 - o.y0, o.x1 - o.x0);
-  const len = Math.hypot(o.x1 - o.x0, o.y1 - o.y0);
-  for (let i = 0; i < SEG; i++) {
-    const t = (i + 0.5) / SEG;
+  const N = 10;
+  const pts: THREE.Vector3[] = [];
+  const nrm: THREE.Vector3[] = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
     const x = o.x0 + (o.x1 - o.x0) * t;
     const y = o.y0 + (o.y1 - o.y0) * t;
     const r = robeR(y);
-    const z = -Math.sqrt(Math.max(0, r * r - x * x)) + o.d * 0.25;
-    gs.push(at(rot(slab((len / SEG) * 1.5, o.w, o.d), 0, 0, ang), x, y, z));
+    // 胸口是個旋轉面:這個高度的半徑是 r,橫向偏 x 的地方,表面在 z = -√(r²-x²)
+    const zz = Math.sqrt(Math.max(1e-4, r * r - x * x));
+    const n = new THREE.Vector3(x / r, 0, -zz / r).normalize();
+    pts.push(new THREE.Vector3(x, y, -zz).addScaledVector(n, o.lift));
+    nrm.push(n);
   }
-  return mergeGeometries(gs, false)!;
+  const pos: number[] = [];
+  const half = o.w / 2;
+  const edge = (i: number, sgn: number) => {
+    const fwd = (i < N ? pts[i + 1].clone().sub(pts[i]) : pts[i].clone().sub(pts[i - 1])).normalize();
+    const side = new THREE.Vector3().crossVectors(fwd, nrm[i]).normalize();
+    return pts[i].clone().addScaledVector(side, sgn * half);
+  };
+  const idx: number[] = [];
+  for (let i = 0; i <= N; i++) {
+    const a = edge(i, -1), b = edge(i, 1);
+    pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
+    if (i < N) {
+      const k = i * 2;
+      idx.push(k, k + 1, k + 3, k, k + 3, k + 2);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  /*
+   * uv 和<b>索引</b>都是必須的,即使一個像素的貼圖都不用。
+   *
+   * mergeGeometries 要求每一份幾何的屬性集完全一致 —— 少一個 uv、
+   * 或者「有的有索引有的沒有」,它都回 null,而 bodyGeom 尾巴上那個 `!`
+   * 會把 null 當幾何用下去。結果是<b>整個身子憑空消失</b>,
+   * 控制台只有一句「Cannot read properties of null」,
+   * 看不出跟一條衣襟有什麼關係。(這一條是 figure.test.ts 抓到的。)
+   */
+  g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array((pos.length / 3) * 2), 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
 }
 
 export function bodyGeom(robe: THREE.Color) {
@@ -224,11 +257,11 @@ export function bodyGeom(robe: THREE.Color) {
   for (const side of [-1, 1]) {
     // 外襟(左)壓在內襟上,所以略寬、略往前 —— 壓著的那一片要看得出是壓著
     const outer = side < 0;
-    gs.push(tint(robeStrip({
+    gs.push(tint(robeRibbon({
       x0: side * robeR(yTop) * 0.66, y0: yTop,
-      x1: side * FIG_HR * 0.045, y1: yCross,
-      w: FIG_HR * (outer ? 0.15 : 0.13),
-      d: FIG_HR * (outer ? 0.075 : 0.055),
+      x1: side * FIG_HR * 0.05, y1: yCross,
+      w: FIG_HR * (outer ? 0.17 : 0.145),
+      lift: FIG_HR * (outer ? 0.030 : 0.012),
     }), edge));
   }
   // 領緣 —— 繞脖子一圈的那道深邊,把兩片衣襟收在一起
@@ -255,8 +288,13 @@ export function bodyGeom(robe: THREE.Color) {
     // 袖緣 —— 廣袖的口上一道深邊,手才不像從管子裡伸出來
     gs.push(tint(at(new THREE.TorusGeometry(FIG_HR * 0.47, FIG_HR * 0.05, 5, 10)
       .rotateX(Math.PI / 2), side * FIG_HR * 0.80, FIG_BODY_H * 0.34 + FIG_HR * 0.03, 0), edge));
-    gs.push(tint(at(new THREE.SphereGeometry(FIG_HR * 0.15, 7, 5),
-      side * FIG_HR * 0.92, FIG_BODY_H * 0.32, -FIG_HR * 0.12), SKIN));
+    /*
+     * 手要<b>露在袖口外面</b>。廣袖加了淺色的緣以後,原本那顆手球剛好被緣圈
+     * 罩住 —— 畫面上兩隻袖子是兩根切平的管子,一雙手憑空不見了。
+     * 往下、往前挪出袖口,並且大一號。
+     */
+    gs.push(tint(at(new THREE.SphereGeometry(FIG_HR * 0.17, 7, 6),
+      side * FIG_HR * 0.90, FIG_BODY_H * 0.26, -FIG_HR * 0.16, 1, 0.9, 1.05), SKIN));
   }
   gs.push(tint(at(new THREE.CylinderGeometry(FIG_HR * 0.32, FIG_HR * 0.32, FIG_HR * 0.40, 8),
     0, FIG_BODY_H * 0.99, 0), SKIN));
@@ -344,7 +382,7 @@ export function headGeom(style: HeadStyle = {}) {
    * 現在的規矩:先算這一件的半深,再讓它<b>只凸出 proud 那麼多</b>,
    * 其餘埋進臉裡。凸多少是一個看得懂的數字,而不是兩個座標湊出來的結果。
    */
-  const EYE_R = R * 0.25;
+  const EYE_R = R * 0.225;
   const EYE_FLAT = 0.16;                       // 眼球壓扁到只剩這麼厚
   const eyeHalf = EYE_R * EYE_FLAT;
   for (const side of [-1, 1]) {
@@ -358,7 +396,7 @@ export function headGeom(style: HeadStyle = {}) {
     // 眉 —— 外高內低斜著一撇。<b>切成三小段</b>,一段一段貼上去
     gs.push(tint(faceStrip({
       x: ex + side * R * 0.02, y: cy + R * (oldHair ? 0.25 : 0.22), py: 0.22,
-      w: R * (oldHair ? 0.38 : 0.32), h: R * 0.062, d: R * 0.045,
+      w: R * (oldHair ? 0.36 : 0.30), h: R * 0.052, d: R * 0.042,
       tilt: side * -0.22, R,
     }), oldHair ? new THREE.Color('#8e867c') : BROW));
     /*
@@ -377,9 +415,19 @@ export function headGeom(style: HeadStyle = {}) {
    * 第一版是薄板,而且埋進了臉裡:正面看是一條深色的直槓,像用筆畫上去的。
    * 鼻子是整張臉上<b>唯一凸出來</b>的東西,它一平,臉就是一張紙。
    */
-  const noseTip = R * 0.085;                    // 鼻尖凸出臉皮多少
-  gs.push(tint(at(rot(new THREE.ConeGeometry(R * 0.085, R * 0.30, 3), Math.PI * 0.42, 0, 0),
-    0, cy - R * 0.14, faceZ(-0.14, noseTip - R * 0.13)), SKIN));
+  /*
+   * 轉的<b>方向</b>要對:繞 X 轉 +θ 是把 +Y 扳向 +Z(往腦後),不是往前。
+   * 第一版寫成 +0.42π,整個錐體戳進了顱骨裡,露在臉外的是它的底 ——
+   * 正面看只剩一小片淡色的三角,還以為是「鼻子太小」。
+   * -0.56π 才是尖端朝前、略朝下,也就是一個鼻子該有的樣子。
+   *
+   * 一整塊膚色就夠 —— 三稜錐自己的三個面朝向不同,光一打上去
+   * 明暗自然分開。第一版還在鼻子兩側加了「鼻翼」的小球,結果那兩顆球
+   * 迎光比臉還亮,正面看是一個<b>豬鼻子</b>。這副臉的立體感要靠形狀給,
+   * 不能靠往上貼深色的小零件。
+   */
+  gs.push(tint(at(rot(new THREE.ConeGeometry(R * 0.115, R * 0.38, 3), -Math.PI * 0.56, 0, 0),
+    0, cy - R * 0.12, faceZ(-0.12, -R * 0.045)), SKIN));
   // 口 —— 一道短橫,細而不豔。不畫笑也不畫哭,留白比表情耐看
   gs.push(tint(faceStrip({
     x: 0, y: cy - R * 0.46, py: -0.46,
