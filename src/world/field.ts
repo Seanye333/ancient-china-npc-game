@@ -412,3 +412,26 @@ export function slideMove(
   if (walkable(x, nz)) return { x, z: nz };      // 只走 z
   return { x, z };
 }
+
+/**
+ * 把一個落腳點挪到最近的乾地上。
+ *
+ * 這條函式出現過兩次才被抽出來:第一次是碼頭工人站在河裡幹活,
+ * 第二次是病家門口那根挑白布的竿子插在水面上 —— 而<b>兩次的根因是同一個</b>:
+ * 房子與碼頭的位置本身都避開了水,可是「門前一步」「攤位偏移」
+ * 是往外算的,算著算著就算到河裡去了。
+ *
+ * 容差放在水面<b>之上</b>一截:剛好貼著水面的地,腳踝還是泡著的。
+ */
+export function dryLandNear(x: number, z: number): [number, number] {
+  const lvl = WATER_Y + water.offset + 0.08;
+  if (terrainHeight(x, z) >= lvl) return [x, z];
+  for (let r = 0.8; r <= 4.1; r += 0.8) {
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2 + r;
+      const tx = x + Math.sin(a) * r, tz = z + Math.cos(a) * r;
+      if (terrainHeight(tx, tz) >= lvl) return [tx, tz];
+    }
+  }
+  return [x, z];
+}

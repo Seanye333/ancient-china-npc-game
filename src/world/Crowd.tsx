@@ -1,7 +1,7 @@
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { groundAt, rng, slideMove, terrainHeight, WATER_Y, water } from './field';
+import { groundAt, rng, slideMove, dryLandNear } from './field';
 import { bodyGeom, headGeom, FIG_BODY_H } from './figure';
 import { houseSites, fieldSites, meanderAt, DOCKS, BRIDGE, MARKET } from './sites';
 import { useClock } from './worldTime';
@@ -53,19 +53,6 @@ interface Agent {
  * 抽進淺灘裡,人就整天泡在河裡,截圖裡一排人腰深站水中。
  * 落了水就繞圈找最近的乾地;找不到就原樣退回(總比亂跳好)。
  */
-function dryLand(x: number, z: number): [number, number] {
-  // 要高出水面一截才算乾 —— 容差放在水下,腳踝還是泡著的
-  const lvl = WATER_Y + water.offset + 0.08;
-  if (terrainHeight(x, z) >= lvl) return [x, z];
-  for (let r = 0.8; r <= 4.1; r += 0.8) {
-    for (let k = 0; k < 8; k++) {
-      const a = (k / 8) * Math.PI * 2 + r;
-      const tx = x + Math.sin(a) * r, tz = z + Math.cos(a) * r;
-      if (terrainHeight(tx, tz) >= lvl) return [tx, tz];
-    }
-  }
-  return [x, z];
-}
 
 /** 作息表 — 世界的節奏感全在這裡。 */
 function scheduleFor(hour: number): State {
@@ -117,7 +104,7 @@ export function Crowd() {
                      return [f.x + (rand() - 0.5) * 3, f.z + (rand() - 0.5) * 3]; })()
           : job === 'dock'
             ? (() => { const d = DOCKS[Math.floor(rand() * DOCKS.length)];
-                       return dryLand(d[0] + (rand() - 0.5) * 3, d[1] + (rand() - 0.5) * 3); })()
+                       return dryLandNear(d[0] + (rand() - 0.5) * 3, d[1] + (rand() - 0.5) * 3); })()
             : [MARKET[0] + (rand() - 0.5) * 6, MARKET[1] + (rand() - 0.5) * 6];
       // 衣裳跟著行當走:農褐、埠青、市綠;上了年紀一律灰袍白髮。
       // 遠遠一看衣色就知道他是幹什麼的 —— 這就是「行當穿在身上」
@@ -215,7 +202,7 @@ export function Crowd() {
           // 到了就在原地小範圍挪動 — 幹活的樣子
           if (a.timer > 3.5) {
             a.timer = 0;
-            a.target = dryLand(
+            a.target = dryLandNear(
               a.target[0] + (Math.sin(t * 1.7 + a.phase) * 2.4),
               a.target[1] + (Math.cos(t * 1.3 + a.phase) * 2.4),
             );
