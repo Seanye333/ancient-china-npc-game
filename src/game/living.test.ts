@@ -4,6 +4,7 @@ import { grainCost, grainSale, jobsToday, mouths, DAYS_PER_SHI, restQuality } fr
 import { settleDay, grainDays } from './daily';
 import { useHero } from './hero';
 import { useVillage } from './village';
+import { useCalamity } from './calamity';
 import { useJournal } from './journal';
 import type { VillageState } from './village';
 
@@ -154,8 +155,14 @@ describe('過一天要結的帳', () => {
      * settleDay 每天擲一次天災(旱澇蝗疫),而天災是<b>按天</b>扣收成的 ——
      * 一旬之內湊巧來一場,「旬內不動」就不成立,測試三跑一炸。
      * 炸的時候看起來像是「按旬推」壞了,其實是另一條規則插進來。
-     * 0.99 讓每一發都不中,量的才是旬與天的差別本身。
+     * 0.99 讓每一發都不中。
+     *
+     * 但按住骰子<b>還不夠</b>:前面幾條測試也在跑 settleDay,可能已經<b>擲中過</b>
+     * 一場災,而它還在燒 —— 按住的是「新災」,不是「正在燒的災」。
+     * 所以先把場上的災清掉。(整套一起跑時三十次炸一次,單跑這個檔二十次都不炸,
+     * 就是這個形狀:錯不在自己這條,在前面留下來的東西。)
      */
+    useCalamity.getState().clear();
     const dice = vi.spyOn(Math, 'random').mockReturnValue(0.99);
     const before = useVillage.getState().harvest;
     // 一旬之內不動

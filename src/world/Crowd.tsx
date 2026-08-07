@@ -3,7 +3,8 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { groundAt, rng, slideMove, dryLandNear } from './field';
 import {
-  bodyGeom, headGeom, legGeom, legSwing, poseLeg, FIG_BODY_H, FIG_LEG_H,
+  bodyGeom, headGeom, legGeom, legSwing, poseLeg, armGeom, armSwing, poseArm,
+  FIG_BODY_H, FIG_LEG_H, FIG_SHOULDER_Y,
 } from './figure';
 import { houseSites, fieldSites, meanderAt, DOCKS, BRIDGE, MARKET } from './sites';
 import { useClock } from './worldTime';
@@ -163,6 +164,7 @@ export function Crowd() {
       body: bodyGeom(new THREE.Color(v.robe)),
       head: headGeom(v.head),
       leg: legGeom(),
+      arm: armGeom(new THREE.Color(v.robe)),
       idx: agents.map((a, k) => (a.variant === i ? k : -1)).filter((k) => k >= 0),
     })),
     [agents],
@@ -183,12 +185,15 @@ export function Crowd() {
   const headRefs = useRef<Array<THREE.InstancedMesh | null>>([]);
   /** 左右腿各一批 —— 一條腿一個 InstancedMesh,兩邊要各邁各的。 */
   const legRefs = useRef<Array<Array<THREE.InstancedMesh | null>>>([[], []]);
+  /** 左右手臂各一批。 */
+  const armRefs = useRef<Array<Array<THREE.InstancedMesh | null>>>([[], []]);
 
   useLayoutEffect(() => {
     // 矩陣每幀都在動,而包圍球是初始化時算的 —— 不關掉會被整批剔除
     bodyRefs.current.forEach((m) => m && (m.frustumCulled = false));
     headRefs.current.forEach((m) => m && (m.frustumCulled = false));
     legRefs.current.forEach((row) => row.forEach((m) => m && (m.frustumCulled = false)));
+    armRefs.current.forEach((row) => row.forEach((m) => m && (m.frustumCulled = false)));
   }, []);
 
   const tmp = useMemo(() => ({
@@ -282,7 +287,8 @@ export function Crowd() {
       const bm = bodyRefs.current[vi];
       const hm = headRefs.current[vi];
       const lm = [legRefs.current[0][vi], legRefs.current[1][vi]];
-      if (!bm || !hm || !lm[0] || !lm[1]) return;
+      const am = [armRefs.current[0][vi], armRefs.current[1][vi]];
+      if (!bm || !hm || !lm[0] || !lm[1] || !am[0] || !am[1]) return;
       v.idx.forEach((ai, slot) => {
         const a = agents[ai];
         if (!a.visible || followers.includes(a.npcId) || absent.has(a.npcId)) {  // 進了屋、病了、歿了就縮到零
@@ -291,6 +297,8 @@ export function Crowd() {
           hm.setMatrixAt(slot, tmp.m);
           lm[0]!.setMatrixAt(slot, tmp.m);
           lm[1]!.setMatrixAt(slot, tmp.m);
+          am[0]!.setMatrixAt(slot, tmp.m);
+          am[1]!.setMatrixAt(slot, tmp.m);
           return;
         }
         const moving = a.state === 'goWork' || a.state === 'goMarket' || a.state === 'goHome';
@@ -330,12 +338,18 @@ export function Crowd() {
             legSwing(step, side, moving), sc);
           tmp.leg.updateMatrix();
           lm[side < 0 ? 0 : 1]!.setMatrixAt(slot, tmp.leg.matrix);
+          poseArm(tmp.leg, side, a.x, a.y + bob + FIG_SHOULDER_Y * sc, a.z, a.yaw,
+            armSwing(step, side, moving), sc);
+          tmp.leg.updateMatrix();
+          am[side < 0 ? 0 : 1]!.setMatrixAt(slot, tmp.leg.matrix);
         }
       });
       bm.instanceMatrix.needsUpdate = true;
       hm.instanceMatrix.needsUpdate = true;
       lm[0]!.instanceMatrix.needsUpdate = true;
       lm[1]!.instanceMatrix.needsUpdate = true;
+      am[0]!.instanceMatrix.needsUpdate = true;
+      am[1]!.instanceMatrix.needsUpdate = true;
     });
   });
 
@@ -365,6 +379,16 @@ export function Crowd() {
               castShadow
             >
               <meshStandardMaterial vertexColors roughness={0.8} />
+            </instancedMesh>
+          ))}
+          {[0, 1].map((side) => (
+            <instancedMesh
+              key={`a${side}`}
+              ref={(m) => { armRefs.current[side][i] = m; }}
+              args={[v.arm, undefined, Math.max(1, v.idx.length)]}
+              castShadow
+            >
+              <meshStandardMaterial vertexColors roughness={0.74} />
             </instancedMesh>
           ))}
         </group>

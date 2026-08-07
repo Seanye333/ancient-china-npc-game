@@ -51,6 +51,23 @@ export const FIG_LEG_H = FIG_BODY_H * 0.28;
 /** 兩腿中心到身體中軸的距離。 */
 export const FIG_HIP = FIG_HR * 0.30;
 
+/**
+ * 肩與手。
+ *
+ * 袖子從身上拆出來,和腿同一個道理:走路的時候手臂不動,人就只是
+ * 下半身在動的一個雕像。拆出來以後,擺一條手臂就是繞肩轉一下 X 軸。
+ *
+ * <b>手的位置匯出成常數</b> —— 兵器掛在手上,而掛點從前是各處各抄一份
+ * (0.92r, 0.32h, -0.12r)。上一批把手往下挪了 0.06h 去袖口外面,
+ * 那幾份抄件沒跟著動,刀就懸在手腕上方半掌高。一個出口,才不會再漂。
+ */
+export const FIG_SHOULDER_Y = FIG_BODY_H * 0.88;
+export const FIG_SHOULDER_X = FIG_HR * 0.80;
+const ARM_L = FIG_BODY_H * 0.54;
+/** 手心相對於<b>肩</b>的位置(x 是往外的方向,乘 side)。 */
+export const FIG_HAND: [number, number, number] =
+  [FIG_HR * 0.10, -ARM_L - FIG_BODY_H * 0.08, -FIG_HR * 0.16];
+
 function lathe(profile: Array<[number, number]>, r: number, h: number, seg = 14) {
   return new THREE.LatheGeometry(
     profile.map(([pr, ph]) => new THREE.Vector2(Math.max(1e-4, pr * r), ph * h)), seg,
@@ -229,6 +246,51 @@ function robeRibbon(o: {
   return g;
 }
 
+/**
+ * 衣緣的顏色。素色的麻緣,只染上一點袍子的味道 ——
+ * 袖口和衣襟共用它,所以抽出來:兩處各配一次,遲早調得不一樣。
+ */
+function collarColor(robe: THREE.Color): THREE.Color {
+  return new THREE.Color('#ddd2ba').lerp(robe, 0.16);
+}
+
+/**
+ * 一條手臂 —— 原點在<b>肩</b>,往下垂。
+ * 廣袖、袖緣、露在袖口外的手,一份幾何全帶著。
+ */
+export function armGeom(robe: THREE.Color): THREE.BufferGeometry {
+  const gs: THREE.BufferGeometry[] = [];
+  const edge = collarColor(robe);
+  gs.push(tint(at(lathe(SLEEVE_P, FIG_HR, ARM_L, 8), 0, -ARM_L, 0), robe));
+  // 袖緣 —— 廣袖的口上一道邊,手才不像從管子裡伸出來
+  gs.push(tint(at(new THREE.TorusGeometry(FIG_HR * 0.47, FIG_HR * 0.05, 5, 10)
+    .rotateX(Math.PI / 2), 0, -ARM_L + FIG_HR * 0.03, 0), edge));
+  // 手擺在中軸上(不左右偏):一份幾何兩邊共用,偏了就得鏡像,
+  // 而負縮放會把三角形的繞序翻過來,整條手臂的光就錯了
+  gs.push(tint(at(new THREE.SphereGeometry(FIG_HR * 0.17, 7, 6),
+    0, FIG_HAND[1], FIG_HAND[2], 1, 0.9, 1.05), SKIN));
+  return mergeGeometries(gs, false)!;
+}
+
+/** 手臂擺動 —— 和<b>同側的腿反相</b>,幅度小一半。同相走起來像殭屍。 */
+export function armSwing(step: number, side: number, moving: boolean): number {
+  // 站住的時候要回<b>正的</b>零。`-0 * 0.55` 是 -0,而 Object.is(-0, 0) 是 false ——
+  // 畫面上分不出來,測試會炸,而且炸得莫名其妙
+  return moving ? -legSwing(step, side, true) * 0.55 : 0;
+}
+
+/** 把一條手臂擺到位。和 poseLeg 同一套規矩('YXZ':先轉身,再繞自己的 X 擺)。 */
+export function poseArm(
+  o: THREE.Object3D, side: 1 | -1,
+  x: number, shoulderY: number, z: number, yaw: number, swing: number, scale = 1,
+) {
+  const d = FIG_SHOULDER_X * scale * side;
+  o.position.set(x + Math.cos(yaw) * d, shoulderY, z - Math.sin(yaw) * d);
+  o.rotation.order = 'YXZ';
+  o.rotation.set(swing, yaw, 0);
+  o.scale.setScalar(scale);
+}
+
 export function bodyGeom(robe: THREE.Color) {
   const gs: THREE.BufferGeometry[] = [];
   /*
@@ -240,7 +302,7 @@ export function bodyGeom(robe: THREE.Color) {
    * 漢代的深衣本來就是拿另一色的布鑲緣;素色的麻緣配什麼袍子都成立,
    * 而且是<b>離多遠都讀得出來</b>的一筆。
    */
-  const edge = new THREE.Color('#ddd2ba').lerp(robe, 0.16);
+  const edge = collarColor(robe);
 
   // 下擺從胯起算 —— 側影不變,只是短了一截,底下那一截交給腿
   gs.push(tint(at(lathe(BODY_P, FIG_HR * 1.02, ROBE_SPAN, 14), 0, FIG_LEG_H, 0), robe));
@@ -282,20 +344,7 @@ export function bodyGeom(robe: THREE.Color) {
       side * FIG_HR * 0.10, yWaist - FIG_HR * 0.24, -robeR(yWaist) * 0.95), TRIM));
   }
 
-  for (const side of [-1, 1]) {
-    gs.push(tint(at(lathe(SLEEVE_P, FIG_HR, FIG_BODY_H * 0.54, 8),
-      side * FIG_HR * 0.80, FIG_BODY_H * 0.34, 0), robe));
-    // 袖緣 —— 廣袖的口上一道深邊,手才不像從管子裡伸出來
-    gs.push(tint(at(new THREE.TorusGeometry(FIG_HR * 0.47, FIG_HR * 0.05, 5, 10)
-      .rotateX(Math.PI / 2), side * FIG_HR * 0.80, FIG_BODY_H * 0.34 + FIG_HR * 0.03, 0), edge));
-    /*
-     * 手要<b>露在袖口外面</b>。廣袖加了淺色的緣以後,原本那顆手球剛好被緣圈
-     * 罩住 —— 畫面上兩隻袖子是兩根切平的管子,一雙手憑空不見了。
-     * 往下、往前挪出袖口,並且大一號。
-     */
-    gs.push(tint(at(new THREE.SphereGeometry(FIG_HR * 0.17, 7, 6),
-      side * FIG_HR * 0.90, FIG_BODY_H * 0.26, -FIG_HR * 0.16, 1, 0.9, 1.05), SKIN));
-  }
+  // 袖子不在這裡 —— 見 armGeom:會擺動的東西不能烘進身子
   gs.push(tint(at(new THREE.CylinderGeometry(FIG_HR * 0.32, FIG_HR * 0.32, FIG_HR * 0.40, 8),
     0, FIG_BODY_H * 0.99, 0), SKIN));
   return mergeGeometries(gs, false)!;

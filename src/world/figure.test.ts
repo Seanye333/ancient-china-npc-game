@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import {
-  bodyGeom, headGeom, legGeom, radiusAt, legSwing,
+  bodyGeom, headGeom, legGeom, armGeom, radiusAt, legSwing, armSwing,
   HEAD_P, BODY_P, FACE_SQUASH, LIP, BROW, TRIM,
   FIG_H, FIG_HR, FIG_BODY_H, FIG_LEG_H,
 } from './figure';
@@ -117,5 +117,26 @@ describe('邁步', () => {
     const l = legSwing(1.2, -1, true), r = legSwing(1.2, 1, true);
     expect(Math.sign(l)).toBe(-Math.sign(r));
     expect(Math.abs(l)).toBeCloseTo(Math.abs(r), 6);
+  });
+
+  it('手和<b>同側的腿</b>反相,幅度小一半 —— 同相走起來像殭屍', () => {
+    for (const side of [-1, 1] as const) {
+      for (const step of [0.3, 1.7, 4.2]) {
+        const leg = legSwing(step, side, true);
+        const arm = armSwing(step, side, true);
+        expect(Math.sign(arm), `side=${side} step=${step}`).toBe(-Math.sign(leg));
+        expect(Math.abs(arm)).toBeLessThan(Math.abs(leg));
+      }
+      expect(armSwing(1.2, side, false)).toBe(0);
+    }
+  });
+
+  it('手臂掛在肩上、垂到胯附近 —— 原點在肩,所以整條都在 y<0', () => {
+    const arm = armGeom(new THREE.Color('#3f5568'));
+    arm.computeBoundingBox();
+    const bb = arm.boundingBox!;
+    expect(bb.max.y).toBeLessThan(FIG_HR * 0.4);
+    expect(bb.min.y).toBeGreaterThan(-FIG_BODY_H * 0.75);
+    expect(bb.min.y).toBeLessThan(-FIG_BODY_H * 0.45);
   });
 });

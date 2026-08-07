@@ -1,5 +1,7 @@
 import * as THREE from 'three';
-import { legGeom, FIG_HIP, FIG_LEG_H } from './figure';
+import {
+  legGeom, armGeom, FIG_HIP, FIG_LEG_H, FIG_SHOULDER_X, FIG_SHOULDER_Y,
+} from './figure';
 
 /**
  * 站著的一雙腿。
@@ -23,6 +25,35 @@ export function StandingLegs({ roughness = 0.8 }: { roughness?: number }) {
     <>
       {[-1, 1].map((s) => (
         <mesh key={s} geometry={geo} position={[FIG_HIP * s, FIG_LEG_H, 0]} castShadow>
+          <meshStandardMaterial vertexColors roughness={roughness} />
+        </mesh>
+      ))}
+    </>
+  );
+}
+
+/**
+ * 垂著的一雙手臂 —— 站樁的人用。
+ *
+ * 和 StandingLegs 同一個道理:縣城裡站著的、流民、賊窩門口的哨都不邁步,
+ * 手臂只要掛在肩上。會走的(玩家、村民、隨行)走 poseArm 每幀擺。
+ *
+ * 幾何按袍色分別快取 —— 袖子是袍子的一部分,顏色不能共用一份。
+ */
+const arms = new Map<string, THREE.BufferGeometry>();
+export function sharedArmGeom(robe: string): THREE.BufferGeometry {
+  let g = arms.get(robe);
+  if (!g) { g = armGeom(new THREE.Color(robe)); arms.set(robe, g); }
+  return g;
+}
+
+export function StandingArms({ robe, roughness = 0.74 }: { robe: string; roughness?: number }) {
+  const geo = sharedArmGeom(robe);
+  return (
+    <>
+      {[-1, 1].map((s) => (
+        <mesh key={s} geometry={geo} castShadow
+          position={[FIG_SHOULDER_X * s, FIG_SHOULDER_Y, 0]}>
           <meshStandardMaterial vertexColors roughness={roughness} />
         </mesh>
       ))}

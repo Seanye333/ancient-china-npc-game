@@ -3,9 +3,10 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { groundAt, slideMove } from './field';
 import {
-  ROBES, bodyGeom, headGeom, legSwing, poseLeg, FIG_BODY_H, FIG_LEG_H,
+  ROBES, bodyGeom, headGeom, legSwing, poseLeg, armSwing, poseArm,
+  FIG_BODY_H, FIG_LEG_H, FIG_SHOULDER_Y,
 } from './figure';
-import { sharedLegGeom } from './Legs';
+import { sharedLegGeom, sharedArmGeom } from './Legs';
 import { playerPos, companions } from '../game/interact';
 import { useHero } from '../game/hero';
 import { useBattle } from '../game/combat';
@@ -58,6 +59,7 @@ export function Followers() {
   const headRefs = useRef<Array<THREE.Mesh | null>>([]);
   /** 每人兩條腿:legRefs.current[i * 2 + (左0/右1)]。 */
   const legRefs = useRef<Array<THREE.Mesh | null>>([]);
+  const armRefs = useRef<Array<THREE.Mesh | null>>([]);
   const phase = useRef<number[]>([]);
 
   useLayoutEffect(() => {
@@ -106,6 +108,11 @@ export function Followers() {
           poseLeg(leg, side, got.x, y + bob * 0.5 + FIG_LEG_H, got.z, yaw,
             legSwing(step, side, moving));
         }
+        const arm = armRefs.current[i * 2 + (side < 0 ? 0 : 1)];
+        if (arm) {
+          poseArm(arm, side, got.x, y + bob + FIG_SHOULDER_Y, got.z, yaw,
+            armSwing(step, side, moving));
+        }
       }
       companions.push({ id: followers[i], x: got.x, y, z: got.z, visible: true });
     });
@@ -128,6 +135,13 @@ export function Followers() {
               <mesh key={k} ref={(m) => { legRefs.current[i * 2 + k] = m; }}
                 geometry={sharedLegGeom()} castShadow>
                 <meshStandardMaterial vertexColors roughness={0.8} />
+              </mesh>
+            ))}
+            {[0, 1].map((k) => (
+              <mesh key={`a${k}`} ref={(m) => { armRefs.current[i * 2 + k] = m; }}
+                geometry={sharedArmGeom(ROBES[(npc ? npc.name.charCodeAt(0) : i) % ROBES.length])}
+                castShadow>
+                <meshStandardMaterial vertexColors roughness={0.74} />
               </mesh>
             ))}
           </group>

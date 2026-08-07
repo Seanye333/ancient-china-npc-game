@@ -26,6 +26,7 @@ await page.evaluate(() => window.__begin && window.__begin());
 await page.waitForTimeout(1500);
 await page.evaluate(() => { window.__setClock(11.0, 'autumn'); window.__setWeather('clear'); });
 
+const ok = (b, t) => console.log(b ? `  \u2713 ${t}` : `  \u2717 ${t}`);
 const shot = async (n) => {
   await page.bringToFront();
   await page.screenshot({ path: `${OUT}/${n}.png`, timeout: 60000 });
@@ -74,6 +75,43 @@ for (const i of [0, 1]) {
 }
 await page.keyboard.up('KeyA');
 await page.keyboard.up('ShiftLeft');
+
+/*
+ * 四肢真的在擺嗎。
+ *
+ * 這一段不看圖 —— 走路時手腳的角度用眼睛在截圖上判不出來,而接線壞掉
+ * (ref 沒接上、相位算錯)在畫面上只是「人有點僵」,沒人說得清哪裡不對。
+ * 直接把場上每一條四肢的 rotation.x 讀出來:'YXZ' 這個轉序是四肢專用的記號。
+ */
+console.log('── 四肢');
+await page.evaluate(() => {
+  window.__limbs = () => {
+    const out = [];
+    window.__scene.traverse((o) => {
+      if (o.isMesh && !o.isInstancedMesh && o.rotation.order === 'YXZ') {
+        out.push(+o.rotation.x.toFixed(3));
+      }
+    });
+    return out;
+  };
+});
+// 先站定 —— 四肢是「動起來才不為零」的東西,量之前得先真的停下來
+await page.waitForTimeout(700);
+const still = await page.evaluate(() => window.__limbs());
+await page.keyboard.down('KeyA');
+let swung = [];
+for (let i = 0; i < 8; i++) {
+  await page.waitForTimeout(120);
+  const now = await page.evaluate(() => window.__limbs());
+  if (now.some((v) => Math.abs(v) > 0.15)) swung = now;
+}
+await page.keyboard.up('KeyA');
+await page.waitForTimeout(600);
+const rest = await page.evaluate(() => window.__limbs());
+console.log(`  站著 ${JSON.stringify(still)} · 走著 ${JSON.stringify(swung)}`);
+ok(still.length >= 4 && still.every((v) => v === 0), '站住的時候四肢歸零(不然人會劈著腿站著)');
+ok(swung.length >= 4, '走起來四肢真的在擺');
+ok(rest.every((v) => v === 0), '停下來又收回去');
 
 console.log('── 隨行的兩個');
 await page.evaluate(() => {

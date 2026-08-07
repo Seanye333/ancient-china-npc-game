@@ -3,7 +3,10 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { groundAt, slideMove } from './field';
-import { bodyGeom, headGeom, FIG_BODY_H, FIG_HR, FIG_HIP, FIG_LEG_H } from './figure';
+import {
+  bodyGeom, headGeom, armGeom, FIG_BODY_H, FIG_HIP, FIG_LEG_H,
+  FIG_SHOULDER_X, FIG_SHOULDER_Y, FIG_HAND,
+} from './figure';
 import { sharedLegGeom } from './Legs';
 import { playerPos } from '../game/interact';
 import { useHero, woundPenalty } from '../game/hero';
@@ -113,9 +116,13 @@ export function Battle() {
   );
 
   const geoms = useMemo(() => ({
-    foe: { body: bodyGeom(new THREE.Color(FOE_ROBE)), head: headGeom({ cloth: true }) },
-    chief: { body: bodyGeom(new THREE.Color(FOE_CHIEF_ROBE)), head: headGeom({ hat: true, beard: true }) },
-    mate: { body: bodyGeom(new THREE.Color('#6b5741')), head: headGeom() },
+    foe: { body: bodyGeom(new THREE.Color(FOE_ROBE)), head: headGeom({ cloth: true }),
+           arm: armGeom(new THREE.Color(FOE_ROBE)) },
+    chief: { body: bodyGeom(new THREE.Color(FOE_CHIEF_ROBE)),
+             head: headGeom({ hat: true, beard: true }),
+             arm: armGeom(new THREE.Color(FOE_CHIEF_ROBE)) },
+    mate: { body: bodyGeom(new THREE.Color('#6b5741')), head: headGeom(),
+            arm: armGeom(new THREE.Color('#6b5741')) },
   }), []);
 
   // 刀 = 柄 + 護手 + 身。三塊而已,但少了護手就只是一根白棍子
@@ -415,10 +422,19 @@ export function Battle() {
                 <meshStandardMaterial vertexColors roughness={0.8} />
               </mesh>
             ))}
-            {/* 掛在手上 —— 手的位置在 figure.ts 裡是 (0.92r, 0.32h, -0.12r),
-                先前刀擺在 0.44h,離手約一掌高,近看就看得出來 */}
+            {/* 陣上的手臂不擺 —— 刀就掛在手上,手一擺刀會飛出去。
+                揮砍那一下的動作是刀自己在演(見 poseInto) */}
+            {[-1, 1].map((side, k) => (
+              <mesh key={`a${k}`} geometry={g.arm} castShadow
+                position={[FIG_SHOULDER_X * side, FIG_SHOULDER_Y, 0]}>
+                <meshStandardMaterial vertexColors roughness={0.74} />
+              </mesh>
+            ))}
+            {/* 掛在手上。座標一律從 FIG_HAND 來(相對於肩)——
+                各處各抄一份的下場是:手一挪動,刀就懸在手腕上方半掌高 */}
             <group ref={(o) => { blades.current[f.id] = o; }}
-                   position={[FIG_HR * 0.92, FIG_BODY_H * 0.32, -FIG_HR * 0.12]}>
+                   position={[FIG_SHOULDER_X + FIG_HAND[0],
+                              FIG_SHOULDER_Y + FIG_HAND[1], FIG_HAND[2]]}>
               {f.bow ? (
                 <mesh geometry={bowGeom} castShadow>
                   <meshStandardMaterial color="#6e4f2e" roughness={0.8} />

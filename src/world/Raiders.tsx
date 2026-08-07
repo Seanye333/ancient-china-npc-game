@@ -4,8 +4,10 @@ import * as THREE from 'three';
 import { groundAt, slideMove } from './field';
 import { MARKET } from './sites';
 import { playerPos } from '../game/interact';
-import { bodyGeom, headGeom, FIG_BODY_H, FIG_HR } from './figure';
-import { StandingLegs } from './Legs';
+import {
+  bodyGeom, headGeom, FIG_BODY_H, FIG_SHOULDER_X, FIG_SHOULDER_Y, FIG_HAND,
+} from './figure';
+import { StandingLegs, StandingArms } from './Legs';
 import { raidParties, useRaids } from '../game/raids';
 import { useBands } from '../game/bands';
 import { useVillage } from '../game/village';
@@ -158,8 +160,10 @@ export function Raiders() {
                   <meshStandardMaterial vertexColors roughness={0.62} />
                 </mesh>
                 <StandingLegs />
+                <StandingArms robe="#4a3f42" />
                 <mesh geometry={bladeGeom} castShadow
-                  position={[FIG_HR * 0.95, FIG_BODY_H * 0.44, 0]}
+                  position={[FIG_SHOULDER_X + FIG_HAND[0],
+                             FIG_SHOULDER_Y + FIG_HAND[1], FIG_HAND[2]]}
                   rotation={[-1.1, 0, 0.25]}>
                   <meshStandardMaterial color="#7d7a72" roughness={0.42} metalness={0.55} />
                 </mesh>

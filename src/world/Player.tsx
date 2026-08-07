@@ -3,7 +3,8 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { terrainHeight, groundAt, slideMove, steerMove, viewBlocked, walkable } from './field';
 import {
-  bodyGeom, headGeom, legGeom, legSwing, poseLeg, FIG_BODY_H, FIG_HR, FIG_LEG_H,
+  bodyGeom, headGeom, legGeom, legSwing, poseLeg, armGeom, armSwing, poseArm,
+  FIG_BODY_H, FIG_LEG_H, FIG_SHOULDER_X, FIG_SHOULDER_Y, FIG_HAND,
 } from './figure';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { setSightTarget } from './Vegetation';
@@ -52,6 +53,7 @@ export function Player() {
     body: bodyGeom(new THREE.Color('#3f5568')),
     head: headGeom(),
     leg: legGeom(),
+    arm: armGeom(new THREE.Color('#3f5568')),
   }), []);
 
   /**
@@ -95,6 +97,7 @@ export function Player() {
   const bodyRef = useRef<THREE.Mesh>(null);
   const headRef = useRef<THREE.Mesh>(null);
   const legRefs = useRef<Array<THREE.Mesh | null>>([]);
+  const armRefs = useRef<Array<THREE.Mesh | null>>([]);
   /** 看美術用:凍住鏡頭解算,好把機位擺到臉前面。 */
   const camFrozen = useRef(false);
   useEffect(() => {
@@ -337,15 +340,23 @@ export function Player() {
       if (!leg) continue;
       poseLeg(leg, side, m.x, m.y + bob * 0.5 + FIG_LEG_H, m.z, m.yaw,
         legSwing(m.step, side, moving));
+      const arm = armRefs.current[side < 0 ? 0 : 1];
+      // 打起來的時候手臂定住 —— 刀掛在手上,手一擺刀就飛了
+      if (arm) {
+        poseArm(arm, side, m.x, m.y + bob + FIG_SHOULDER_Y, m.z, m.yaw,
+          armSwing(m.step, side, moving && fighters.length === 0));
+      }
     }
     if (weaponRef.current) {
       const fighting = fighters.length > 0;
       weaponRef.current.visible = fighting;
       if (fighting) {
-        // 掛在右手上,跟著身子轉
-        const hx = m.x + Math.cos(m.yaw) * FIG_HR * 0.92 - Math.sin(m.yaw) * (-FIG_HR * 0.12);
-        const hz = m.z - Math.sin(m.yaw) * FIG_HR * 0.92 - Math.cos(m.yaw) * (-FIG_HR * 0.12);
-        weaponRef.current.position.set(hx, m.y + bob + FIG_BODY_H * 0.32, hz);
+        // 掛在右手上,跟著身子轉。座標從 FIG_HAND 來(相對於肩)——
+        // 從前這裡是各抄一份,手一挪動刀就懸在半空
+        const hx0 = FIG_SHOULDER_X + FIG_HAND[0], hz0 = FIG_HAND[2];
+        const hx = m.x + Math.cos(m.yaw) * hx0 - Math.sin(m.yaw) * hz0;
+        const hz = m.z - Math.sin(m.yaw) * hx0 - Math.cos(m.yaw) * hz0;
+        weaponRef.current.position.set(hx, m.y + bob + FIG_SHOULDER_Y + FIG_HAND[1], hz);
         weaponRef.current.rotation.set(-0.85, m.yaw, 0.2);
       }
     }
@@ -519,6 +530,11 @@ export function Player() {
       {[0, 1].map((i) => (
         <mesh key={i} ref={(o) => { legRefs.current[i] = o; }} geometry={geom.leg} castShadow>
           <meshStandardMaterial vertexColors roughness={0.8} />
+        </mesh>
+      ))}
+      {[0, 1].map((i) => (
+        <mesh key={`a${i}`} ref={(o) => { armRefs.current[i] = o; }} geometry={geom.arm} castShadow>
+          <meshStandardMaterial vertexColors roughness={0.74} />
         </mesh>
       ))}
       {weaponGeom && (
