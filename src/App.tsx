@@ -269,12 +269,18 @@ function Storm({ ambRef, baseAmbient }: {
 
 /** 截圖腳本用的相機把手。原型階段直接掛 window,正式版不會留。 */
 function CamBridge() {
-  const { camera, controls, gl } = useThree() as unknown as {
+  const { camera, controls, gl, scene } = useThree() as unknown as {
     camera: THREE.PerspectiveCamera;
     gl: THREE.WebGLRenderer;
+    scene: THREE.Scene;
     controls: { target: THREE.Vector3; update: () => void } | null;
   };
   useEffect(() => {
+    /**
+     * 整棵場景 —— 畫面出問題的時候,「是顏色壞了還是光的問題」
+     * 用眼睛分不出來,要能把 instanceColor 撈出來數。
+     */
+    (window as unknown as Record<string, unknown>).__scene = scene;
     (window as unknown as Record<string, unknown>).__setClock = (
       h: number, se: 'spring' | 'summer' | 'autumn' | 'winter',
     ) => {
@@ -405,7 +411,7 @@ function CamBridge() {
       }
       camera.lookAt(...target);
     };
-  }, [camera, controls, gl]);
+  }, [camera, controls, gl, scene]);
   return null;
 }
 
