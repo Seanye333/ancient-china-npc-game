@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { terrainHeight, groundAt, slideMove, steerMove, viewBlocked, walkable } from './field';
-import { bodyGeom, headGeom, FIG_BODY_H, FIG_HR } from './figure';
+import {
+  bodyGeom, headGeom, legGeom, legSwing, poseLeg, FIG_BODY_H, FIG_HR, FIG_LEG_H,
+} from './figure';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { setSightTarget } from './Vegetation';
 import { findPath } from './nav';
@@ -49,6 +51,7 @@ export function Player() {
   const geom = useMemo(() => ({
     body: bodyGeom(new THREE.Color('#3f5568')),
     head: headGeom(false),
+    leg: legGeom(),
   }), []);
 
   /**
@@ -91,6 +94,7 @@ export function Player() {
 
   const bodyRef = useRef<THREE.Mesh>(null);
   const headRef = useRef<THREE.Mesh>(null);
+  const legRefs = useRef<Array<THREE.Mesh | null>>([]);
 
   // 玩家的位置活在 ref 裡,不進 zustand —— 每幀寫 store 會讓整棵樹重繪
   const me = useRef({
@@ -320,6 +324,14 @@ export function Player() {
       headRef.current.position.set(m.x, m.y + bob + FIG_BODY_H * 0.99, m.z);
       headRef.current.rotation.set(0, m.yaw, sway * 0.6);
     }
+    // 腿只吃一半的上下起伏 —— 全吃會把腳抬離地面,不吃則胯上開一條縫。
+    // 一半兩頭都在小腿多留的那 12% 長度裡藏得住,而且讀作膝蓋在卸力
+    for (const side of [-1, 1] as const) {
+      const leg = legRefs.current[side < 0 ? 0 : 1];
+      if (!leg) continue;
+      poseLeg(leg, side, m.x, m.y + bob * 0.5 + FIG_LEG_H, m.z, m.yaw,
+        legSwing(m.step, side, moving));
+    }
     if (weaponRef.current) {
       const fighting = fighters.length > 0;
       weaponRef.current.visible = fighting;
@@ -489,6 +501,11 @@ export function Player() {
       <mesh ref={headRef} geometry={geom.head} castShadow>
         <meshStandardMaterial vertexColors roughness={0.62} />
       </mesh>
+      {[0, 1].map((i) => (
+        <mesh key={i} ref={(o) => { legRefs.current[i] = o; }} geometry={geom.leg} castShadow>
+          <meshStandardMaterial vertexColors roughness={0.8} />
+        </mesh>
+      ))}
       {weaponGeom && (
         <mesh ref={weaponRef} geometry={weaponGeom} visible={false} castShadow>
           <meshStandardMaterial

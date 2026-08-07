@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { groundAt, steerMove } from './field';
 import { bodyGeom, headGeom, FIG_BODY_H, ROBES } from './figure';
+import { StandingLegs } from './Legs';
 import { COUNTY } from './County';
 import { COUNTY_FOLK } from '../game/countyfolk';
 import { cityfolk } from '../game/interact';
@@ -101,6 +102,7 @@ export function CountyFolk() {
           <mesh geometry={geoms[i].head} position={[0, FIG_BODY_H * 0.99, 0]} castShadow>
             <meshStandardMaterial vertexColors roughness={0.62} />
           </mesh>
+          <StandingLegs />
         </group>
       ))}
     </>

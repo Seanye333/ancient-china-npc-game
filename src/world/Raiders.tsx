@@ -5,6 +5,7 @@ import { groundAt, slideMove } from './field';
 import { MARKET } from './sites';
 import { playerPos } from '../game/interact';
 import { bodyGeom, headGeom, FIG_BODY_H, FIG_HR } from './figure';
+import { StandingLegs } from './Legs';
 import { raidParties, useRaids } from '../game/raids';
 import { useBands } from '../game/bands';
 import { useVillage } from '../game/village';
@@ -156,6 +157,7 @@ export function Raiders() {
                 <mesh geometry={geoms.head} position={[0, FIG_BODY_H * 0.99, 0]} castShadow>
                   <meshStandardMaterial vertexColors roughness={0.62} />
                 </mesh>
+                <StandingLegs />
                 <mesh geometry={bladeGeom} castShadow
                   position={[FIG_HR * 0.95, FIG_BODY_H * 0.44, 0]}
                   rotation={[-1.1, 0, 0.25]}>

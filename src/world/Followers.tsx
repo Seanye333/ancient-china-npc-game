@@ -2,7 +2,10 @@ import { useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { groundAt, slideMove } from './field';
-import { ROBES, bodyGeom, headGeom, FIG_BODY_H } from './figure';
+import {
+  ROBES, bodyGeom, headGeom, legSwing, poseLeg, FIG_BODY_H, FIG_LEG_H,
+} from './figure';
+import { sharedLegGeom } from './Legs';
 import { playerPos, companions } from '../game/interact';
 import { useHero } from '../game/hero';
 import { useBattle } from '../game/combat';
@@ -53,6 +56,8 @@ export function Followers() {
 
   const bodyRefs = useRef<Array<THREE.Mesh | null>>([]);
   const headRefs = useRef<Array<THREE.Mesh | null>>([]);
+  /** 每人兩條腿:legRefs.current[i * 2 + (左0/右1)]。 */
+  const legRefs = useRef<Array<THREE.Mesh | null>>([]);
   const phase = useRef<number[]>([]);
 
   useLayoutEffect(() => {
@@ -95,6 +100,13 @@ export function Followers() {
       body.rotation.set(0, yaw, moving ? Math.sin(step * 0.5) * 0.05 : 0);
       head.position.set(got.x, y + bob + FIG_BODY_H * 0.99, got.z);
       head.rotation.set(0, yaw + Math.sin(t * 0.6 + i * 2.1) * 0.2, 0);
+      for (const side of [-1, 1] as const) {
+        const leg = legRefs.current[i * 2 + (side < 0 ? 0 : 1)];
+        if (leg) {
+          poseLeg(leg, side, got.x, y + bob * 0.5 + FIG_LEG_H, got.z, yaw,
+            legSwing(step, side, moving));
+        }
+      }
       companions.push({ id: followers[i], x: got.x, y, z: got.z, visible: true });
     });
   });
@@ -112,6 +124,12 @@ export function Followers() {
             <mesh ref={(m) => { headRefs.current[i] = m; }} geometry={g.head} castShadow>
               <meshStandardMaterial vertexColors roughness={0.62} />
             </mesh>
+            {[0, 1].map((k) => (
+              <mesh key={k} ref={(m) => { legRefs.current[i * 2 + k] = m; }}
+                geometry={sharedLegGeom()} castShadow>
+                <meshStandardMaterial vertexColors roughness={0.8} />
+              </mesh>
+            ))}
           </group>
         );
       })}

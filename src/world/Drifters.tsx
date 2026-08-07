@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { groundAt } from './field';
 import { bodyGeom, headGeom, FIG_BODY_H } from './figure';
+import { StandingLegs } from './Legs';
 import { MARKET } from './sites';
 import { useRefugees } from '../game/refugees';
 import { useMarauders } from '../game/marauders';
@@ -66,6 +67,7 @@ export function Drifters() {
             <mesh geometry={geoms.poor.head} position={[0, FIG_BODY_H * 0.99, 0]} castShadow>
               <meshStandardMaterial vertexColors roughness={0.8} />
             </mesh>
+            <StandingLegs roughness={0.9} />
           </group>
         );
       })}
@@ -83,6 +85,7 @@ export function Drifters() {
             <mesh geometry={geoms.troop.head} position={[0, FIG_BODY_H * 0.99, 0]} castShadow>
               <meshStandardMaterial vertexColors roughness={0.7} />
             </mesh>
+            <StandingLegs />
             <mesh geometry={spear} position={[0.28, 0, 0.1]} rotation={[0.12, 0, -0.08]} castShadow>
               <meshStandardMaterial color="#4d4237" roughness={0.9} />
             </mesh>

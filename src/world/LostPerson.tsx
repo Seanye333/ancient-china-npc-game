@@ -4,6 +4,7 @@ import { Billboard, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { groundAt } from './field';
 import { bodyGeom, headGeom, FIG_BODY_H } from './figure';
+import { StandingLegs } from './Legs';
 import { playerPos } from '../game/interact';
 import { useQuest } from '../game/quest';
 import { useJournal } from '../game/journal';
@@ -73,6 +74,7 @@ export function LostPerson() {
       <mesh geometry={geom.head} position={[0, FIG_BODY_H * 0.99, 0]} castShadow>
         <meshStandardMaterial vertexColors roughness={0.66} />
       </mesh>
+      <StandingLegs />
       {!found && (
         <Billboard position={[0, FIG_BODY_H + 0.9, 0]}>
           <Text fontSize={0.24} color="#c8a45a" outlineWidth={0.016} outlineColor="#12100c"

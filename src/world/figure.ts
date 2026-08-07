@@ -33,6 +33,20 @@ export const FIG_H = 1.34;
 export const FIG_HR = FIG_H * 0.245;
 export const FIG_BODY_H = FIG_H - FIG_HR * 1.85;
 
+/**
+ * 腿。
+ *
+ * 在這之前每個人都是「一件垂到地的袍子 + 一顆頭」——
+ * 遠看是棋子,近看是保齡球瓶,走起來整個人平移過去,像在冰上滑。
+ * 下擺提到胯、露出小腿和腳,人才是<b>站在</b>地上而不是浮在地上。
+ *
+ * <b>提下擺不動袖子和腰帶</b>:那兩樣的絕對高度是兵器掛點、頭的落點
+ * 所依賴的,一動就要改七個檔案,而且改錯了刀會長在肚子上。
+ */
+export const FIG_LEG_H = FIG_BODY_H * 0.28;
+/** 兩腿中心到身體中軸的距離。 */
+export const FIG_HIP = FIG_HR * 0.30;
+
 function lathe(profile: Array<[number, number]>, r: number, h: number, seg = 14) {
   return new THREE.LatheGeometry(
     profile.map(([pr, ph]) => new THREE.Vector2(Math.max(1e-4, pr * r), ph * h)), seg,
@@ -55,9 +69,60 @@ function at(g: THREE.BufferGeometry, x: number, y: number, z: number,
   return g;
 }
 
+/**
+ * 一條腿 —— 原點在<b>胯</b>,往下長。
+ *
+ * 原點放在胯而不是腳底,是為了讓「邁步」就是繞原點轉一下 X 軸:
+ * 轉軸放在腳踝的話,抬腿會把腳戳進地裡。
+ */
+export function legGeom(): THREE.BufferGeometry {
+  const gs: THREE.BufferGeometry[] = [];
+  const TROUSER = new THREE.Color('#332d30');
+  const SHOE = new THREE.Color('#3f3227');
+  const r = FIG_HR * 0.20;
+  // 小腿:上粗下細一點,長度多給 6% 塞進下擺裡,免得抬腿時胯上開一條縫
+  gs.push(tint(at(new THREE.CylinderGeometry(r, r * 0.86, FIG_LEG_H * 1.12, 6),
+    0, -FIG_LEG_H * 0.50, 0), TROUSER));
+  // 腳:一塊往前伸的板,前端略窄 —— 有腳尖才有方向
+  gs.push(tint(at(new THREE.BoxGeometry(r * 1.7, FIG_LEG_H * 0.24, r * 3.0),
+    0, -FIG_LEG_H * 1.02, r * 0.75), SHOE));
+  return mergeGeometries(gs, false)!;
+}
+
+/**
+ * 邁步的角度。左右差半個相位 —— 同相位就成了兔子跳。
+ * 站著不動時歸零,而不是停在隨機的一個角度上(那會讓人劈著腿站在市集裡)。
+ */
+export function legSwing(step: number, side: number, moving: boolean): number {
+  return moving ? Math.sin(step + (side > 0 ? 0 : Math.PI)) * 0.55 : 0;
+}
+
+/**
+ * 把一條腿擺到位。<b>整個世界的人共用這一個出口</b> ——
+ * 玩家、村民、同行的、陣上的、縣城裡站著的,腿長在同一個地方。
+ *
+ * 用 'YXZ':先繞世界的 Y 轉到面朝的方向,再繞<b>自己的</b> X 邁步。
+ * 用預設的 'XYZ' 的話,人一轉身腿就往旁邊劈出去。
+ *
+ * o 可以是真的 mesh,也可以是一個臨時 Object3D —— InstancedMesh 那邊
+ * 擺完再 updateMatrix() 取矩陣。
+ */
+export function poseLeg(
+  o: THREE.Object3D, side: 1 | -1,
+  x: number, hipY: number, z: number, yaw: number, swing: number, scale = 1,
+) {
+  const d = FIG_HIP * scale * side;
+  o.position.set(x + Math.cos(yaw) * d, hipY, z - Math.sin(yaw) * d);
+  o.rotation.order = 'YXZ';
+  o.rotation.set(swing, yaw, 0);
+  o.scale.setScalar(scale);
+}
+
 export function bodyGeom(robe: THREE.Color) {
   const gs: THREE.BufferGeometry[] = [];
-  gs.push(tint(lathe(BODY_P, FIG_HR * 1.02, FIG_BODY_H, 14), robe));
+  // 下擺從胯起算 —— 側影不變,只是短了一截,底下那一截交給腿
+  gs.push(tint(at(lathe(BODY_P, FIG_HR * 1.02, FIG_BODY_H - FIG_LEG_H, 14),
+    0, FIG_LEG_H, 0), robe));
   gs.push(tint(at(new THREE.TorusGeometry(FIG_HR * 0.72, FIG_HR * 0.075, 5, 12)
     .rotateX(Math.PI / 2), 0, FIG_BODY_H * 0.55, 0, 1, 1, 1), TRIM));
   for (const side of [-1, 1]) {

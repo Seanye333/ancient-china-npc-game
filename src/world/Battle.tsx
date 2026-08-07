@@ -3,7 +3,8 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { groundAt, slideMove } from './field';
-import { bodyGeom, headGeom, FIG_BODY_H, FIG_HR } from './figure';
+import { bodyGeom, headGeom, FIG_BODY_H, FIG_HR, FIG_HIP, FIG_LEG_H } from './figure';
+import { sharedLegGeom } from './Legs';
 import { playerPos } from '../game/interact';
 import { useHero, woundPenalty } from '../game/hero';
 import { isSworn } from '../game/oath';
@@ -147,6 +148,8 @@ export function Battle() {
   const blades = useRef<Record<string, THREE.Group | null>>({});
   const bodies = useRef<Record<string, THREE.Mesh | null>>({});
   const trails = useRef<Record<string, THREE.Mesh | null>>({});
+  /** 每人兩條腿,鍵是 `${id}:0` / `${id}:1`。 */
+  const legs = useRef<Record<string, THREE.Mesh | null>>({});
   /** 倒地的煙 —— 誰這幀剛倒,在他腳邊揚一蓬土。 */
   const prevStance = useRef<Record<string, string>>({});
   const puffs = useRef<Array<{ x: number; y: number; z: number; t0: number }>>([]);
@@ -313,7 +316,8 @@ export function Battle() {
       if (!g) continue;
       if (f.isPlayer) { g.visible = false; continue; }   // 玩家由 Player.tsx 畫
       g.visible = true;
-      poseInto(g, bodies.current[f.id], blades.current[f.id], f, t, trails.current[f.id]);
+      poseInto(g, bodies.current[f.id], blades.current[f.id], f, t, trails.current[f.id],
+        [legs.current[`${f.id}:0`], legs.current[`${f.id}:1`]]);
     }
     // 土:每蓬三團,冒起來、散開、化掉
     const pm = puffMesh.current;
@@ -403,6 +407,14 @@ export function Battle() {
             <mesh geometry={g.head} position={[0, FIG_BODY_H * 0.99, 0]} castShadow>
               <meshStandardMaterial vertexColors roughness={0.62} />
             </mesh>
+            {/* 腿掛在同一個 group 底下 —— 倒地那一下整個人往前撲,腿要跟著撲 */}
+            {[-1, 1].map((side, k) => (
+              <mesh key={k} ref={(o) => { legs.current[`${f.id}:${k}`] = o; }}
+                geometry={sharedLegGeom()}
+                position={[FIG_HIP * side, FIG_LEG_H, 0]} castShadow>
+                <meshStandardMaterial vertexColors roughness={0.8} />
+              </mesh>
+            ))}
             {/* 掛在手上 —— 手的位置在 figure.ts 裡是 (0.92r, 0.32h, -0.12r),
                 先前刀擺在 0.44h,離手約一掌高,近看就看得出來 */}
             <group ref={(o) => { blades.current[f.id] = o; }}
@@ -509,9 +521,25 @@ function ArrowFlights() {
 function poseInto(
   g: THREE.Group, body: THREE.Mesh | null, blade: THREE.Group | null,
   f: Fighter, t: number, trail?: THREE.Mesh | null,
+  legs?: Array<THREE.Mesh | null>,
 ) {
   g.position.set(f.x, f.y, f.z);
   g.rotation.set(0, f.yaw, 0);
+
+  /*
+   * 腿。只有<b>在移動的那兩個姿態</b>邁步:撲上去和逃。
+   * 對峙、揮刀、挨打、倒地的時候腿要站定 —— 一個人一邊被砍一邊
+   * 原地踏步,那不是打鬥,那是在跳舞。
+   */
+  if (legs) {
+    const stepping = f.stance === 'closing' || f.stance === 'fleeing';
+    for (let i = 0; i < 2; i++) {
+      const leg = legs[i];
+      if (!leg) continue;
+      leg.rotation.x = stepping
+        ? Math.sin(f.phase * Math.PI * 2 + (i ? 0 : Math.PI)) * 0.5 : 0;
+    }
+  }
 
   const hurtFlash = t - f.hurtAt < 0.18;
   // 逃跑的人刀都扔了 —— 「打散」要看得出是打散,不是換個方向走

@@ -2,7 +2,9 @@ import { useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { groundAt, rng, slideMove, dryLandNear } from './field';
-import { bodyGeom, headGeom, FIG_BODY_H } from './figure';
+import {
+  bodyGeom, headGeom, legGeom, legSwing, poseLeg, FIG_BODY_H, FIG_LEG_H,
+} from './figure';
 import { houseSites, fieldSites, meanderAt, DOCKS, BRIDGE, MARKET } from './sites';
 import { useClock } from './worldTime';
 import { makeVillagers } from '../game/npcs';
@@ -139,6 +141,7 @@ export function Crowd() {
     ].map((v, i) => ({
       body: bodyGeom(new THREE.Color(v.robe)),
       head: headGeom(v.hat, v.old),
+      leg: legGeom(),
       idx: agents.map((a, k) => (a.variant === i ? k : -1)).filter((k) => k >= 0),
     })),
     [agents],
@@ -146,16 +149,20 @@ export function Crowd() {
 
   const bodyRefs = useRef<Array<THREE.InstancedMesh | null>>([]);
   const headRefs = useRef<Array<THREE.InstancedMesh | null>>([]);
+  /** 左右腿各一批 —— 一條腿一個 InstancedMesh,兩邊要各邁各的。 */
+  const legRefs = useRef<Array<Array<THREE.InstancedMesh | null>>>([[], []]);
 
   useLayoutEffect(() => {
     // 矩陣每幀都在動,而包圍球是初始化時算的 —— 不關掉會被整批剔除
     bodyRefs.current.forEach((m) => m && (m.frustumCulled = false));
     headRefs.current.forEach((m) => m && (m.frustumCulled = false));
+    legRefs.current.forEach((row) => row.forEach((m) => m && (m.frustumCulled = false)));
   }, []);
 
   const tmp = useMemo(() => ({
     m: new THREE.Matrix4(), q: new THREE.Quaternion(), e: new THREE.Euler(),
     p: new THREE.Vector3(), s: new THREE.Vector3(1, 1, 1), hide: new THREE.Vector3(0, 0, 0),
+    leg: new THREE.Object3D(),
   }), []);
 
   // 地形每幀重採很貴(五層 fbm),走路時每 0.25 秒採一次、其餘沿用
@@ -242,13 +249,16 @@ export function Crowd() {
     variants.forEach((v, vi) => {
       const bm = bodyRefs.current[vi];
       const hm = headRefs.current[vi];
-      if (!bm || !hm) return;
+      const lm = [legRefs.current[0][vi], legRefs.current[1][vi]];
+      if (!bm || !hm || !lm[0] || !lm[1]) return;
       v.idx.forEach((ai, slot) => {
         const a = agents[ai];
         if (!a.visible || followers.includes(a.npcId) || absent.has(a.npcId)) {  // 進了屋、病了、歿了就縮到零
           tmp.m.compose(tmp.p.set(a.x, a.y - 40, a.z), tmp.q.identity(), tmp.hide);
           bm.setMatrixAt(slot, tmp.m);
           hm.setMatrixAt(slot, tmp.m);
+          lm[0]!.setMatrixAt(slot, tmp.m);
+          lm[1]!.setMatrixAt(slot, tmp.m);
           return;
         }
         const moving = a.state === 'goWork' || a.state === 'goMarket' || a.state === 'goHome';
@@ -280,9 +290,20 @@ export function Crowd() {
         tmp.q.setFromEuler(tmp.e);
         tmp.m.compose(tmp.p, tmp.q, tmp.s);
         hm.setMatrixAt(slot, tmp.m);
+
+        // 腿。老人矮一號,腿也跟著矮 —— 縮放要一路帶到胯的高度上
+        const sc = a.old ? 0.94 : 1;
+        for (const side of [-1, 1] as const) {
+          poseLeg(tmp.leg, side, a.x, a.y + bob * 0.5 + FIG_LEG_H * sc, a.z, a.yaw,
+            legSwing(step, side, moving), sc);
+          tmp.leg.updateMatrix();
+          lm[side < 0 ? 0 : 1]!.setMatrixAt(slot, tmp.leg.matrix);
+        }
       });
       bm.instanceMatrix.needsUpdate = true;
       hm.instanceMatrix.needsUpdate = true;
+      lm[0]!.instanceMatrix.needsUpdate = true;
+      lm[1]!.instanceMatrix.needsUpdate = true;
     });
   });
 
@@ -304,6 +325,16 @@ export function Crowd() {
           >
             <meshStandardMaterial vertexColors roughness={0.62} />
           </instancedMesh>
+          {[0, 1].map((side) => (
+            <instancedMesh
+              key={side}
+              ref={(m) => { legRefs.current[side][i] = m; }}
+              args={[v.leg, undefined, Math.max(1, v.idx.length)]}
+              castShadow
+            >
+              <meshStandardMaterial vertexColors roughness={0.8} />
+            </instancedMesh>
+          ))}
         </group>
       ))}
     </>
