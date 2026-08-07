@@ -13,6 +13,7 @@ import {
 import { Birds, Chickens, Dogs, FishSplash, TavernFlag } from './world/Life';
 import { Details } from './world/Details';
 import { Herbs } from './world/Herbs';
+import { GroundCover } from './world/GroundCover';
 import { Sickbeds } from './world/Sickbeds';
 import { Landmarks } from './world/Landmarks';
 import { Farmland, Roads } from './world/Landuse';
@@ -511,6 +512,7 @@ export default function App() {
           <FishSplash />
           <TavernFlag />
           <Details />
+          <GroundCover />
           <Herbs />
           <Sickbeds />
           <Lanterns />

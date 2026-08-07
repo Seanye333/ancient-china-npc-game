@@ -49,6 +49,26 @@ const scan = await page.evaluate(() => {
 for (const r of scan) console.log(`  ${r.geo} ×${r.n} · 黑 ${r.black} · 最暗 ${r.min}`);
 ok(scan.every((r) => r.black === 0), '沒有一批是純黑的');
 
+console.log('── 腳邊那一圈:重鋪一次多少錢');
+{
+  await page.evaluate(() => window.__place(52, -30));
+  await page.waitForTimeout(2200);
+  const seen = [];
+  await page.keyboard.down('KeyW');
+  for (let i = 0; i < 12; i++) {
+    await page.waitForTimeout(220);
+    seen.push(await page.evaluate(() => window.__groundCover));
+  }
+  await page.keyboard.up('KeyW');
+  const ms = seen.map((s) => s?.ms ?? 0).filter(Boolean).sort((a, b) => a - b);
+  const last = seen[seen.length - 1] ?? {};
+  console.log(`  草 ${last.tufts} 叢 · 石 ${last.grit} 顆 · 重鋪 p50 ${ms[ms.length >> 1]}ms`);
+  // 走一步就重鋪一次,所以這個數字直接掛在幀上 —— 一格 1.45 公尺,
+  // 走路大約每半秒一次。超過三四毫秒就該想辦法攤開來做
+  ok(ms.length > 0 && ms[ms.length - 1] < 4, '重鋪不到四毫秒');
+  ok((last.tufts ?? 0) > 300, '野地上鋪得出草');
+}
+
 /* ── 二、看得見的那一輪 ────────────────────── */
 
 async function shot(name) {
