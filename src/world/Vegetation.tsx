@@ -6,6 +6,7 @@ import {
   registerBlockers, clearBlockers,
 } from './field';
 import { paletteFor, useClock } from './worldTime';
+import { jitteredColor, rngGate } from './palette';
 import { useBands } from '../game/bands';
 
 /**
@@ -166,12 +167,6 @@ const bambooLeafSway = applyFoliage(true, 0.10, -0.9, 0.95);
 const bambooCulmSway = applyFoliage(true, 0.045, -2.1, 2.1);
 const reedSway = applyFoliage(false, 0.10, -0.75, 0.75);
 
-/** 位置雜湊 — 用來在人跡帶裡穩定地留下極少數老樹,而不是整片砍光。 */
-function rngGate(x: number, z: number): number {
-  const h = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453;
-  return h - Math.floor(h);
-}
-
 function scatter(seed: number, count: number, pick: (x: number, z: number) => number | null) {
   const rand = rng(seed);
   const out: Placement[] = [];
@@ -235,31 +230,6 @@ function useBlockers(
     })));
     return () => clearBlockers(key);
   }, [key, items, solid, view, top]);
-}
-
-/**
- * 逐棵的色彩抖動 —— 一片林子最露餡的不是模型糙,是<b>每棵樹一個色</b>。
- *
- * 真實的林相裡沒有兩棵樹同色:向陽背陰、老葉新葉、個體差異。
- * 這裡用位置雜湊(不是 rand,換季重掛時同一棵樹要拿到同一個色)
- * 在 HSL 上各抖一點。畫面上的變化遠大於代價 —— instanceColor
- * 是一次性的 buffer,draw call 一個不多。
- *
- * 注意:instanceColor 是<b>乘</b>在 material.color 上的,
- * 所以用它的材質底色必須是白 —— 基色搬進每棵樹裡,不然雙重壓暗。
- */
-const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
-const HSL = { h: 0, s: 0, l: 0 };
-
-function jitteredColor(
-  base: THREE.Color, x: number, z: number, dh: number, ds: number, dl: number,
-): THREE.Color {
-  base.getHSL(HSL);
-  return new THREE.Color().setHSL(
-    (HSL.h + (rngGate(x, z) - 0.5) * 2 * dh + 1) % 1,
-    clamp01(HSL.s + (rngGate(x * 1.7 + 13, z * 2.3 + 7) - 0.5) * 2 * ds),
-    clamp01(HSL.l + (rngGate(x * 2.9 + 31, z * 1.3 + 17) - 0.5) * 2 * dl),
-  );
 }
 
 function useInstanceColors(
