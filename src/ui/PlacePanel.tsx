@@ -1,44 +1,33 @@
 import { useEffect, useState } from 'react';
-import type { CSSProperties } from 'react';
+import { btn, type PlaceCtx } from './places/ctx';
+import { MarketPanel, WorkPanel, FairPanel } from './places/Trade';
+import { HerbPanel, SickbedPanel, ApothecaryPanel } from './places/Care';
+import { TavernPanel, InnPanel, HomePanel } from './places/Rest';
+import { YamenPanel, RefugeesPanel } from './places/Civic';
+import type {} from 'react';
 import { useInteract } from '../game/interact';
 import { placeById } from '../game/places';
 import { useHero } from '../game/hero';
 import { useVillage, type VillageState } from '../game/village';
 import { useClock } from '../world/worldTime';
 import { useJournal } from '../game/journal';
-import {
-  grainCost, grainSale, jobsToday, restQuality,
-  RENT_PER_XUN, HOUSE_PRICE, LODGING_LABEL, DAYS_PER_SHI,
-} from '../game/economy';
 import { grainDays } from '../game/daily';
-import { DAYS_PER_XUN, shichenWord } from '../game/calendar';
+import { shichenWord } from '../game/calendar';
 import {
-  DRINK_PRICE, NEWS_PRICE, DRINK_TOIL, newsFrom, hirePrice, canHire, tavernMood,
+  tavernMood,
 } from '../game/tavern';
-import { countyPrice, INN_PRICE } from '../game/economy';
-import { petition, PETITION_COST, bountyTarget, bountyPay, bountyMerit } from '../game/yamen';
-import { useRefugees, takeWord } from '../game/refugees';
-import { useMarauders } from '../game/marauders';
-import { WEAPONS, type WeaponId } from '../game/weapons';
-import { useFair, contenders } from '../game/fair';
-import { beginSpar } from '../game/combat';
-import { might, mightWord } from '../game/npcs';
-import { playerPos as heroPos } from '../game/interact';
-import { groundAt } from '../world/field';
+import { countyPrice } from '../game/economy';
+import {} from '../game/marauders';
+import {} from '../game/combat';
+import {} from '../world/field';
 import { useQuest } from '../game/quest';
-import { menNeeded } from '../game/errands';
-import { bandWord } from '../game/bands';
-import { useBands } from '../game/bands';
-import { raidParties } from '../game/raids';
-import { hauntedBy } from '../game/vendetta';
-import { livingVillagers, deltaOf, useFolk } from '../game/folk';
-import {
-  herbWord, pickYield, spotReady, useHerbs, canDress, dosedTurn,
-  herbPrice, herbSale, DOSE_SELF, DOSE_SICK, PHYSICIAN_FEE,
-} from '../game/herbs';
-import { playerPos } from '../game/interact';
-import { retinueCap, rankForMerit } from '../game/hero';
-import { useCalamity, reliefRenown, reliefOrder } from '../game/calamity';
+import {} from '../game/errands';
+import {} from '../game/bands';
+import {} from '../game/bands';
+import {} from '../game/raids';
+import {} from '../game/vendetta';
+import { livingVillagers } from '../game/folk';
+import {} from '../game/interact';
 
 /**
  * 場所面板 —— 錢第一次有地方去的那個介面。
@@ -51,12 +40,6 @@ import { useCalamity, reliefRenown, reliefOrder } from '../game/calamity';
  * 介面上不寫出來,玩家就永遠不會知道自己在賭什麼。
  */
 
-const btn: CSSProperties = {
-  padding: '.45rem .9rem', background: 'rgba(255,255,255,.08)', color: '#e6e2d8',
-  border: '1px solid rgba(255,255,255,.2)', cursor: 'pointer',
-  fontSize: '.86rem', fontFamily: 'inherit', textAlign: 'left',
-};
-const dim: CSSProperties = { ...btn, opacity: .42, cursor: 'not-allowed' };
 
 export function PlacePanel() {
   const atPlace = useInteract((s) => s.atPlace);
@@ -95,6 +78,17 @@ export function PlacePanel() {
 
   const close = () => { setLine(null); closePlace(); };
 
+  /*
+   * 一包遞下去,而不是十一個子元件各自去呼叫 hook。
+   *
+   * 這樣拆出去的那些區塊<b>一行都不必改</b> —— 它們原本就是在這個閉包裡寫的,
+   * 名字全對得上。拆檔最容易出事的地方就是「順手」動了幾個字。
+   */
+  const ctx: PlaceCtx = {
+    hero, village, market, day, hour, season, advance, note, quest,
+    line, setLine, qty, setQty, place, days, heads, inCounty, close, closePlace,
+  };
+
   return (
     <div style={{
       position: 'fixed', left: '50%', bottom: 96, transform: 'translateX(-50%)',
@@ -118,593 +112,36 @@ export function PlacePanel() {
         {line ?? blurbFor(place.kind, market, hero.lodging, inCounty)}
       </p>
 
-      {place.kind === 'market' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
-          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', fontSize: '.82rem' }}>
-            <span style={{ opacity: .7 }}>米價一石 {market.grainPrice} 錢</span>
-            <span style={{ marginLeft: 'auto', opacity: .6 }}>一石夠一口人吃 {DAYS_PER_SHI} 天</span>
-          </div>
-          <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
-            <span style={{ fontSize: '.8rem', opacity: .7 }}>幾石</span>
-            {[1, 3, 5, 10].map((n) => (
-              <button key={n} style={{ ...btn, padding: '.3rem .7rem',
-                borderColor: qty === n ? '#c8a45a' : 'rgba(255,255,255,.2)' }}
-                onClick={() => setQty(n)}>{n}</button>
-            ))}
-          </div>
-          {/* 鐵器只有縣城有 —— 村裡的市集打不出一口刀 */}
-          {(Object.values(WEAPONS) as Array<typeof WEAPONS[WeaponId]>)
-            .filter((w) => w.price > 0 && (inCounty || !w.countyOnly) && w.id !== hero.weapon)
-            .map((w) => (
-              <button key={w.id} style={hero.gold >= w.price ? btn : dim} onClick={() => {
-                if (!hero.spend(w.price)) { setLine('錢不夠。'); return; }
-                useHero.setState({ weapon: w.id });
-                setLine(`${w.name}到手。舊的那件,就留在攤上了。`);
-                note(day, `買了${w.name} · ${w.price} 錢`);
-              }}>
-                買{w.name} · {w.price} 錢
-                <span style={{ opacity: .55 }}> · {w.word}</span>
-              </button>
-            ))}
+      {place.kind === 'market' && <MarketPanel {...ctx} />}
 
-          {/*
-            賑濟 —— 散糧換不到一個銅錢,換到的是全村都知道你在最難的時候
-            拿出了東西。對一個要靠人過日子的白身來說,那比糧值錢。
-          */}
-          <button
-            style={hero.grain >= qty ? { ...btn, borderColor: '#7fb08a' } : dim}
-            onClick={() => {
-              if (hero.grain < qty) { setLine('你自己都不夠吃。'); return; }
-              const cal = useCalamity.getState().active;
-              const fame = reliefRenown(qty, !!cal);
-              hero.addGrain(-qty);
-              useHero.setState((s) => ({ renown: s.renown + fame }));
-              village.nudge({ order: village.order + reliefOrder(qty) });
-              setLine(cal
-                ? `${qty} 石糧散了出去。有人跪下磕頭,你沒攔住。`
-                : `${qty} 石糧散給了幾戶揭不開鍋的。`);
-              note(day, `賑濟 ${qty} 石 · 鄉望 +${fame}`, 'good');
-            }}
-          >
-            賑濟 {qty} 石
-            <span style={{ opacity: .55 }}>
-              {' · '}鄉望 +{reliefRenown(qty, !!useCalamity.getState().active)}
-              {useCalamity.getState().active ? '（災年,人記得住）' : ''}
-            </span>
-          </button>
-
-          <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-            <button
-              style={hero.gold >= grainCost(market, qty) ? btn : dim}
-              onClick={() => {
-                const cost = grainCost(market, qty);
-                if (!hero.spend(cost)) { setLine('錢不夠。'); return; }
-                hero.addGrain(qty);
-                setLine(`糴了 ${qty} 石,去了 ${cost} 錢。`);
-                note(day, `糴米 ${qty} 石 · ${cost} 錢`);
-              }}
-            >
-              糴米 {qty} 石 · {grainCost(market, qty)} 錢
-            </button>
-            <button
-              style={hero.grain >= qty ? btn : dim}
-              onClick={() => {
-                if (hero.grain < qty) { setLine('沒那麼多糧可賣。'); return; }
-                const got = grainSale(market, qty, inCounty);
-                hero.addGrain(-qty);
-                hero.addGold(got);
-                setLine(`糶了 ${qty} 石,得 ${got} 錢。`);
-                note(day, `糶米 ${qty} 石 · ${got} 錢`);
-              }}
-            >
-              糶米 {qty} 石 · {grainSale(market, qty, inCounty)} 錢
-              {inCounty && <span style={{ opacity: .55 }}> · 城裡搶著收</span>}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {place.kind === 'work' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
-          {jobsToday(village, season, hour)
-            .filter((j) => j.kind === place.job)
-            .map((j) => (
-              <button
-                key={j.kind}
-                style={j.closed || hero.toil >= 9 ? dim : btn}
-                onClick={() => {
-                  if (j.closed) { setLine(j.closed); return; }
-                  if (hero.toil >= 9) { setLine('腰都直不起來了,今天做不動了。'); return; }
-                  hero.addGold(j.pay);
-                  hero.addToil(j.toil);
-                  advance(j.hours);
-                  // 手上接的是搶收,而你正在田裡 —— 這一趟就算進去。
-                  // 差事不是另一套動作,是<b>你本來就在做的事恰好是他託你的事</b>
-                  const t = quest.taken;
-                  const counts = t && !t.cleared
-                    && t.errand.kind === 'harvest' && j.kind === 'field';
-                  if (counts) quest.advance();
-                  setLine(`做了${j.hours}個時辰,得 ${j.pay} 錢。`
-                    + (counts ? `（搶收 ${Math.min(t!.done + 1, t!.need)}/${t!.need}）` : ''));
-                  note(day, `${j.label} · 得 ${j.pay} 錢`);
-                }}
-              >
-                {j.label} · {j.hours} 時辰 · {j.pay} 錢
-                {j.closed && <span style={{ opacity: .8 }}> —— {j.closed}</span>}
-              </button>
-            ))}
-          <span style={{ fontSize: '.76rem', opacity: .55 }}>
-            身子 {hero.toil >= 9 ? '乏透了' : hero.toil >= 5 ? '有些累' : '還撐得住'}
-          </span>
-        </div>
-      )}
+      {place.kind === 'work' && <WorkPanel {...ctx} />}
 
       {/*
         採藥 —— 一趟一個時辰,採空的那一叢要十二天才長得回來。
         數量寫在按鈕上是不可能的(採之前誰知道有多少),
         但<b>季節寫得出來</b>:冬天上山是白跑,那句話要在按之前就看得到。
       */}
-      {place.kind === 'herb' && (() => {
-        const ready = spotReady(place.id, day);
-        const wild = place.label.startsWith('深山');
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
-            <span style={{ fontSize: '.8rem', opacity: .7 }}>
-              {herbWord(season)}。{wild && '這麼遠的地方少有人來,長得比坡下密。'}
-            </span>
-            <button style={ready && hero.toil < 9 ? btn : dim} onClick={() => {
-              if (!ready) { setLine('這一叢前些日子叫你採空了,還沒長回來。'); return; }
-              if (hero.toil >= 9) { setLine('腰都直不起來了,蹲不下去。'); return; }
-              const got = pickYield({
-                season, intelligence: hero.stats.intelligence, wild, roll: Math.random,
-              });
-              useHerbs.getState().pick(place.id, day);
-              hero.addToil(2);
-              advance(1);
-              if (got <= 0) {
-                setLine(season === 'winter'
-                  ? '扒開雪找了半天,枯稈子而已。'
-                  : '翻了一遍,能用的沒幾根 —— 認得藥是門手藝。');
-                note(day, '採藥 · 空手而回');
-                return;
-              }
-              hero.addHerbs(got);
-              setLine(`採了 ${got} 株,用布包好揣在懷裡。`);
-              note(day, `採藥 ${got} 株`, 'good');
-            }}>
-              採藥 · 1 時辰
-              <span style={{ opacity: .55 }}>
-                {ready ? ` · 手上 ${hero.herbs} 株` : ' · 採空了,還沒長回來'}
-              </span>
-            </button>
-          </div>
-        );
-      })()}
+      {place.kind === 'herb' && <HerbPanel {...ctx} />}
 
       {/*
         病家。這一塊是整個採藥系統存在的理由 ——
         「某某病倒了」從前只是日誌上的一行字,你連上門都上不了。
       */}
-      {place.kind === 'sickbed' && (() => {
-        const id = place.id.replace(/^sick-/, '');
-        const who = livingVillagers().find((p) => p.id === id);
-        const d = deltaOf(id);
-        if (!who || d.sick <= 0) {
-          return <span style={{ fontSize: '.84rem', opacity: .7 }}>屋裡沒有聲響。</span>;
-        }
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
-            <span style={{ fontSize: '.8rem', opacity: .75 }}>
-              {who.name},{who.age} 歲,病了 {d.sick} 天。
-              {d.dosed ? '你送的藥還在灶上熬著。'
-                : who.age >= 58 ? '這個歲數,拖不起。' : '躺在草蓆上,認得出你。'}
-            </span>
-            <button
-              style={hero.herbs >= DOSE_SICK && !d.dosed ? { ...btn, borderColor: '#7fb08a' } : dim}
-              onClick={() => {
-                if (d.dosed) { setLine('藥已經送過了。剩下的只能等。'); return; }
-                if (hero.herbs < DOSE_SICK) {
-                  setLine(`藥不夠 —— 一副要 ${DOSE_SICK} 株。`); return;
-                }
-                hero.addHerbs(-DOSE_SICK);
-                useFolk.getState().patch(id, { dosed: true });
-                useFolk.getState().bumpRegard(id, 8);
-                useHero.setState((s) => ({ renown: s.renown + 2 }));
-                advance(0.5);
-                const turn = dosedTurn(hero.stats.intelligence, Math.random);
-                if (turn) {
-                  useFolk.getState().patch(id, { sick: 1 });
-                  setLine(`藥灌下去半個時辰,${who.name}的燒退了些。他家裡人一直在道謝。`);
-                } else {
-                  setLine(`藥留下了,熬給他喝。剩下的看他自己 —— 和今晚。`);
-                }
-                note(day, `送藥給${who.name} · ${DOSE_SICK} 株`, 'good');
-              }}>
-              送一副藥 · {DOSE_SICK} 株
-              <span style={{ opacity: .55 }}>
-                {d.dosed ? ' · 已經送過了' : ` · 手上 ${hero.herbs} 株`}
-              </span>
-            </button>
-            {/* 空手來也能坐一會兒 —— 沒有藥的時候,人還是可以到 */}
-            <button style={btn} onClick={() => {
-              advance(0.5);
-              useFolk.getState().bumpRegard(id, 2);
-              setLine(who.temper === 'gruff'
-                ? `${who.name}擺擺手叫你別靠太近,說是過了病氣不好。`
-                : `坐了半個時辰。${who.name}說了幾句話,又睡了。`);
-            }}>
-              坐一會兒<span style={{ opacity: .55 }}> · 半個時辰 · 空手也是心意</span>
-            </button>
-          </div>
-        );
-      })()}
+      {place.kind === 'sickbed' && <SickbedPanel {...ctx} />}
 
-      {place.kind === 'apothecary' && (() => {
-        const plague = useCalamity.getState().active?.kind === 'plague';
-        const buy = herbPrice(plague);
-        const sell = herbSale(plague);
-        const gate = canDress(hero, day);
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
-            <span style={{ fontSize: '.8rem', opacity: .7 }}>
-              手上 {hero.herbs} 株 · 一株買 {buy} 錢、賣 {sell} 錢
-              {plague && <span style={{ color: '#d07862' }}> · 疫年,藥價翻著跟頭往上走</span>}
-            </span>
-            <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-              {[2, 6].map((n) => (
-                <button key={n} style={hero.gold >= buy * n ? btn : dim} onClick={() => {
-                  if (!hero.spend(buy * n)) { setLine('錢不夠。'); return; }
-                  hero.addHerbs(n);
-                  setLine(`抓了 ${n} 株,${buy * n} 錢。夥計包得仔細。`);
-                  note(day, `買藥 ${n} 株 · ${buy * n} 錢`);
-                }}>
-                  買 {n} 株 · {buy * n} 錢
-                </button>
-              ))}
-              <button style={hero.herbs >= 2 ? btn : dim} onClick={() => {
-                const n = Math.min(hero.herbs, 6);
-                if (n < 2) { setLine('沒幾株,人家不收。'); return; }
-                hero.addHerbs(-n);
-                hero.addGold(sell * n);
-                setLine(`賣了 ${n} 株,得 ${sell * n} 錢。`);
-                note(day, `賣藥 ${n} 株 · ${sell * n} 錢`);
-              }}>
-                賣 {Math.min(hero.herbs, 6)} 株 · {sell * Math.min(hero.herbs, 6)} 錢
-              </button>
-            </div>
-            <button style={hero.wounded > 0 && hero.gold >= PHYSICIAN_FEE ? btn : dim}
-              onClick={() => {
-                if (hero.wounded <= 0) { setLine('郎中翻了翻你的眼皮:「你沒病。」'); return; }
-                if (!hero.spend(PHYSICIAN_FEE)) { setLine('診金給不起。'); return; }
-                // 郎中把傷一次治利索 —— 也算敷過藥,所以破相不留疤
-                useHero.setState({ wounded: 0, woundKind: null, dressedOn: null });
-                advance(2);
-                setLine('郎中拆了舊布,重新上藥裹好。「將養兩日,別再逞強。」');
-                note(day, `請郎中 · ${PHYSICIAN_FEE} 錢 · 傷好利索了`, 'good');
-              }}>
-              請郎中看傷 · {PHYSICIAN_FEE} 錢
-              <span style={{ opacity: .55 }}>
-                {hero.wounded > 0 ? ' · 一次治利索,不留疤' : ' · 你身上沒傷'}
-              </span>
-            </button>
-            <button style={gate.ok ? btn : dim} onClick={() => {
-              if (!gate.ok) { setLine(gate.why); return; }
-              hero.dress(day);
-              setLine('借人家的桌子把藥搗了,自己裹上。');
-              note(day, `敷藥 · ${DOSE_SELF} 株`);
-            }}>
-              自己敷一副 · {DOSE_SELF} 株
-              <span style={{ opacity: .55 }}> · {gate.ok ? '傷好一倍快' : gate.why}</span>
-            </button>
-          </div>
-        );
-      })()}
+      {place.kind === 'apothecary' && <ApothecaryPanel {...ctx} />}
 
-      {place.kind === 'tavern' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
-          <button style={hero.gold >= DRINK_PRICE ? btn : dim} onClick={() => {
-            if (!hero.spend(DRINK_PRICE)) { setLine('連一碗酒的錢都沒有。'); return; }
-            hero.addToil(-DRINK_TOIL);
-            advance(1);
-            setLine('一碗濁酒下去,骨頭鬆了些。');
-          }}>
-            喝一碗 · {DRINK_PRICE} 錢<span style={{ opacity: .55 }}> · 解乏</span>
-          </button>
+      {place.kind === 'tavern' && <TavernPanel {...ctx} />}
 
-          <button style={hero.gold >= NEWS_PRICE ? btn : dim} onClick={() => {
-            if (!hero.spend(NEWS_PRICE)) { setLine('買不起這句話。'); return; }
-            advance(0.5);
-            // 打聽來的必須是真的 —— 假情報比沒情報更糟,玩家會學會不聽
-            setLine(newsFrom({
-              bands: useBands.getState().bands,
-              raids: raidParties.map((r) => ({ name: r.name, x: r.x, z: r.z })),
-              marauders: useMarauders.getState(),
-              village,
-              at: { x: playerPos.x, z: playerPos.z },
-              sickNames: livingVillagers()
-                .filter((n) => deltaOf(n.id).sick > 0).map((n) => n.name),
-              hunted: hauntedBy(),
-            }));
-          }}>
-            打聽 · {NEWS_PRICE} 錢<span style={{ opacity: .55 }}> · 這一帶出了什麼事</span>
-          </button>
+      {place.kind === 'inn' && <InnPanel {...ctx} />}
 
-          {(() => {
-            const men = hero.followers.length + hero.retinue;
-            const cap = retinueCap(rankForMerit(hero.merit), hero.stats.leadership);
-            const price = hirePrice(village, men);
-            const gate = canHire(hero.merit);
-            return (
-              <button
-                style={gate.ok && hero.gold >= price && men < cap ? btn : dim}
-                onClick={() => {
-                  if (!gate.ok) { setLine(gate.why); return; }
-                  if (men >= cap) { setLine('你已經帶不動更多人了。'); return; }
-                  if (!hero.spend(price)) { setLine('錢不夠。'); return; }
-                  const got = hero.addRetinue(1);
-                  advance(1);
-                  setLine(got.taken
-                    ? '一個漢子放下碗,跟你走了。他從今天起吃你的糧。'
-                    : '沒人肯來。');
-                  if (got.taken) note(day, `雇了一個鄉勇 · ${price} 錢`);
-                }}
-              >
-                雇一個鄉勇 · {price} 錢
-                <span style={{ opacity: .55 }}>
-                  {gate.ok ? ` · 他要吃你的糧（${men}/${cap}）` : ' · 白身雇不動人'}
-                </span>
-              </button>
-            );
-          })()}
-        </div>
-      )}
+      {place.kind === 'fair' && <FairPanel {...ctx} />}
 
-      {place.kind === 'inn' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
-          {/*
-            猜枚 —— 快、蠢、但真能翻本。
-            勝率四成五:閒漢的手總比你的眼快一點,可他給雙倍 ——
-            這桌賭局誠實地寫在按鈕上,坑不坑得起是你的事。
-          */}
-          {[5, 20].map((bet) => (
-            <button key={bet} style={hero.gold >= bet ? btn : dim} onClick={() => {
-              if (!hero.spend(bet)) { setLine('陸小乙撇撇嘴:「錢呢?」'); return; }
-              advance(0.5);
-              if (Math.random() < 0.45) {
-                hero.addGold(bet * 2);
-                setLine(`開手 —— 你贏了!陸小乙把 ${bet * 2} 錢推過來,臉都綠了。`);
-              } else {
-                setLine(bet >= 20
-                  ? `開手 —— 輸了。${bet} 錢沒了,陸小乙笑得見牙不見眼。`
-                  : '開手 —— 輸了。「再來再來,手氣這就回來了。」');
-              }
-            }}>
-              跟陸小乙猜枚 · 押 {bet} 錢
-              <span style={{ opacity: .55 }}> · 贏了翻倍,勝率四成五</span>
-            </button>
-          ))}
-          <button style={hero.gold >= INN_PRICE ? btn : dim} onClick={() => {
-            if (!hero.spend(INN_PRICE)) { setLine('住不起。'); return; }
-            const toDawn = ((24 - hour) + 6.2) % 24 || 24;
-            advance(toDawn);
-            useHero.setState({ toil: 0 });
-            setLine('通鋪上翻了一夜身,天亮了。');
-            note(day, `客棧投宿 · ${INN_PRICE} 錢`);
-          }}>
-            投宿一宿 · {INN_PRICE} 錢
-            <span style={{ opacity: .55 }}> · 出門在外,總比露宿強</span>
-          </button>
-        </div>
-      )}
+      {place.kind === 'refugees' && <RefugeesPanel {...ctx} />}
 
-      {place.kind === 'fair' && (() => {
-        const fair = useFair.getState();
-        const list = contenders(hero.followers);
-        if (fair.champion) {
-          return (
-            <p style={{ margin: 0, fontSize: '.88rem', lineHeight: 1.8, color: '#a8d4b4' }}>
-              彩頭已經是你的了。台下還有人在學你最後那一下。
-            </p>
-          );
-        }
-        if (fair.out) {
-          return (
-            <p style={{ margin: 0, fontSize: '.86rem', lineHeight: 1.8, opacity: .75 }}>
-              今年就到這裡 —— 台是別人的了。看了兩場,學了一手。
-            </p>
-          );
-        }
-        const foe = list[fair.round];
-        if (!foe) return null;
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
-            <span style={{ fontSize: '.8rem', opacity: .7 }}>
-              第{['一', '二', '三'][fair.round]}場 · 台上是{foe.name} —— {mightWord(foe)}。
-              三場全勝,彩頭八十錢。
-            </span>
-            <button style={btn} onClick={() => {
-              beginSpar({
-                me: { name: hero.name, war: hero.stats.war, weapon: WEAPONS[hero.weapon] },
-                foe: { npcId: foe.id, name: foe.name, war: might(foe) },
-                at: { x: heroPos.x, z: heroPos.z },
-                ground: groundAt,
-              });
-              closePlace();
-            }}>
-              上擂台<span style={{ opacity: .55 }}> · 點到為止,當著全村的面</span>
-            </button>
-          </div>
-        );
-      })()}
+      {place.kind === 'yamen' && <YamenPanel {...ctx} />}
 
-      {place.kind === 'refugees' && (() => {
-        const band = useRefugees.getState().band;
-        if (!band) return null;
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
-            <span style={{ fontSize: '.8rem', opacity: .7 }}>
-              {band.count} 個人,面有菜色。看見你過來,有人把孩子往身後攏了攏。
-            </span>
-            {/* 收留:最便宜的人手 —— 不要身價錢,但一樣吃糧領月錢 */}
-            <button style={btn} onClick={() => {
-              const got = hero.addRetinue(Math.min(band.count, 3));
-              if (!got.taken) { setLine('你自己都養不起了。'); return; }
-              useRefugees.getState().take(got.taken);
-              useHero.setState((s) => ({ renown: s.renown + got.taken }));
-              setLine(takeWord(got.taken));
-              note(day, `收留了 ${got.taken} 個流民`, 'good');
-            }}>
-              收留幾個<span style={{ opacity: .55 }}> · 不要身價錢,吃糧領月錢</span>
-            </button>
-            <button style={hero.grain >= 1 && !band.fed ? btn : dim} onClick={() => {
-              if (band.fed) { setLine('粥已經施過了。他們沒再伸手 —— 逃難的人也有臉面。'); return; }
-              if (hero.grain < 1) { setLine('你自己的糧也見底了。'); return; }
-              hero.addGrain(-1);
-              useRefugees.getState().feed();
-              const fame = useCalamity.getState().active ? 4 : 2;
-              useHero.setState((s) => ({ renown: s.renown + fame }));
-              setLine('一鍋粥見了底。有個老的朝你作了個長揖,沒說話。');
-              note(day, `施粥一石 · 鄉望 +${fame}`, 'good');
-            }}>
-              施一石粥<span style={{ opacity: .55 }}> · 鄉望</span>
-            </button>
-            <button style={{ ...btn, opacity: .8 }} onClick={() => {
-              useRefugees.getState().leave();
-              useHero.setState((s) => ({ renown: s.renown - 2 }));
-              setLine('他們沒爭辯,收拾起包袱往下游去了。有人回頭看了一眼。');
-              note(day, '把流民趕走了', 'bad');
-            }}>
-              叫他們走<span style={{ opacity: .55 }}> · 村裡人會看在眼裡</span>
-            </button>
-          </div>
-        );
-      })()}
-
-      {place.kind === 'yamen' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
-          {(() => {
-            const q = quest.taken;
-            // 領賞 —— 榜上那一夥已散,錢貨兩清
-            if (q?.errand.patronId === 'yamen' && q.cleared) {
-              return (
-                <button style={{ ...btn, borderColor: '#7fb08a', color: '#a8d4b4' }}
-                  onClick={() => {
-                    const band = useBands.getState().bands.find((b) => b.id === q.errand.bandId);
-                    const merit = band ? bountyMerit(band) : 10;
-                    hero.addGold(q.errand.pay);
-                    hero.addMerit(merit);
-                    quest.drop();
-                    setLine(`主簿數了錢,一枚一枚。「${q.errand.pay} 錢,點清。」 · 功績 +${merit}`);
-                    note(day, `領了懸賞 · ${q.errand.pay} 錢`, 'good');
-                  }}>
-                  領賞 · {q.errand.pay} 錢
-                </button>
-              );
-            }
-            // 貼榜 —— 賊坐大到縣裡壓不住,官府才肯出錢
-            const mark = bountyTarget(useBands.getState().bands, village.order);
-            if (!mark || q) return null;
-            const pay = bountyPay(mark);
-            return (
-              <button style={{ ...btn, borderColor: '#c8a45a', color: '#f0d9a0' }}
-                onClick={() => {
-                  quest.accept({
-                    errand: {
-                      id: `bounty-${mark.id}`, kind: 'bandits', patronId: 'yamen',
-                      tier: 5, wantMen: menNeeded(mark), pay, bandId: mark.id,
-                    },
-                    patronName: '縣衙', bandId: mark.id, cleared: false,
-                    done: 0, need: 1,
-                  });
-                  setLine(`榜文抄给了你。${mark.name} —— ${bandWord(mark)}。活要見人,寨要見平。`);
-                  note(day, `接了縣衙的懸賞:${mark.name}`, 'good');
-                }}>
-                榜上懸賞:{mark.name} · {pay} 錢
-                <span style={{ opacity: .55 }}> · {bandWord(mark)} · 需人 {menNeeded(mark)}</span>
-              </button>
-            );
-          })()}
-          <button style={hero.gold >= PETITION_COST ? btn : dim} onClick={() => {
-            const r = petition({
-              gold: hero.gold, merit: hero.merit, renown: hero.renown,
-              politics: hero.stats.politics, roll: Math.random,
-            });
-            if (!r.ok) { setLine(r.line); return; }
-            hero.spend(PETITION_COST);
-            hero.addMerit(r.merit);
-            if (r.merit) note(day, `縣衙投書 · 功績 +${r.merit}`, 'good');
-            setLine(r.line);
-          }}>
-            投書自薦 · {PETITION_COST} 錢
-            <span style={{ opacity: .55 }}> · 門吏要打點,成不成看你的名聲</span>
-          </button>
-        </div>
-      )}
-
-      {place.kind === 'home' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
-          <span style={{ fontSize: '.8rem', opacity: .7 }}>
-            現在:{LODGING_LABEL[hero.lodging]}
-            {hero.lodging === 'rented' && ` · 租到第 ${hero.rentPaidThrough} 天`}
-          </span>
-          <button style={btn} onClick={() => {
-            const q = restQuality(hero.lodging);
-            // 睡到隔天卯時 —— 不是「加八小時」,是「這一天過去了」
-            const toDawn = ((24 - hour) + 6.2) % 24 || 24;
-            advance(toDawn);
-            useHero.setState({ toil: 0 });
-            if (Math.random() < q.risk) {
-              const lost = Math.min(hero.gold, 3 + Math.round(Math.random() * 12));
-              hero.addGold(-lost);
-              setLine(`睡得不踏實。醒來身上少了 ${lost} 錢。`);
-              note(day, `露宿被摸走 ${lost} 錢`, 'bad');
-            } else {
-              setLine(hero.lodging === 'none'
-                ? '就著草垛睡了一夜,骨頭發僵。'
-                : '睡了一覺,天亮了。');
-            }
-          }}>
-            歇一夜 · 到明日卯時
-          </button>
-          {hero.wounded > 0 && (() => {
-            const gate = canDress(hero, day);
-            return (
-              <button style={gate.ok ? btn : dim} onClick={() => {
-                if (!gate.ok) { setLine(gate.why); return; }
-                hero.dress(day);
-                advance(0.5);
-                setLine(useHero.getState().wounded > 0
-                  ? '把藥搗爛敷上,拿布纏了兩道。松快些了。'
-                  : '換了最後一道藥。傷是好利索了。');
-                note(day, `敷藥 · ${DOSE_SELF} 株`);
-              }}>
-                敷藥 · {DOSE_SELF} 株
-                <span style={{ opacity: .55 }}> · {gate.ok ? '傷好一倍快' : gate.why}</span>
-              </button>
-            );
-          })()}
-          {hero.lodging !== 'owned' && (
-            <button style={hero.gold >= RENT_PER_XUN ? btn : dim} onClick={() => {
-              if (!hero.spend(RENT_PER_XUN)) { setLine('租錢不夠。'); return; }
-              hero.setLodging('rented', day + DAYS_PER_XUN);
-              setLine(`賃下一間,一旬 ${RENT_PER_XUN} 錢。到期會自己扣。`);
-              note(day, '賃了一間屋', 'good');
-            }}>
-              賃屋 · 一旬 {RENT_PER_XUN} 錢
-            </button>
-          )}
-          {hero.lodging !== 'owned' && (
-            <button style={hero.gold >= HOUSE_PRICE ? btn : dim} onClick={() => {
-              if (!hero.spend(HOUSE_PRICE)) { setLine('離買屋還差得遠。'); return; }
-              hero.setLodging('owned');
-              setLine('這間屋從今日起是你的了。');
-              note(day, '置了屋 —— 你在這個縣有了根', 'good');
-            }}>
-              置屋 · {HOUSE_PRICE} 錢
-            </button>
-          )}
-        </div>
-      )}
+      {place.kind === 'home' && <HomePanel {...ctx} />}
 
       <div style={{ display: 'flex' }}>
         <button style={{ ...btn, marginLeft: 'auto', opacity: .8 }} onClick={close}>
