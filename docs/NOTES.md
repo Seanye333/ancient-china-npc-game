@@ -140,14 +140,27 @@ __villagers / __near / __talkTo / __forceBattle / __routBand
 
 ## 五、還沒做的
 
-**大檔案拆分**(唯一還掛著的工程債):
+**大檔案拆分:做完了。** 拆的判準不是行數,是**這個檔裡的東西性質不一樣**:
 
-| 檔案 | 行數 | 大致可以切成 |
+| 原本 | 現在 | 拆成什麼 |
 |---|---|---|
-| `src/game/combat.ts` | 1083 | 型別與狀態 / 開場布陣 / 每步模擬 / 命中與傷害 / 箭 / 收場 |
-| `src/App.tsx` | 773 | 場景樹 / 光與天 / 合成器 / window 把手(那一大坨探針) |
-| `src/ui/PlacePanel.tsx` | 742 | 各場所一個檔 |
-| `src/world/Battle.tsx` | 686 | 遭遇偵測 / 姿態 / 箭的渲染 |
+| `game/combat.ts` 1083 | 754 | + `combat/{types,tuning,state,battlefield,store}` |
+| `App.tsx` 773 | 547 | + `dev/handles.tsx`(那一排 `window.__xxx`) |
+| `ui/PlacePanel.tsx` 742 | 179 | + `ui/places/{Trade,Care,Rest,Civic,ctx}` |
+| `world/Battle.tsx` 686 | 499 | + `world/battle/{Arrows,pose}` |
+
+三條在拆的時候管用的原則:
+
+1. **不要為了行數而拆。** combat 的模擬本體(754 行)沒有拆 ——
+   開場布陣與每一步共用同一組節奏參數和同一顆骰子,硬拆只會讓那條線更難讀。
+2. **整包傳,不要逐項傳。** PlacePanel 那十一塊用一個 `PlaceCtx` 整份遞下去,
+   各自解構自己要的 —— 於是**區塊裡的每一行都原封不動**。
+   拆檔最容易出事的地方就是「順手」動了幾個字。
+3. **舊的 import 路徑一個都不要改。** combat.ts 檔尾補了一整批 re-export。
+   拆檔是給寫這一塊的人方便,不該讓另外二十個檔跟著動。
+
+一個實作上的坑:**ES 模組匯出的 `let` 是唯讀綁定**,匯入的那一邊改不動它。
+`clock` / `rand` 這幾個原本是裸 `let`,拆檔後要收進一個物件(`sim`)才共用得起來。
 
 **清單上唯一沒做的視覺項是 19(植被 LOD)** —— 量過兩次都不值得,
 等它掉出 75Hz 上限再說。
