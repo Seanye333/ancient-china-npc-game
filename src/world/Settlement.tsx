@@ -6,6 +6,7 @@ import {
   registerBlockers, clearBlockers, registerDecks, clearDecks,
   type Blocker, type Deck,
 } from './field';
+import { useClock } from './worldTime';
 import { emptyParts, MATERIALS, pushBox, pushCyl, house, type Bucket } from './build';
 
 /**
@@ -18,6 +19,7 @@ import { emptyParts, MATERIALS, pushBox, pushCyl, house, type Bucket } from './b
 const meanderAt = (z: number) => Math.sin(z * 0.02) * 9 + Math.sin(z * 0.047) * 3.5;
 
 export function Settlement() {
+  const winter = useClock((st) => st.season) === 'winter';
   const { merged, foot, deck } = useMemo(() => {
     const parts = emptyParts();
     // 房子擋鏡頭但不擋人 —— 堂屋前面是敞開的,人走得進去;
@@ -120,7 +122,9 @@ export function Settlement() {
   return (
     <>
       {merged.map(({ key, geom }) => (
-        <mesh key={key} geometry={geom} castShadow receiveShadow>
+        // 積雪那一桶只有冬天掛上去 —— 其餘三季它整桶不畫,零開銷
+        <mesh key={key} geometry={geom} castShadow receiveShadow
+          visible={key !== 'snow' || winter}>
           <meshStandardMaterial {...MATERIALS[key]} />
         </mesh>
       ))}

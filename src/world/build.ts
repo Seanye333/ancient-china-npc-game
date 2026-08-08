@@ -7,11 +7,11 @@ import * as THREE from 'three';
  * BufferGeometry。一座村莊上萬個零件,合完只剩五次 draw call。
  */
 
-export type Bucket = 'stone' | 'mud' | 'wood' | 'tile' | 'paper';
+export type Bucket = 'stone' | 'mud' | 'wood' | 'tile' | 'paper' | 'snow';
 export type Parts = Record<Bucket, THREE.BufferGeometry[]>;
 
 export const emptyParts = (): Parts =>
-  ({ stone: [], mud: [], wood: [], tile: [], paper: [] });
+  ({ stone: [], mud: [], wood: [], tile: [], paper: [], snow: [] });
 
 export const MATERIALS: Record<Bucket, THREE.MeshStandardMaterialParameters> = {
   stone: { color: '#8d8577', roughness: 0.95 },
@@ -19,6 +19,9 @@ export const MATERIALS: Record<Bucket, THREE.MeshStandardMaterialParameters> = {
   wood: { color: '#5d2a1e', roughness: 0.82 },
   tile: { color: '#3a4249', roughness: 0.72 },
   paper: { color: '#d9c79a', roughness: 0.85 },
+  // 積雪 —— 只在冬天掛上去(見 Settlement 的 winter 判斷)。
+  // 粗糙度給滿:雪不反光,一亮就成了塑膠
+  snow: { color: '#e9edf2', roughness: 1 },
 };
 
 function place(g: THREE.BufferGeometry, px: number, py: number, pz: number,
@@ -75,6 +78,26 @@ export function roof(
     const lz = (side * halfD) / 2;
     pushBox(parts, tileBucket, w + eave * 2, 0.14, slopeLen,
       X(0, lz), (topY + ridgeY) / 2, Z(0, lz), side * ang, yaw, 0);
+    /*
+     * 屋頂上的積雪。
+     *
+     * 冬天在這之前只是「地白了、樹變灰了」—— 一片白地上頂著一排青瓦頂,
+     * 看起來不像下過雪,像有人把地板換了。屋頂是雪最先積住的地方。
+     *
+     * 貼在瓦面上、往上抬半個板厚,兩側各<b>收進去一點</b>:
+     * 雪蓋不住簷口的那一圈瓦當,留一道深色的邊,白才壓得住。
+     */
+    /*
+     * 位移要沿著<b>屋面的法線</b>,不是直接往上抬。
+     *
+     * 瓦面是斜的(繞 X 轉了 side·ang),它的法線是 (0, cos, side·sin)。
+     * 只往上抬的話,坡越陡雪離屋面越遠 —— 近看是一塊白板浮在瓦上頭。
+     */
+    const lift = 0.07 + 0.035;
+    pushBox(parts, 'snow', w + eave * 2 - 0.34, 0.07, slopeLen - 0.30,
+      X(0, lz + side * Math.sin(ang) * lift),
+      (topY + ridgeY) / 2 + Math.cos(ang) * lift,
+      Z(0, lz + side * Math.sin(ang) * lift), side * ang, yaw, 0);
     const n = Math.max(5, Math.round(w / 0.42));
     for (let i = 0; i < n; i++) {
       const gx = -(w + eave * 1.7) / 2 + ((w + eave * 1.7) * (i + 0.5)) / n;
@@ -84,6 +107,8 @@ export function roof(
     }
   }
   pushBox(parts, 'wood', w + eave * 2.1, 0.22, 0.24, X(0, 0), ridgeY + 0.10, Z(0, 0), 0, yaw, 0);
+  // 正脊上也積一道 —— 屋脊是整座房子最亮的那條線
+  pushBox(parts, 'snow', w + eave * 1.75, 0.09, 0.26, X(0, 0), ridgeY + 0.21, Z(0, 0), 0, yaw, 0);
   for (const ex of [-1, 1]) {
     pushBox(parts, 'wood', 0.17, 0.26, depth + eave * 2,
       X(ex * (w / 2 + eave * 0.9), 0), (topY + ridgeY) / 2 + 0.08,

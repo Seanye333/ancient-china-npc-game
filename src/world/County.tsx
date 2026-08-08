@@ -1,3 +1,4 @@
+import { useClock } from './worldTime';
 import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -28,6 +29,7 @@ export const COUNTY = { x: 140, z: 124 };
 const R = 26;
 
 export function County() {
+  const winter = useClock((st) => st.season) === 'winter';
   const built = useMemo(() => {
     const parts = emptyParts();
     const rand = rng(90210);
@@ -130,7 +132,8 @@ export function County() {
   return (
     <>
       {built.map(({ key, geom }) => (
-        <mesh key={key} geometry={geom} castShadow receiveShadow>
+        <mesh key={key} geometry={geom} castShadow receiveShadow
+          visible={key !== 'snow' || winter}>
           <meshStandardMaterial {...MATERIALS[key]} />
         </mesh>
       ))}

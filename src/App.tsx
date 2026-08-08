@@ -270,6 +270,13 @@ function Storm({ ambRef, baseAmbient }: {
 }
 
 /** 截圖腳本用的相機把手。原型階段直接掛 window,正式版不會留。 */
+/** 一幀開頭把 info 歸零 —— priority 給負的,讓它排在所有繪製之前。 */
+function GpuInfoReset() {
+  const gl = useThree((s) => s.gl);
+  useFrame(() => gl.info.reset(), -1000);
+  return null;
+}
+
 function CamBridge() {
   const { camera, controls, gl, scene } = useThree() as unknown as {
     camera: THREE.PerspectiveCamera;
@@ -292,6 +299,14 @@ function CamBridge() {
     // 驗收腳本要問時間、存讀檔、走到某個場所 —— 都是原型階段的把手
     (window as unknown as Record<string, unknown>).__clock = () => useClock.getState();
     (window as unknown as Record<string, unknown>).__renderInfo = () => gl.info.render.calls;
+    // 量成本要看三樣:畫幾次、幾個三角形、幾個程式。只看一樣會找錯瓶頸
+    (window as unknown as Record<string, unknown>).__gpu = () => ({
+      calls: gl.info.render.calls,
+      tris: gl.info.render.triangles,
+      programs: gl.info.programs?.length ?? 0,
+      geometries: gl.info.memory.geometries,
+      textures: gl.info.memory.textures,
+    });
     (window as unknown as Record<string, unknown>).__nav = (
       x0: number, z0: number, x1: number, z1: number,
     ) => ({ path: findPath(x0, z0, x1, z1), stats: navStats() });
@@ -494,6 +509,15 @@ export default function App() {
         gl={{ antialias: false, powerPreference: 'high-performance' }}
         onCreated={({ gl, scene }) => {
           gl.toneMapping = THREE.AgXToneMapping;
+          /*
+           * 自己管 info 的歸零。
+           *
+           * 預設每次 render 都清一次,而合成器一幀要 render 好幾遍 ——
+           * 於是從外面讀到的永遠是<b>最後那一道全屏 pass</b>:1 個 draw、0 個三角形。
+           * 我照著這個數字差點斷定「植被不花錢」。改成一幀開頭清一次,
+           * 讀到的才是整幀的總帳。
+           */
+          gl.info.autoReset = false;
           scene.fog = new THREE.FogExp2(0xb9c9d8, 0.0018);
         }}
       >
@@ -561,6 +585,7 @@ export default function App() {
         </EffectComposer>
 
         <AdaptiveDpr />
+        <GpuInfoReset />
         <CamBridge />
       </Canvas>
       {!started && <Title onStart={() => setStarted(true)} />}

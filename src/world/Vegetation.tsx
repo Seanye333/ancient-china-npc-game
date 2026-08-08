@@ -204,6 +204,31 @@ function scatter(seed: number, count: number, pick: (x: number, z: number) => nu
   return out;
 }
 
+/**
+ * 光禿的枝椏 —— 冬天的落葉樹。
+ *
+ * 在這之前,冬天只是把樹冠換成灰褐色 —— 一片雪地上頂著一樹「灰葉子」,
+ * 看起來不像冬天,像秋天調暗了。落葉樹在雪裡是<b>光杆</b>,
+ * 而那個剪影本身就是「冷」。
+ *
+ * 七根從樹心岔開、越往外越細的枝就夠。遠看是剪影,不是植物圖鑑。
+ */
+function baresGeom(): THREE.BufferGeometry {
+  const gs: THREE.BufferGeometry[] = [];
+  const r = rng(5150);
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 7) * Math.PI * 2 + r() * 0.5;
+    const lift = 0.35 + r() * 0.55;
+    const len = 1.5 + r() * 1.1;
+    const g = new THREE.CylinderGeometry(0.055, 0.015, len, 4);
+    g.translate(0, len / 2, 0);
+    g.rotateX(-lift);
+    g.rotateY(a);
+    gs.push(g);
+  }
+  return mergeGeometries(gs, false)!;
+}
+
 function useInstances(
   items: Placement[],
   yOffset: (p: Placement) => number,
@@ -368,14 +393,22 @@ export function BroadLeaf() {
     return (q: Placement) => jitteredColor(p.broadleaf, q.x, q.z, 0.018, 0.12, 0.11);
   }, [p, season]);
   useInstanceColors(crown, items, colorOf);
+  const bare = useInstances(items, () => 2.25);
+  const bareGeom = useMemo(() => baresGeom(), []);
   return (
     <>
       <instancedMesh ref={trunk} args={[undefined, undefined, items.length]} castShadow>
         <cylinderGeometry args={[0.16, 0.24, 1.7, 5]} />
         <meshStandardMaterial color="#42311f" roughness={0.94} ref={applyNearFade} />
       </instancedMesh>
-      <instancedMesh ref={crown} args={[undefined, undefined, items.length]} geometry={broadCrownGeom} castShadow>
+      <instancedMesh ref={crown} args={[undefined, undefined, items.length]}
+        geometry={broadCrownGeom} castShadow visible={season !== 'winter'}>
         <meshStandardMaterial color="#ffffff" roughness={0.88} flatShading ref={broadSway} />
+      </instancedMesh>
+      {/* 冬天落葉:樹冠整批不畫,換上光禿的枝椏。同一批位置、同一份矩陣 */}
+      <instancedMesh ref={bare} args={[undefined, undefined, items.length]}
+        geometry={bareGeom} castShadow visible={season === 'winter'}>
+        <meshStandardMaterial color="#4a3b2c" roughness={0.95} ref={broadSway} />
       </instancedMesh>
     </>
   );

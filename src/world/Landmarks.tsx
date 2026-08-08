@@ -1,3 +1,4 @@
+import { useClock } from './worldTime';
 import { useMemo } from 'react';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -152,6 +153,7 @@ function watchtower(parts: Parts, cx: number, cz: number, g: number, yaw: number
 }
 
 export function Landmarks() {
+  const winter = useClock((st) => st.season) === 'winter';
   const merged = useMemo(() => {
     const parts = emptyParts();
     const rand = rng(8899);
@@ -193,7 +195,8 @@ export function Landmarks() {
   return (
     <>
       {merged.map(({ key, geom }) => (
-        <mesh key={`lm-${key}`} geometry={geom} castShadow receiveShadow>
+        <mesh key={`lm-${key}`} geometry={geom} castShadow receiveShadow
+          visible={key !== 'snow' || winter}>
           <meshStandardMaterial {...MATERIALS[key]} />
         </mesh>
       ))}
