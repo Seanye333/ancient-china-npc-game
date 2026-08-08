@@ -1,5 +1,18 @@
-import { create } from 'zustand';
 import { pickShield } from './oath';
+import type { Fighter, Recruit, BandSpec, BattleTally, Side } from './combat/types';
+import {
+  fighters, arrows, arrowTally, stuckArrows, guardTally, flankTally, fx,
+  alive, fighterAt, impacts,
+} from './combat/types';
+import { sim } from './combat/state';
+import { addImpact, layDown } from './combat/battlefield';
+import { useBattle } from './combat/store';
+import {
+  REACH, SWING, HIT_AT, RECOVER, MOVE, FLEE,
+  BOW_RANGE, BOW_KEEP, BOW_COOL, ARROW_SPEED, ARROW_G,
+  SURROUND_PENALTY, SURROUND_CAP, FLANK_BONUS, FLANK_MORALE,
+  MAX_ATTACKERS, STALE_AFTER,
+} from './combat/tuning';
 
 /**
  * 打架 — 這個遊戲最險的一塊。
@@ -16,322 +29,17 @@ import { pickShield } from './oath';
  *
  * 這個檔<b>不碰 three.js</b>:只算位置與生死,誰來畫是另一回事。
  * 位置逐幀變,所以走模組級可變陣列,不進 store —— 進 store 就是每幀重繪整棵樹。
+ *
+ * 這個檔留的是<b>模擬本身</b>:開場布陣、每一步走位與出手、命中與傷害、箭、收場。
+ * 拆出去的五塊各有各的理由:型別 types、調參 tuning、跨檔狀態 state、
+ * 打完留在地上的 battlefield、低頻狀態 store —— 而模擬<b>沒有拆</b>:
+ * 開場與每一步共用同一組節奏參數與同一顆骰子,拆開只會讓那條線更難讀。
+ *
+ * 舊的 import 路徑一個都沒變:這個檔同時是那五塊的出口(見檔尾的 re-export)。
  */
-
-export type Side = 'you' | 'foe';
-
-export type Stance =
-  | 'closing'    // 逼近
-  | 'engaged'    // 接上了,互砍
-  | 'striking'   // 正在出手
-  | 'reeling'    // 挨了一下
-  | 'fleeing'    // 心散了,轉身跑
-  | 'down';      // 倒了
-
-export interface Fighter {
-  id: string;
-  side: Side;
-  name: string;
-  /** 伙伴對應的村民 id — 戰後要按這個算誰傷了誰沒回來。 */
-  npcId?: string;
-  /** 頭目 — 倒下會動搖整夥人。 */
-  chief?: boolean;
-  x: number; y: number; z: number; yaw: number;
-  hp: number; maxHp: number;
-  war: number;
-  morale: number;
-  targetId: string | null;
-  /** 出手冷卻,秒。 */
-  cool: number;
-  stance: Stance;
-  /** 動作相位 0..1 — 給渲染做揮砍與踉蹌,邏輯不看它。 */
-  phase: number;
-  /** 主角本人 —— 血厚一點、不會自己嚇跑、收場要單獨記一筆。 */
-  isPlayer: boolean;
-  /**
-   * 位置與出手<b>由外面推</b>(真人在鍵盤那頭),模擬不要碰他。
-   *
-   * 和 isPlayer 分開,是因為這兩件事只是<b>平常</b>同時成立。合在一起寫的時候,
-   * 空跑的場子裡主角就成了一尊木頭:不動、不揮刀,還照樣吸引兩個賊來砍 ——
-   * 於是「白身帶兩個村民打兩個毛賊」量出 4% 勝率,而那個數字量的其實是
-   * 我的測試少了一個人,不是遊戲難。
-   */
-  driven: boolean;
-  /** 兵器夠得著的距離。人各一把 —— 拳腳要貼上去,矛隔一步就戳得到。 */
-  reach: number;
-  /** 兵器的傷害係數。 */
-  dmgMul: number;
-  /** 最後一次挨打的時刻,用來閃紅。 */
-  hurtAt: number;
-  /**
-   * 最後一次<b>擋掉/閃開</b>一刀的時刻,以及是怎麼躲的。
-   *
-   * 從前一刀沒中就是 `return` —— 邏輯上正確,畫面上是<b>一片空白</b>:
-   * 兩個人面對面揮了十幾刀,只有其中三四刀看得出發生過事,
-   * 其餘全是「揮空了」。可那些多半不是揮空,是被架開的。
-   * 把「沒中」分成擋與閃,同一組數字就多出一半看得見的攻防。
-   *
-   * <b>數值一分不動</b> —— 命中率的算式完全沒碰,擲出來沒中的那些
-   * 只是從此有了樣子。平衡鎖(combat.balance.test.ts)因此一動不動。
-   */
-  guardAt: number;
-  guardKind: 'parry' | 'dodge' | null;
-  /**
-   * 弓手 —— 大寨才有(見 beginBattle)。隔著十來步放箭,你逼近他就退。
-   *
-   * 他改變的不是數值,是<b>玩家的腳</b>:近戰誰站著誰吃虧只在圍毆裡成立,
-   * 有弓的場子裡「站著不動」本身就是挨箭的姿勢。箭有飛行時間,
-   * 側著跑就躲得開 —— 這是整個戰鬥第一個逼你走位的東西。
-   */
-  bow?: boolean;
-  /**
-   * 義兄弟 —— 他會替你擋那一刀(見 applyHit)。
-   *
-   * 由外面填而不是在這裡查 oath 的狀態:戰鬥是純邏輯,空跑的場子要能
-   * 單獨擺出「帶一個義弟」和「帶一個雇工」兩組來比。
-   */
-  sworn?: boolean;
-}
-
-/** 一支在飛的箭。命中判定在 stepArrows —— 躲箭靠腳,不靠擲骰。 */
-export interface Arrow {
-  x: number; y: number; z: number;
-  vx: number; vy: number; vz: number;
-  side: Side;
-  dmg: number;
-  life: number;
-}
-
-export const arrows: Arrow[] = [];
-/** 放過幾箭 —— 渲染端靠它配弓弦聲,測試靠它驗「弓手真的在射」。 */
-export const arrowTally = { loosed: 0 };
-
-/** 脫靶插在地上的箭 —— 打完一場,地上要留得下痕跡。 */
-export interface StuckArrow {
-  x: number; y: number; z: number;
-  dx: number; dy: number; dz: number;
-  life: number;
-}
-export const stuckArrows: StuckArrow[] = [];
-
-/** 場上所有人 — 高頻資料,每幀動。 */
-export const fighters: Fighter[] = [];
-
-/**
- * 打在身上的那一下 —— 火花、血點。
- *
- * 和 fighters 一樣走模組級陣列:一場架一秒鐘可以有十幾下,
- * 每一下都進 store 的話,zustand 一秒要通知渲染樹十幾次。
- */
-export interface Impact {
-  x: number; y: number; z: number;
-  /** 打過來的方向(單位向量的 xz)—— 火花與血要往這個方向濺。 */
-  dx: number; dz: number;
-  t: number;
-  /** 擋掉的是火星(金屬相擊),打中的是血。 */
-  kind: 'spark' | 'blood';
-}
-export const impacts: Impact[] = [];
-const IMPACT_CAP = 40;
-
-/** 從 (fx,fz) 打到 tgt 身上 —— 濺出去的方向就是這一擊來的方向。 */
-function addImpact(fx: number, fz: number, tgt: Fighter, kind: Impact['kind']) {
-  const d = Math.hypot(tgt.x - fx, tgt.z - fz) || 1;
-  if (impacts.length >= IMPACT_CAP) impacts.shift();
-  impacts.push({
-    // 打在胸口高度,不是腳下 —— 火花從地上冒出來很怪
-    x: (fx + tgt.x) / 2, y: tgt.y + 0.85, z: (fz + tgt.z) / 2,
-    dx: (tgt.x - fx) / d, dz: (tgt.z - fz) / d, t: clock, kind,
-  });
-}
-
-/**
- * 倒在地上的人 —— <b>打完了還留著</b>。
- *
- * 從前一場打完,fighters 整個清空,屍首跟著消失:你走回頭看那片草地,
- * 什麼都沒發生過。一個把「死」寫進日誌、寫進仇家名單的遊戲,
- * 地上卻乾乾淨淨,那是最說不通的一處。
- *
- * 存的是 day 而不是秒:屍首躺幾天,由曆法決定,不由這一局的計時器。
- */
-export interface Corpse {
-  x: number; y: number; z: number; yaw: number;
-  side: Side;
-  chief: boolean;
-  /** 倒下那天。過幾天就收走了 —— 村裡會有人來埋。 */
-  day: number;
-}
-export const corpses: Corpse[] = [];
-/** 躺幾天。三天:夠你打完一趟回來看見,又不會積成一片亂葬崗。 */
-export const CORPSE_DAYS = 3;
-const CORPSE_CAP = 24;
-
-/** 地上的血漬 —— 比屍首留得久一點,雨會沖淡(渲染端管淡)。 */
-export interface Stain { x: number; y: number; z: number; r: number; day: number }
-export const stains: Stain[] = [];
-const STAIN_CAP = 32;
-
-/** 今天過去了 —— 收走該收的屍首。由 daily 的結算呼叫。 */
-export function ageBattlefield(day: number) {
-  for (let i = corpses.length - 1; i >= 0; i--) {
-    if (day - corpses[i].day >= CORPSE_DAYS) corpses.splice(i, 1);
-  }
-  for (let i = stains.length - 1; i >= 0; i--) {
-    if (day - stains[i].day >= CORPSE_DAYS * 2) stains.splice(i, 1);
-  }
-}
-
-/** 有人倒下 —— 留一具屍首、一攤血。 */
-function layDown(f: Fighter, day: number) {
-  if (corpses.length >= CORPSE_CAP) corpses.shift();
-  corpses.push({ x: f.x, y: f.y, z: f.z, yaw: f.yaw, side: f.side, chief: !!f.chief, day });
-  if (stains.length >= STAIN_CAP) stains.shift();
-  stains.push({ x: f.x, y: f.y, z: f.z, r: 0.5 + Math.random() * 0.35, day });
-}
-
-/**
- * 今天是第幾天 —— 由外面設。
- *
- * combat.ts 不 import 世界時鐘(它是純邏輯,空跑一千場不該需要一個 store),
- * 所以日子是<b>餵進來</b>的。beginBattle 收一次就夠:一場架不會跨日。
- */
-let battleDay = 0;
-
-/** 擋了幾刀、閃了幾刀、中了幾刀 —— 空跑要驗「這三個數加起來等於出手數」。 */
-export const guardTally = { parries: 0, dodges: 0, hits: 0 };
-
-/**
- * 這一場打了多久(秒)。
- *
- * <b>凡是和 hurtAt / guardAt / impact.t 比的,都得用這個</b>,
- * 不能拿 three 的 clock.elapsedTime。兩者不是同一條時間軸:
- * 這一條每開一場架就歸零,那一條從開網頁那一刻起一路加上去。
- *
- * 為什麼特地寫下來:渲染端原本就是拿 elapsedTime 去減 hurtAt 的,
- * 於是「挨打閃一下」和命中的聲音<b>從來沒有發生過</b> ——
- * 條件是 `elapsedTime - hurtAt < 0.05`,而左邊在開場一分鐘後就是 60,
- * 永遠不可能小於 0.05。畫面上什麼都沒有,又不會報錯,
- * 所以它安安靜靜地壞了很久(是這一批加火花時才被抓到的:
- * 火花一顆都不出現,而屍首確實在增加)。
- */
-export function battleTime(): number {
-  return clock;
-}
-
-/**
- * 上一次有人挨刀是什麼時候。
- *
- * 用來拆<b>僵局</b>:兩邊都還站著,可是誰也打不到誰 —— 最後一個賊縮在柵欄後面,
- * 我方三個人在外頭繞,而戰鬥沒有尋路(只有貼著障礙滑),於是永遠不會結束。
- * 這種局面在畫面上看起來就是「大家站著發呆」,而且不會自己好。
- *
- * 真人遇到這種情況會走開。所以超過一段時間沒人挨到一刀,士氣就開始垮 ——
- * 這一場架自己就散了。比起特判「誰卡住了」,這個做法對所有卡法都成立。
- */
-let lastBlow = 0;
-const STALE_AFTER = 25;
-
-/**
- * 打擊感的兩個旋鈕 —— 命中頓一下(hit-stop),放倒一個慢半拍(殺招慢鏡)。
- *
- * 高頻資料,和 fighters 一樣走模組級。渲染端(Battle/Player)每幀讀,
- * 邏輯端只負責在「打中了」的那一刻擰上去。
- *
- * 慢的只有<b>戰鬥模擬</b>,玩家自己的移動不慢 —— 放倒最後一個的那半秒,
- * 全場都凝住而你還能動,那半秒就是「是我砍倒他的」。
- */
-export const fx = {
-  slow: 0, shake: 0, finisher: 0,
-  /** 這一場有沒有人替你擋過刀,擋的是誰 —— 收場那一頁要點名。 */
-  shielded: null as string | null,
-};
-
-/**
- * 打鬥的節奏參數 —— 調這裡就能改「一場架有多長」。
- *
- * 這幾個數字是<b>空跑一千場調出來的</b>,不是看畫面調的:
- * 第一版四打六在四秒內全滅、對方一個沒倒,眼睛看只覺得「輸了」,
- * 跑一遍模擬才知道是傷害過高 + 士氣根本沒發作。見 combat.balance.test.ts。
- */
-export const REACH = 1.35;          // 兵器夠得著的距離
-const SWING = 0.55;                 // 一次揮砍的長度
-const HIT_AT = 0.42;                // 揮到這個相位判定命中
-const RECOVER = 0.62;               // 收招
-const MOVE = 2.5;                   // 接敵的腳程
-const FLEE = 4.6;                   // 逃命跑得比誰都快
-
-/**
- * 弓的參數 —— 和近戰一樣是空跑調的,見 combat.balance.test.ts。
- * 箭速決定「躲不躲得開」:十來步的距離飛過來要大半秒,
- * 側著跑兩步就讓過去了;站樁的人(和直線衝鋒的同伴)才會挨。
- */
-const BOW_RANGE = 15;               // 這個距離內才射
-const BOW_KEEP = 5.0;               // 逼近到這裡他就往後退
-const BOW_COOL = 2.6;               // 兩箭之間
-const ARROW_SPEED = 15;
-const ARROW_G = 7;                  // 拋物線的墜 — 樣式化的重力,別當物理讀
-
-/**
- * 圍攻:每多一個人貼著你,閃避就掉一截 —— 人數的價值在這裡。
- * 要封頂,否則五個打一個等於一刀一個,人數會從「優勢」變成「開關」。
- */
-const SURROUND_PENALTY = 0.10;
-const SURROUND_CAP = 0.20;
-/**
- * 從背後砍的加成。
- *
- * 「人多」在這之前只是一個命中加值(SURROUND),而人多真正的用處是<b>繞到後面去</b>——
- * 一個人只有一張臉,同時招呼兩個方向就是不行。分開成兩件事以後,
- * 帶人打架第一次有了「怎麼打」而不只是「帶幾個」。
- */
-const FLANK_BONUS = 0.16;
-/** 被人從背後招呼,士氣掉得比正面快 —— 亂起來的都是後排。 */
-const FLANK_MORALE = 6;
-/**
- * 只給空跑用:量「背後那一下」到底占所有攻擊的幾成。
- *
- * 留著是因為它問倒過一次設計 —— 一個看起來很對的機制,量出來只有 1%,
- * 而它的代價有八個百分點的勝率。往這附近加東西之前,先跑 tools/sim/measure.ts。
- */
-export const flankTally = { hits: 0, blows: 0 };
-
-let rand: () => number = Math.random;
-let clock = 0;
-
-export function fighterAt(id: string): Fighter | undefined {
-  return fighters.find((f) => f.id === id);
-}
-
-export const alive = (f: Fighter) => f.stance !== 'down' && f.stance !== 'fleeing';
 
 /* ── 開打 ────────────────────────────────────────────── */
 
-export interface BandSpec {
-  id: string;
-  x: number; z: number;
-  /** 這夥人的兇悍程度,0..1 — 決定武力與士氣。 */
-  fierce: number;
-  count: number;
-}
-
-export interface Recruit {
-  id: string;
-  name: string;
-  npcId?: string;
-  war: number;
-  isPlayer?: boolean;
-  /** 由外面推嗎。省略時等同 isPlayer —— 真人在鍵盤那頭是常態,空跑的場子才要另說。 */
-  driven?: boolean;
-  /** 手上的傢伙。省略 = 尋常的刀(1.35 / 1.0)。bow = 空白鍵放的是箭。 */
-  weapon?: { reach: number; dmgMul: number; bow?: boolean };
-  /** 結過義的 —— 你要倒下的那一下,他頂上去。 */
-  sworn?: boolean;
-}
-
-/**
- * 擺開陣勢。雙方隔開一段距離對面站,而不是一開始就抱在一起 ——
- * 那幾秒的逼近是這場架唯一的「前搖」,少了它,遭遇戰會像被偷襲。
- */
 export function beginBattle(input: {
   ours: Recruit[];
   band: BandSpec;
@@ -353,15 +61,15 @@ export function beginBattle(input: {
   day?: number;
   rng?: () => number;
 }) {
-  rand = input.rng ?? Math.random;
-  clock = 0;
-  lastBlow = 0;
+  sim.rand = input.rng ?? Math.random;
+  sim.clock = 0;
+  sim.lastBlow = 0;
   fighters.length = 0;
   arrows.length = 0;
   arrowTally.loosed = 0;
   impacts.length = 0;
   guardTally.parries = 0; guardTally.dodges = 0; guardTally.hits = 0;
-  battleDay = input.day ?? battleDay;
+  sim.day = input.day ?? sim.day;
   fx.shielded = null;
   // 屍首與血漬<b>不清</b> —— 那是上一場留下的,清了就等於沒留過
 
@@ -400,7 +108,7 @@ export function beginBattle(input: {
     const z = band.z - Math.sin(toBand) * off + Math.cos(toBand) * back;
     // 賊是烏合之眾:單論身手不如你的人,可怕的是<b>數量</b>。
     // 第一版把他們調得比村民還能打,於是三打三只有一成勝率 —— 那不叫難,叫沒得打。
-    const war = Math.round(24 + band.fierce * 36 + (chief ? 8 : 0) + rand() * 9);
+    const war = Math.round(24 + band.fierce * 36 + (chief ? 8 : 0) + sim.rand() * 9);
     const f = mk({
       id: `${band.id}-${i}`, side: 'foe', name: bow ? '弓手' : chief ? '賊首' : '山賊',
       chief, x, z, y: ground(x, z), yaw: toBand + Math.PI,
@@ -421,9 +129,9 @@ export function beginBattle(input: {
        * 睡夢裡挨刀的人也醒得快 —— 挨打會立刻清醒(見 hurtAt 那條)。
        */
       f.morale -= 20;
-      f.cool = 1.6 + i * 2.0 + rand() * 1.2;
-      f.x += (rand() - 0.5) * 7;           // 各睡各的,不是列隊等你
-      f.z += (rand() - 0.5) * 7;
+      f.cool = 1.6 + i * 2.0 + sim.rand() * 1.2;
+      f.x += (sim.rand() - 0.5) * 7;           // 各睡各的,不是列隊等你
+      f.z += (sim.rand() - 0.5) * 7;
       f.y = ground(f.x, f.z);
     }
     fighters.push(f);
@@ -443,7 +151,7 @@ function mk(p: {
   return {
     ...p,
     hp, maxHp: hp,
-    targetId: null, cool: 0.4 + rand() * 0.5, stance: 'closing',
+    targetId: null, cool: 0.4 + sim.rand() * 0.5, stance: 'closing',
     phase: 0, hurtAt: -9, guardAt: -9, guardKind: null,
   };
 }
@@ -459,7 +167,7 @@ export function stepBattle(
   ground: (x: number, z: number) => number,
   slide: (x: number, z: number, nx: number, nz: number) => { x: number; z: number },
 ) {
-  clock += dt;
+  sim.clock += dt;
 
   for (const f of fighters) {
     if (f.stance === 'down') continue;
@@ -486,7 +194,7 @@ export function stepBattle(
       // 直接覆寫會把 BOW_COOL 洗成收招的 0.7 秒,弓手就成了機關枪
       if (f.phase >= 1) {
         f.stance = 'engaged'; f.phase = 0;
-        f.cool = Math.max(f.cool, RECOVER + rand() * 0.35);
+        f.cool = Math.max(f.cool, RECOVER + sim.rand() * 0.35);
       }
       continue;
     }
@@ -514,7 +222,7 @@ export function stepBattle(
           f.yaw = Math.atan2(dx, dz);
           if (f.cool <= 0 && d <= BOW_RANGE) {
             loose(f, foe, d);
-            f.cool = BOW_COOL + rand() * 0.9;
+            f.cool = BOW_COOL + sim.rand() * 0.9;
             continue;
           }
           if (d < BOW_KEEP) {
@@ -612,8 +320,8 @@ export function stepBattle(
 function loose(f: Fighter, tgt: Fighter, d: number) {
   const t = d / ARROW_SPEED;
   const spread = 0.4 + d * 0.055;
-  const ax = tgt.x + (rand() - 0.5) * spread;
-  const az = tgt.z + (rand() - 0.5) * spread;
+  const ax = tgt.x + (sim.rand() - 0.5) * spread;
+  const az = tgt.z + (sim.rand() - 0.5) * spread;
   const y0 = f.y + 1.35;
   const ty = tgt.y + 0.95;
   arrows.push({
@@ -624,7 +332,7 @@ function loose(f: Fighter, tgt: Fighter, d: number) {
     side: f.side,
     // 一箭要配得上他頂替的那把刀:第一版 5.5+0.09war,空跑出來「有弓的寨
     // 比沒弓的好打十五個點」;「退著也放」之後又收回一點,不然需人承諾壓線
-    dmg: (7.2 + f.war * 0.11) * (0.75 + rand() * 0.5),
+    dmg: (7.2 + f.war * 0.11) * (0.75 + sim.rand() * 0.5),
     life: 2.4,
   });
   arrowTally.loosed++;
@@ -688,8 +396,6 @@ function segDist(
  * 多一個賊就從有得打變成毫無指望);讓多出來的人排隊,優勢就回到線性,
  * 玩家才判斷得出「這一夥我還吃不吃得下」。
  */
-const MAX_ATTACKERS = 2;
-
 function pickTarget(f: Fighter): Fighter | null {
   let best: Fighter | null = null;
   let bestD = Infinity;
@@ -757,7 +463,7 @@ export function playerStrike(id: string): boolean {
       vz: Math.cos(f.yaw) * ARROW_SPEED,
       side: f.side,
       // 和 loose() 同一條傷害式 —— 誰放的箭都是箭
-      dmg: (7.2 + f.war * 0.11) * (0.75 + rand() * 0.5),
+      dmg: (7.2 + f.war * 0.11) * (0.75 + sim.rand() * 0.5),
       life: 2.0,
     });
     arrowTally.loosed++;
@@ -791,7 +497,7 @@ function resolveStrike(f: Fighter) {
   const reachEdge = (f.reach - tgt.reach) * 0.22;
   const chance = clampf(
     0.44 + (f.war - tgt.war) / 190 + crowd + flank + reachEdge, 0.15, 0.90);
-  if (rand() > chance) {
+  if (sim.rand() > chance) {
     /*
      * 沒中 —— 但沒中<b>也有樣子</b>。
      *
@@ -801,7 +507,7 @@ function resolveStrike(f: Fighter) {
      * 擲出來沒中的那些只是從此看得見。
      */
     const canParry = tgt.stance === 'engaged' || tgt.stance === 'striking';
-    tgt.guardAt = clock;
+    tgt.guardAt = sim.clock;
     tgt.guardKind = canParry ? 'parry' : 'dodge';
     if (canParry) {
       guardTally.parries++;
@@ -816,7 +522,7 @@ function resolveStrike(f: Fighter) {
   }
   guardTally.hits++;
 
-  applyHit(tgt, (6.5 + f.war * 0.10) * f.dmgMul * (0.75 + rand() * 0.6), f.x, f.z);
+  applyHit(tgt, (6.5 + f.war * 0.10) * f.dmgMul * (0.75 + sim.rand() * 0.6), f.x, f.z);
   // 背後挨的那一下另外掉士氣 —— 「被包了」該是感覺得到的
   if (flank > FLANK_BONUS * 0.6 && alive(tgt)) {
     tgt.morale -= FLANK_MORALE;
@@ -838,7 +544,7 @@ function resolveStrike(f: Fighter) {
  * 而箭走的是另一條路。凡是掉血的地方只有一處,血就只該畫在那一處。
  */
 function applyHit(tgt: Fighter, dmg: number, fromX?: number, fromZ?: number) {
-  lastBlow = clock;
+  sim.lastBlow = sim.clock;
   if (fromX !== undefined && fromZ !== undefined) {
     addImpact(fromX, fromZ, tgt, 'blood');
   }
@@ -857,11 +563,11 @@ function applyHit(tgt: Fighter, dmg: number, fromX?: number, fromZ?: number) {
       guard.hp = 0;
       guard.stance = 'down';
       guard.phase = 0;
-      layDown(guard, battleDay);
+      layDown(guard, sim.day);
       // 他把你推開了。留下的不能只是一口氣 —— 空跑出來的:
       // 撈回一成八的血,下一刀照樣要你的命,倒地率一個點都沒動
       tgt.hp = Math.max(1, tgt.maxHp * 0.35);
-      tgt.hurtAt = clock;
+      tgt.hurtAt = sim.clock;
       fx.slow = 0.85;
       fx.shake = Math.max(fx.shake, 0.7);
       /*
@@ -881,7 +587,7 @@ function applyHit(tgt: Fighter, dmg: number, fromX?: number, fromZ?: number) {
     }
   }
   tgt.hp -= dmg;
-  tgt.hurtAt = clock;
+  tgt.hurtAt = sim.clock;
   // 睡夢裡挨刀的人也醒了 —— 不清這個 cool,他會站著挨砍到排程醒來,像個木樁
   if (tgt.cool > 1.2) tgt.cool = 0.6;
   // 命中頓一下;自己挨打晃得比打中人狠 —— 疼要疼在鏡頭上
@@ -891,7 +597,7 @@ function applyHit(tgt: Fighter, dmg: number, fromX?: number, fromZ?: number) {
     tgt.hp = 0;
     tgt.stance = 'down';
     tgt.phase = 0;
-    layDown(tgt, battleDay);
+    layDown(tgt, sim.day);
     // 放倒一個 —— 慢半拍,讓那一下看得清
     fx.slow = 0.42;
     fx.shake = Math.max(fx.shake, 0.45);
@@ -941,7 +647,7 @@ function shakeMorale(fallen: Fighter) {
 
 function reapAndRally() {
   // 開場前幾秒不許跑 —— 他們是衝著你來的,不會照面就散
-  if (clock < 2.5) return;
+  if (sim.clock < 2.5) return;
   for (const f of fighters) {
     if (!alive(f)) continue;
     // 自己傷得重也會怕
@@ -951,8 +657,8 @@ function reapAndRally() {
     // 照附近算的話,對面老遠看見你們四個站成一排就掉頭跑了,架根本打不起來。
     const pinned = attackersOn(f, '');
     // 僵住太久,膽氣就一路垮下去 —— 打不到人的架,誰都不會一直站在那裡
-    const stale = clock - lastBlow > STALE_AFTER
-      ? (clock - lastBlow - STALE_AFTER) * 6
+    const stale = sim.clock - sim.lastBlow > STALE_AFTER
+      ? (sim.clock - sim.lastBlow - STALE_AFTER) * 6
       : 0;
     const nerve = -stale + f.morale
       + (hurt < 0.32 ? -30 : hurt < 0.55 ? -14 : 0)
@@ -976,22 +682,6 @@ function center() {
 
 /* ── 收場 ────────────────────────────────────────────── */
 
-export interface BattleTally {
-  won: boolean;
-  /** 你這邊倒下的人(npcId)。 */
-  fell: string[];
-  /**
-   * 你這邊嚇跑的人(npcId)。人還在,只是那一場沒撐住 ——
-   * 這和「沒回來」是兩件事,收場的時候要分開講。
-   */
-  scattered: string[];
-  /** 打倒的賊。 */
-  foesDown: number;
-  /** 跑掉的賊。 */
-  foesFled: number;
-  playerDown: boolean;
-}
-
 /** 還在打嗎 — 一方全倒或全跑就結束。 */
 export function battleOver(): BattleTally | null {
   const ours = fighters.filter((f) => f.side === 'you');
@@ -1013,44 +703,6 @@ export function battleOver(): BattleTally | null {
 const clampf = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
 const wrapPi = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
-/* ── 低頻狀態(進 store) ─────────────────────────────── */
-
-interface BattleState {
-  /** 正在打的那夥人的 id,null = 沒在打。 */
-  bandId: string | null;
-  /**
-   * 切磋 —— 點到為止的打。
-   *
-   * 和真打共用整個戰鬥系統(走位、揮刀、士氣、姿態全部一樣),
-   * 只在<b>收場</b>那一刻分岔:沒有戰利品、沒有折損、輸了不掉錢不受傷。
-   * 對面認輸(逃)或倒地都算分出勝負 —— 倒地在切磋裡是「被放倒」,不是死。
-   */
-  sparring: boolean;
-  /** 切磋的對手(npcId)—— 收場要記人情。 */
-  sparWith: string | null;
-  /** 這一場是夜襲 —— HUD 要說一句,收場的文案也不一樣。 */
-  nightRaid: boolean;
-  tally: BattleTally | null;
-  open: (bandId: string) => void;
-  finish: (t: BattleTally) => void;
-  clear: () => void;
-}
-
-export const useBattle = create<BattleState>((set) => ({
-  bandId: null,
-  sparring: false,
-  sparWith: null,
-  nightRaid: false,
-  tally: null,
-  open: (bandId) => set({ bandId, tally: null, sparring: false, sparWith: null, nightRaid: false }),
-  finish: (tally) => set({ tally }),
-  clear: () => {
-    fighters.length = 0;
-    arrows.length = 0;
-    set({ bandId: null, tally: null, sparring: false, sparWith: null, nightRaid: false });
-  },
-}));
-
 /**
  * 開一場切磋。單挑 —— 你的人不上,他的臉面也不許別人上。
  */
@@ -1060,9 +712,9 @@ export function beginSpar(input: {
   at: { x: number; z: number };
   ground: (x: number, z: number) => number;
 }) {
-  rand = Math.random;
-  clock = 0;
-  lastBlow = 0;
+  sim.rand = Math.random;
+  sim.clock = 0;
+  sim.lastBlow = 0;
   fighters.length = 0;
   arrows.length = 0;
   const { at, ground } = input;
@@ -1081,3 +733,22 @@ export function beginSpar(input: {
   }));
   useBattle.setState({ bandId: 'spar', tally: null, sparring: true, sparWith: input.foe.npcId });
 }
+
+/* ── 出口 ──────────────────────────────────────────────
+ *
+ * 這一批 re-export 是<b>刻意</b>的:拆檔是為了讓寫這一塊的人好找東西,
+ * 不是為了讓其他二十個檔案跟著改 import。
+ * `from './combat'` 在拆之前拿得到什麼,拆之後就還拿得到什麼。
+ */
+export type {
+  Side, Stance, Fighter, Arrow, StuckArrow, Impact, Corpse, Stain,
+  BandSpec, Recruit, BattleTally,
+} from './combat/types';
+export {
+  fighters, arrows, arrowTally, stuckArrows, impacts, corpses, stains,
+  guardTally, flankTally, fx, alive, fighterAt, CORPSE_DAYS,
+} from './combat/types';
+export { battleTime } from './combat/state';
+export { ageBattlefield } from './combat/battlefield';
+export { useBattle } from './combat/store';
+export { REACH } from './combat/tuning';
