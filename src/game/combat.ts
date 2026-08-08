@@ -163,6 +163,23 @@ const ARROW_G = 7;                  // 拋物線的墜 — 樣式化的重力,�
  */
 const SURROUND_PENALTY = 0.10;
 const SURROUND_CAP = 0.20;
+/**
+ * 從背後砍的加成。
+ *
+ * 「人多」在這之前只是一個命中加值(SURROUND),而人多真正的用處是<b>繞到後面去</b>——
+ * 一個人只有一張臉,同時招呼兩個方向就是不行。分開成兩件事以後,
+ * 帶人打架第一次有了「怎麼打」而不只是「帶幾個」。
+ */
+const FLANK_BONUS = 0.16;
+/** 被人從背後招呼,士氣掉得比正面快 —— 亂起來的都是後排。 */
+const FLANK_MORALE = 6;
+/**
+ * 只給空跑用:量「背後那一下」到底占所有攻擊的幾成。
+ *
+ * 留著是因為它問倒過一次設計 —— 一個看起來很對的機制,量出來只有 1%,
+ * 而它的代價有八個百分點的勝率。往這附近加東西之前,先跑 tools/sim/measure.ts。
+ */
+export const flankTally = { hits: 0, blows: 0 };
 
 let rand: () => number = Math.random;
 let clock = 0;
@@ -429,8 +446,28 @@ export function stepBattle(
     if (!f.driven) {
       f.yaw = Math.atan2(dx, dz);
       if (d > f.reach) {
-        const step = Math.min(MOVE * dt, d - f.reach * 0.8);
-        const got = slide(f.x, f.z, f.x + (dx / d) * step, f.z + (dz / d) * step);
+        /*
+         * 這裡曾經有一段「已經有人纏著他,我就繞後面去」。空跑之後拿掉了,
+         * 而拿掉的理由值得留著 —— 免得哪天有人照著同一個直覺再寫一次。
+         *
+         * 量出來的是:繞後<b>幾乎不會發生</b>。四個局面裡三個是 0%,
+         * 最擠的五打五也只有 1% 的攻擊落在背後。原因是結構性的 ——
+         * 這個模型裡<b>每個人每幀都轉身面對自己的目標</b>(f.yaw = atan2 ...),
+         * 所以「背後」這個位置存在不到一秒就沒了。
+         *
+         * 而代價是實打實的:繞路的那幾步不砍人,純粹是節奏損失。
+         * 五打五兇的勝率從 0.43 掉到 0.35 —— 掉的不是被包抄打的,
+         * 是自己人在繞圈。一個 1% 的機制換八個百分點的勝率,不划算。
+         *
+         * 留下來的是<b>玩家自己繞</b>那一半:走位是真人在控的,
+         * 他真的繞到背後去,命中加成與士氣打擊照樣生效(見 flankOf)。
+         * 那一半不花任何代價,而且是玩家<b>能決定</b>的事 ——
+         * 這本來就是「隊形」該給的東西。
+         */
+        const gx = dx, gz = dz;
+        const gd = d || 1;
+        const step = Math.min(MOVE * dt, Math.max(0.02, d - f.reach * 0.8));
+        const got = slide(f.x, f.z, f.x + (gx / gd) * step, f.z + (gz / gd) * step);
         f.x = got.x; f.z = got.z; f.y = ground(f.x, f.z);
         f.stance = 'closing';
         f.phase = (f.phase + dt * 5) % 1;
@@ -557,6 +594,22 @@ function nearestFoe(f: Fighter): Fighter | null {
   return best;
 }
 
+/**
+ * 這一下是從哪個方向來的。0 = 正面,1 = 正背後。
+ *
+ * 純函式,因為它是這條規則的全部 —— 空跑要拿它算,測試要拿它釘。
+ */
+export function flankOf(
+  from: { x: number; z: number }, target: { x: number; z: number; yaw: number },
+): number {
+  const dx = from.x - target.x, dz = from.z - target.z;
+  const d = Math.hypot(dx, dz);
+  if (d < 1e-4) return 0;
+  // 對方面朝 (sin yaw, cos yaw);我在他前面時點積為正
+  const facing = (Math.sin(target.yaw) * dx + Math.cos(target.yaw) * dz) / d;
+  return Math.max(0, -facing);
+}
+
 function attackersOn(target: Fighter, except: string): number {
   let n = 0;
   for (const g of fighters) {
@@ -605,6 +658,8 @@ function resolveStrike(f: Fighter) {
   if (Math.hypot(tgt.x - f.x, tgt.z - f.z) > f.reach * 1.5) return;
 
   const crowd = Math.min(SURROUND_CAP, attackersOn(tgt, f.id) * SURROUND_PENALTY);
+  // 繞到背後那一下最狠 —— 人多的用處在這裡,不在多一個人站著
+  const flank = flankOf(f, tgt) * FLANK_BONUS;
   /*
    * 一寸長一寸強 —— 長兵的優勢做在<b>命中</b>上,不是傷害上。
    *
@@ -614,10 +669,17 @@ function resolveStrike(f: Fighter) {
    * 這件事就是命中率:對面的桿子比你的長,你每一下都是冒著戳臉遞進去的。
    */
   const reachEdge = (f.reach - tgt.reach) * 0.22;
-  const chance = clampf(0.44 + (f.war - tgt.war) / 190 + crowd + reachEdge, 0.15, 0.90);
+  const chance = clampf(
+    0.44 + (f.war - tgt.war) / 190 + crowd + flank + reachEdge, 0.15, 0.90);
   if (rand() > chance) return;
 
   applyHit(tgt, (6.5 + f.war * 0.10) * f.dmgMul * (0.75 + rand() * 0.6));
+  // 背後挨的那一下另外掉士氣 —— 「被包了」該是感覺得到的
+  if (flank > FLANK_BONUS * 0.6 && alive(tgt)) {
+    tgt.morale -= FLANK_MORALE;
+    flankTally.hits++;
+  }
+  flankTally.blows++;
 }
 
 /**
