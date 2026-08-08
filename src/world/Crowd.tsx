@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { groundAt, rng, slideMove, dryLandNear } from './field';
 import {
-  bodyGeom, headGeom, legGeom, legSwing, poseLeg, armGeom, armSwing, poseArm, workPose, toolGeom,
+  bodyGeom, headGeom, legGeom, legSwing, poseLeg, armGeom, armSwing, poseArm, workPose, toolGeom, SKINS,
   FIG_BODY_H, FIG_LEG_H, FIG_SHOULDER_Y,
 } from './figure';
 import { houseSites, fieldSites, meanderAt, DOCKS, BRIDGE, MARKET } from './sites';
@@ -164,10 +164,16 @@ export function Crowd() {
       { robe: '#4a6b52', head: { cloth: true, beard: true } },
       { robe: '#6a6350', head: { old: true, cloth: true } },
     ].map((v, i) => ({
-      body: bodyGeom(new THREE.Color(v.robe)),
-      head: headGeom(v.head),
+      // 膚色與臉型跟著變體走。八種變體八張臉 —— 不是四十張,
+      // 但比一張強得多,而且不必為此把 InstancedMesh 拆成四十份
+      body: bodyGeom(new THREE.Color(v.robe), new THREE.Color(SKINS[i % SKINS.length])),
+      head: headGeom({
+        ...v.head,
+        skin: new THREE.Color(SKINS[i % SKINS.length]),
+        face: ((i * 5 + 3) % 8) / 7,
+      }),
       leg: legGeom(),
-      arm: armGeom(new THREE.Color(v.robe)),
+      arm: armGeom(new THREE.Color(v.robe), new THREE.Color(SKINS[i % SKINS.length])),
       // 傢伙跟著行當走。變體 0/4 是農、1/5 是埠,其餘手上沒東西
       tool: toolGeom(i % 4 === 0 ? 'farm' : i % 4 === 1 ? 'dock' : 'none'),
       idx: agents.map((a, k) => (a.variant === i ? k : -1)).filter((k) => k >= 0),

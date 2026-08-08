@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { groundAt, slideMove } from './field';
 import {
-  ROBES, bodyGeom, headGeom, legSwing, poseLeg, armSwing, poseArm,
+  ROBES, SKINS, bodyGeom, headGeom, legSwing, poseLeg, armSwing, poseArm,
   FIG_BODY_H, FIG_LEG_H, FIG_SHOULDER_Y,
 } from './figure';
 import { sharedLegGeom, sharedArmGeom } from './Legs';
@@ -49,8 +49,11 @@ export function Followers() {
 
   const geoms = useMemo(
     () => ROBES.map((hex, i) => ({
-      body: bodyGeom(new THREE.Color(hex)),
-      head: headGeom({ hat: i % 2 === 1, cloth: i % 3 === 1, beard: i % 4 === 2 }),
+      body: bodyGeom(new THREE.Color(hex), new THREE.Color(SKINS[(i * 2 + 1) % SKINS.length])),
+      head: headGeom({
+        hat: i % 2 === 1, cloth: i % 3 === 1, beard: i % 4 === 2,
+        skin: new THREE.Color(SKINS[(i * 2 + 1) % SKINS.length]), face: (i % 5) / 4,
+      }),
     })),
     [],
   );

@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { groundAt, slideMove } from './field';
 import {
-  bodyGeom, headGeom, armGeom, FIG_BODY_H, FIG_HIP, FIG_LEG_H,
+  bodyGeom, headGeom, armGeom, SKINS, FIG_BODY_H, FIG_HIP, FIG_LEG_H,
   FIG_SHOULDER_X, FIG_SHOULDER_Y, FIG_HAND,
 } from './figure';
 import { sharedLegGeom } from './Legs';
@@ -116,12 +116,12 @@ export function Battle() {
   );
 
   const geoms = useMemo(() => ({
-    foe: { body: bodyGeom(new THREE.Color(FOE_ROBE)), head: headGeom({ cloth: true }),
+    foe: { body: bodyGeom(new THREE.Color(FOE_ROBE)), head: headGeom({ cloth: true, skin: new THREE.Color(SKINS[2]), face: 0.2 }),
            arm: armGeom(new THREE.Color(FOE_ROBE)) },
     chief: { body: bodyGeom(new THREE.Color(FOE_CHIEF_ROBE)),
-             head: headGeom({ hat: true, beard: true }),
+             head: headGeom({ hat: true, beard: true, skin: new THREE.Color(SKINS[1]), face: 0.9 }),
              arm: armGeom(new THREE.Color(FOE_CHIEF_ROBE)) },
-    mate: { body: bodyGeom(new THREE.Color('#6b5741')), head: headGeom(),
+    mate: { body: bodyGeom(new THREE.Color('#6b5741')), head: headGeom({ face: 0.6 }),
             arm: armGeom(new THREE.Color('#6b5741')) },
   }), []);
 

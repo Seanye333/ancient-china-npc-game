@@ -13,7 +13,21 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 
 export const ROBES = ['#4a6b52', '#6b5741', '#3f5568', '#6a6350'];
 const SKIN = new THREE.Color('#e8b494');
-const SKIN_D = new THREE.Color('#cf9878');       // 鼻樑側面、耳廓的陰面
+
+/**
+ * 膚色。
+ *
+ * 一整村同一張臉皮,是「複製人」感裡最說不出所以然的一條 ——
+ * 髮式衣色都不同了,可是四十張臉一個色,遠看還是一批人。
+ * 這幾個色是同一族的深淺:下田扛包的曬得黑,市面上的白些,
+ * 老人褪成灰黃 —— 順帶把「行當寫在身上」延伸到臉上。
+ */
+export const SKINS = ['#e8b494', '#dca97f', '#c9905f', '#efc0a3', '#d3a887'];
+
+/** 陰面(鼻樑側、耳廓)—— 從膚色壓下來,不另配一個色,免得兩邊調得不一樣。 */
+function shade(skin: THREE.Color): THREE.Color {
+  return skin.clone().multiplyScalar(0.78);
+}
 const HAIR = new THREE.Color('#241e26');
 const INK = new THREE.Color('#161018');
 export const TRIM = new THREE.Color('#b8863c');
@@ -258,7 +272,7 @@ function collarColor(robe: THREE.Color): THREE.Color {
  * 一條手臂 —— 原點在<b>肩</b>,往下垂。
  * 廣袖、袖緣、露在袖口外的手,一份幾何全帶著。
  */
-export function armGeom(robe: THREE.Color): THREE.BufferGeometry {
+export function armGeom(robe: THREE.Color, skin: THREE.Color = SKIN): THREE.BufferGeometry {
   const gs: THREE.BufferGeometry[] = [];
   const edge = collarColor(robe);
   gs.push(tint(at(lathe(SLEEVE_P, FIG_HR, ARM_L, 8), 0, -ARM_L, 0), robe));
@@ -268,7 +282,7 @@ export function armGeom(robe: THREE.Color): THREE.BufferGeometry {
   // 手擺在中軸上(不左右偏):一份幾何兩邊共用,偏了就得鏡像,
   // 而負縮放會把三角形的繞序翻過來,整條手臂的光就錯了
   gs.push(tint(at(new THREE.SphereGeometry(FIG_HR * 0.17, 7, 6),
-    0, FIG_HAND[1], FIG_HAND[2], 1, 0.9, 1.05), SKIN));
+    0, FIG_HAND[1], FIG_HAND[2], 1, 0.9, 1.05), skin));
   return mergeGeometries(gs, false)!;
 }
 
@@ -291,7 +305,7 @@ export function poseArm(
   o.scale.setScalar(scale);
 }
 
-export function bodyGeom(robe: THREE.Color) {
+export function bodyGeom(robe: THREE.Color, skin: THREE.Color = SKIN) {
   const gs: THREE.BufferGeometry[] = [];
   /*
    * 衣緣是<b>淺色</b>的,不是把袍色壓暗。
@@ -346,7 +360,7 @@ export function bodyGeom(robe: THREE.Color) {
 
   // 袖子不在這裡 —— 見 armGeom:會擺動的東西不能烘進身子
   gs.push(tint(at(new THREE.CylinderGeometry(FIG_HR * 0.32, FIG_HR * 0.32, FIG_HR * 0.40, 8),
-    0, FIG_BODY_H * 0.99, 0), SKIN));
+    0, FIG_BODY_H * 0.99, 0), skin));
   return mergeGeometries(gs, false)!;
 }
 
@@ -403,6 +417,13 @@ function faceStrip(o: {
  * 三十八個村民要是共用兩種頭,那不是一個村子,是一批複製人。
  */
 export interface HeadStyle {
+  /** 這個人的膚色。不給就用預設那一個。 */
+  skin?: THREE.Color;
+  /**
+   * 這張臉的種子(0..1)。眼距、眼大小、眉高、嘴寬按它微調 ——
+   * 同一副幾何,換一個數字就是另一個人。
+   */
+  face?: number;
   /** 斗笠 —— 下田扛包的戴。 */
   hat?: boolean;
   /** 白髮。 */
@@ -414,12 +435,22 @@ export interface HeadStyle {
 }
 
 export function headGeom(style: HeadStyle = {}) {
-  const { hat = false, old: oldHair = false, cloth = false, beard = false } = style;
+  const {
+    hat = false, old: oldHair = false, cloth = false, beard = false,
+    skin = SKIN, face = 0.5,
+  } = style;
+  const SKIN_D = shade(skin);
+  // 種子推出四個微調量。幅度都很小 —— 這副臉的骨架是固定的,
+  // 差別要小到「說不出哪裡不一樣,但就是不同的人」
+  const fGap = 0.40 + face * 0.06;              // 眼距
+  const fEye = 0.94 + face * 0.14;              // 眼大小
+  const fBrow = 0.19 + face * 0.07;             // 眉高
+  const fMouth = 0.17 + face * 0.07;            // 嘴寬
   const gs: THREE.BufferGeometry[] = [];
   const HAIR_C = oldHair ? new THREE.Color('#d6d0c4') : HAIR;
   const cy = FIG_HR * 0.84;
   const R = FIG_HR;
-  gs.push(tint(at(lathe(HEAD_P, R, R, 16), 0, cy, 0, 1, 1, FACE_SQUASH), SKIN));
+  gs.push(tint(at(lathe(HEAD_P, R, R, 16), 0, cy, 0, 1, 1, FACE_SQUASH), skin));
 
   /*
    * 五官的深度<b>從臉皮算,不是憑感覺</b>。
@@ -431,11 +462,11 @@ export function headGeom(style: HeadStyle = {}) {
    * 現在的規矩:先算這一件的半深,再讓它<b>只凸出 proud 那麼多</b>,
    * 其餘埋進臉裡。凸多少是一個看得懂的數字,而不是兩個座標湊出來的結果。
    */
-  const EYE_R = R * 0.225;
+  const EYE_R = R * 0.225 * fEye;
   const EYE_FLAT = 0.16;                       // 眼球壓扁到只剩這麼厚
   const eyeHalf = EYE_R * EYE_FLAT;
   for (const side of [-1, 1]) {
-    const ex = side * R * 0.42;
+    const ex = side * R * fGap;
     // 凸 0.02R:看得出是一顆球,又不至於頂出臉的側影
     gs.push(tint(at(new THREE.SphereGeometry(EYE_R, 10, 7),
       ex, cy - R * 0.10, faceZ(-0.10, R * 0.02 - eyeHalf), 1, 1.12, EYE_FLAT), INK));
@@ -444,7 +475,7 @@ export function headGeom(style: HeadStyle = {}) {
       new THREE.Color('#f2f0ea')));
     // 眉 —— 外高內低斜著一撇。<b>切成三小段</b>,一段一段貼上去
     gs.push(tint(faceStrip({
-      x: ex + side * R * 0.02, y: cy + R * (oldHair ? 0.25 : 0.22), py: 0.22,
+      x: ex + side * R * 0.02, y: cy + R * (oldHair ? fBrow + 0.03 : fBrow), py: 0.22,
       w: R * (oldHair ? 0.36 : 0.30), h: R * 0.052, d: R * 0.042,
       tilt: side * -0.22, R,
     }), oldHair ? new THREE.Color('#8e867c') : BROW));
@@ -453,7 +484,7 @@ export function headGeom(style: HeadStyle = {}) {
      * 而且要<b>貼著頭</b>:第一版擺在 0.97R、又往外撐,整隻耳朵浮在頭外面。
      */
     gs.push(tint(at(new THREE.SphereGeometry(R * 0.155, 6, 5),
-      side * R * 0.90, cy - R * 0.05, R * 0.03, 0.34, 1.05, 0.80), SKIN));
+      side * R * 0.90, cy - R * 0.05, R * 0.03, 0.34, 1.05, 0.80), skin));
     gs.push(tint(at(new THREE.SphereGeometry(R * 0.06, 5, 4),
       side * R * 0.95, cy - R * 0.05, R * 0.03, 0.30, 0.90, 0.55), SKIN_D));
   }
@@ -476,11 +507,11 @@ export function headGeom(style: HeadStyle = {}) {
    * 不能靠往上貼深色的小零件。
    */
   gs.push(tint(at(rot(new THREE.ConeGeometry(R * 0.115, R * 0.38, 3), -Math.PI * 0.56, 0, 0),
-    0, cy - R * 0.12, faceZ(-0.12, -R * 0.045)), SKIN));
+    0, cy - R * 0.12, faceZ(-0.12, -R * 0.045)), skin));
   // 口 —— 一道短橫,細而不豔。不畫笑也不畫哭,留白比表情耐看
   gs.push(tint(faceStrip({
     x: 0, y: cy - R * 0.46, py: -0.46,
-    w: R * 0.20, h: R * 0.042, d: R * 0.045, tilt: 0, R,
+    w: R * fMouth, h: R * 0.042, d: R * 0.045, tilt: 0, R,
   }), LIP));
 
   /*

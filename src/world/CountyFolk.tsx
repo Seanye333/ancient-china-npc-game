@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { groundAt, steerMove } from './field';
-import { bodyGeom, headGeom, FIG_BODY_H, ROBES } from './figure';
+import { bodyGeom, headGeom, FIG_BODY_H, ROBES, SKINS } from './figure';
 import { StandingLegs, StandingArms } from './Legs';
 import { COUNTY } from './County';
 import { COUNTY_FOLK } from '../game/countyfolk';
@@ -44,10 +44,12 @@ export function CountyFolk() {
   ], [cx, cz]);
 
   const geoms = useMemo(() => COUNTY_FOLK.map((p, i) => ({
-    body: bodyGeom(new THREE.Color(ROBES[i % ROBES.length])),
+    body: bodyGeom(new THREE.Color(ROBES[i % ROBES.length]),
+      new THREE.Color(SKINS[(i * 3) % SKINS.length])),
     head: headGeom({
       hat: p.trade === 'market' && p.age > 40,
       old: p.age > 55, cloth: i % 3 === 0, beard: p.age > 44,
+      skin: new THREE.Color(SKINS[(i * 3) % SKINS.length]), face: (i % 7) / 6,
     }),
   })), []);
 
