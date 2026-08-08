@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { groundAt, rng, slideMove, dryLandNear } from './field';
 import {
-  bodyGeom, headGeom, legGeom, legSwing, poseLeg, armGeom, armSwing, poseArm,
+  bodyGeom, headGeom, legGeom, legSwing, poseLeg, armGeom, armSwing, poseArm, workPose, toolGeom,
   FIG_BODY_H, FIG_LEG_H, FIG_SHOULDER_Y,
 } from './figure';
 import { houseSites, fieldSites, meanderAt, DOCKS, BRIDGE, MARKET } from './sites';
@@ -35,6 +35,8 @@ interface Agent {
   variant: number;
   /** 身量 —— 這個人比別人高矮胖瘦多少。 */
   build: number;
+  /** 這一幀彎了多少腰。只給驗收看 —— 做工的動作在截圖上判不出來。 */
+  lean: number;
   /** 上了年紀 —— 白髮、弓背、腳程慢。年紀要穿在身上,不能只寫在對話裡。 */
   old: boolean;
   home: [number, number];
@@ -131,6 +133,7 @@ export function Crowd() {
         npcId: villagers[i].id,
         variant,
         build,
+        lean: 0,
         old,
         home: [h.x, h.z], door: h.door, work, job,
         state: 'home',
@@ -165,6 +168,8 @@ export function Crowd() {
       head: headGeom(v.head),
       leg: legGeom(),
       arm: armGeom(new THREE.Color(v.robe)),
+      // 傢伙跟著行當走。變體 0/4 是農、1/5 是埠,其餘手上沒東西
+      tool: toolGeom(i % 4 === 0 ? 'farm' : i % 4 === 1 ? 'dock' : 'none'),
       idx: agents.map((a, k) => (a.variant === i ? k : -1)).filter((k) => k >= 0),
     })),
     [agents],
@@ -176,8 +181,13 @@ export function Crowd() {
       const byVariant: Record<number, number> = {};
       const builds = agents.map((a) => +a.build.toFixed(3));
       for (const a of agents) byVariant[a.variant] = (byVariant[a.variant] ?? 0) + 1;
-      return { n: agents.length, byVariant,
-               build: { min: Math.min(...builds), max: Math.max(...builds) } };
+      const byState: Record<string, number> = {};
+      for (const a of agents) byState[a.state] = (byState[a.state] ?? 0) + 1;
+      const working = agents.filter((a) => a.state === 'work');
+      return { n: agents.length, byVariant, byState,
+               build: { min: Math.min(...builds), max: Math.max(...builds) },
+               // 在工上的人此刻各彎了多少腰 —— 全是同一個數就是動作沒接上
+               workLean: working.slice(0, 6).map((a) => +a.lean.toFixed(3)) };
     };
   }, [agents]);
 
@@ -187,6 +197,8 @@ export function Crowd() {
   const legRefs = useRef<Array<Array<THREE.InstancedMesh | null>>>([[], []]);
   /** 左右手臂各一批。 */
   const armRefs = useRef<Array<Array<THREE.InstancedMesh | null>>>([[], []]);
+  /** 手上的傢伙 —— 和左手共用同一個矩陣。 */
+  const toolRefs = useRef<Array<THREE.InstancedMesh | null>>([]);
 
   useLayoutEffect(() => {
     // 矩陣每幀都在動,而包圍球是初始化時算的 —— 不關掉會被整批剔除
@@ -194,6 +206,7 @@ export function Crowd() {
     headRefs.current.forEach((m) => m && (m.frustumCulled = false));
     legRefs.current.forEach((row) => row.forEach((m) => m && (m.frustumCulled = false)));
     armRefs.current.forEach((row) => row.forEach((m) => m && (m.frustumCulled = false)));
+    toolRefs.current.forEach((m) => m && (m.frustumCulled = false));
   }, []);
 
   const tmp = useMemo(() => ({
@@ -288,6 +301,7 @@ export function Crowd() {
       const hm = headRefs.current[vi];
       const lm = [legRefs.current[0][vi], legRefs.current[1][vi]];
       const am = [armRefs.current[0][vi], armRefs.current[1][vi]];
+      const tm = toolRefs.current[vi];
       if (!bm || !hm || !lm[0] || !lm[1] || !am[0] || !am[1]) return;
       v.idx.forEach((ai, slot) => {
         const a = agents[ai];
@@ -299,16 +313,21 @@ export function Crowd() {
           lm[1]!.setMatrixAt(slot, tmp.m);
           am[0]!.setMatrixAt(slot, tmp.m);
           am[1]!.setMatrixAt(slot, tmp.m);
+          tm?.setMatrixAt(slot, tmp.m);
           return;
         }
         const moving = a.state === 'goWork' || a.state === 'goMarket' || a.state === 'goHome';
         const step = t * a.speed * 3.1 + a.phase;
-        const bob = moving ? Math.abs(Math.sin(step)) * 0.055
-          : Math.sin(t * 1.15 + a.phase) * 0.014;
+        // 在工上就做工的姿勢;其餘時候走路/站著
+        const wp = a.state === 'work' ? workPose(a.job, t, a.phase) : null;
+        const bob = wp ? wp.bob
+          : moving ? Math.abs(Math.sin(step)) * 0.055
+            : Math.sin(t * 1.15 + a.phase) * 0.014;
         const sway = moving ? Math.sin(step * 0.5) * 0.055 : 0;
         // 走路微微前傾,老人常年弓著背 —— 體態是不用寫字的年齡與狀態
-        const lean = (moving ? 0.055 : 0) + (a.old ? 0.10 : 0);
+        const lean = (wp ? wp.lean : moving ? 0.055 : 0) + (a.old ? 0.10 : 0);
 
+        a.lean = lean;
         tmp.p.set(a.x, a.y + bob, a.z);
         tmp.e.set(lean, a.yaw, sway);
         tmp.q.setFromEuler(tmp.e);
@@ -338,10 +357,15 @@ export function Crowd() {
             legSwing(step, side, moving), sc);
           tmp.leg.updateMatrix();
           lm[side < 0 ? 0 : 1]!.setMatrixAt(slot, tmp.leg.matrix);
+          // 做工的時候兩手照姿勢擺,不是走路的反相擺動
+          const armAng = wp ? (side < 0 ? wp.armL : wp.armR)
+            : armSwing(step, side, moving);
           poseArm(tmp.leg, side, a.x, a.y + bob + FIG_SHOULDER_Y * sc, a.z, a.yaw,
-            armSwing(step, side, moving), sc);
+            armAng, sc);
           tmp.leg.updateMatrix();
           am[side < 0 ? 0 : 1]!.setMatrixAt(slot, tmp.leg.matrix);
+          // 傢伙抄左手那一份矩陣 —— 同一個座標系,不必另算跟隨
+          if (side < 0) tm?.setMatrixAt(slot, tmp.leg.matrix);
         }
       });
       bm.instanceMatrix.needsUpdate = true;
@@ -350,6 +374,7 @@ export function Crowd() {
       lm[1]!.instanceMatrix.needsUpdate = true;
       am[0]!.instanceMatrix.needsUpdate = true;
       am[1]!.instanceMatrix.needsUpdate = true;
+      if (tm) tm.instanceMatrix.needsUpdate = true;
     });
   });
 
@@ -381,6 +406,15 @@ export function Crowd() {
               <meshStandardMaterial vertexColors roughness={0.8} />
             </instancedMesh>
           ))}
+          {v.tool && (
+            <instancedMesh
+              ref={(m) => { toolRefs.current[i] = m; }}
+              args={[v.tool, undefined, Math.max(1, v.idx.length)]}
+              castShadow
+            >
+              <meshStandardMaterial vertexColors roughness={0.7} />
+            </instancedMesh>
+          )}
           {[0, 1].map((side) => (
             <instancedMesh
               key={`a${side}`}

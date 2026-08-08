@@ -560,3 +560,100 @@ export function headGeom(style: HeadStyle = {}) {
   return mergeGeometries(gs, false)!;
 }
 
+
+/**
+ * 做工的姿勢。
+ *
+ * 在這之前,村民走到田裡就<b>站住不動</b> —— 巳時到午時、未時到酉時,
+ * 大半個白天全村人釘在田埂上,和發呆一模一樣。人會走會擺手以後,
+ * 這一段空白就特別顯眼:世界看起來仍然是個佈景,只是佈景裡的人會走路。
+ *
+ * 姿勢只有三件事可調:身子前傾多少、上下起伏多少、兩條手臂各擺到哪。
+ * 沒有骨架,但這三樣已經夠讀 —— 彎腰揮鋤和挺著站是兩個完全不同的剪影。
+ */
+export interface WorkPose {
+  lean: number;
+  bob: number;
+  /** 左右手臂繞肩的角度(正 = 往前)。做工時兩手多半同進同出。 */
+  armL: number;
+  armR: number;
+}
+
+export function workPose(job: string, t: number, phase: number): WorkPose {
+  switch (job) {
+    case 'farm': {
+      /*
+       * 鋤地:抬起來、劈下去,一個週期。抬的時候身子直、手往後;
+       * 落的時候腰彎下去、手掃到前下方。
+       * 落得比抬得快 —— 用 k² 把時間偏向前半段,那一下才有力氣。
+       */
+      const raw = (Math.sin(t * 2.3 + phase) + 1) / 2;
+      const k = raw * raw;
+      // 手臂最多擺到 +0.6:再往前,兩隻廣袖就橫著張開像翅膀,
+      // 讀作「伸手去夠」而不是「往下鋤」
+      return { lean: 0.10 + k * 0.70, bob: -k * 0.045, armL: -0.85 + k * 1.45,
+               armR: -0.85 + k * 1.45 };
+    }
+    case 'dock': {
+      // 扛包:一肩扛著,身子往反側偏一點配重,腳下慢慢挪
+      const s = Math.sin(t * 1.1 + phase);
+      return { lean: 0.26, bob: Math.abs(s) * 0.03,
+               armL: -1.15 + s * 0.10, armR: -0.35 };
+    }
+    case 'wood': {
+      // 砍柴:掄圓了往下劈,幅度比鋤地大
+      const raw = (Math.sin(t * 1.9 + phase) + 1) / 2;
+      const k = raw * raw;
+      return { lean: 0.06 + k * 0.50, bob: -k * 0.06, armL: -1.4 + k * 2.2,
+               armR: -1.4 + k * 2.2 };
+    }
+    default: {
+      // 市面上的:站著招呼人,偶爾比劃一下
+      const s = Math.sin(t * 0.9 + phase);
+      const g = Math.max(0, Math.sin(t * 0.37 + phase * 2.1));
+      return { lean: 0.04, bob: s * 0.012, armL: -0.10 - g * 0.55, armR: -0.05 };
+    }
+  }
+}
+
+/**
+ * 手上的傢伙 —— 原點在<b>肩</b>,和手臂同一個座標系。
+ *
+ * 這樣一來它<b>和手臂共用同一個矩陣</b>:手臂擺到哪,鋤頭就跟到哪,
+ * 不必另算一份跟隨。空手揮舞和握著鋤頭往下刨,是「在比劃」和「在幹活」的差別。
+ *
+ * 回 null = 這個行當手上沒東西(市面上的、上了年紀的)。
+ */
+export function toolGeom(job: string): THREE.BufferGeometry | null {
+  const WOOD = new THREE.Color('#6b4a2c');
+  const IRON = new THREE.Color('#7d7a72');
+  const [hx, hy, hz] = FIG_HAND;
+  const gs: THREE.BufferGeometry[] = [];
+  if (job === 'farm') {
+    // 鋤:一根桿,末端一片橫刃
+    gs.push(tint(at(rot(new THREE.CylinderGeometry(FIG_HR * 0.035, FIG_HR * 0.035,
+      FIG_BODY_H * 0.95, 5), -0.5, 0, 0),
+      hx, hy - FIG_BODY_H * 0.16, hz - FIG_BODY_H * 0.30), WOOD));
+    gs.push(tint(at(rot(slab(FIG_HR * 0.34, FIG_HR * 0.06, FIG_HR * 0.22), 0.5, 0, 0),
+      hx, hy - FIG_BODY_H * 0.55, hz - FIG_BODY_H * 0.72), IRON));
+  } else if (job === 'dock') {
+    // 扁擔:橫在肩上的一根,兩頭各吊一件
+    gs.push(tint(at(rot(new THREE.CylinderGeometry(FIG_HR * 0.045, FIG_HR * 0.045,
+      FIG_BODY_H * 1.5, 5), 0, 0, Math.PI / 2),
+      hx * 0.2, hy + FIG_BODY_H * 0.62, hz + FIG_HR * 0.1), WOOD));
+    for (const e of [-1, 1]) {
+      gs.push(tint(at(new THREE.BoxGeometry(FIG_HR * 0.34, FIG_HR * 0.30, FIG_HR * 0.30),
+        hx * 0.2 + e * FIG_BODY_H * 0.62, hy + FIG_BODY_H * 0.34, hz + FIG_HR * 0.1),
+        new THREE.Color('#8a7550')));
+    }
+  } else if (job === 'wood') {
+    gs.push(tint(at(rot(new THREE.CylinderGeometry(FIG_HR * 0.04, FIG_HR * 0.04,
+      FIG_BODY_H * 0.8, 5), -0.5, 0, 0),
+      hx, hy - FIG_BODY_H * 0.14, hz - FIG_BODY_H * 0.26), WOOD));
+    gs.push(tint(at(rot(slab(FIG_HR * 0.10, FIG_HR * 0.30, FIG_HR * 0.26), 0.5, 0, 0),
+      hx, hy - FIG_BODY_H * 0.46, hz - FIG_BODY_H * 0.60), IRON));
+  } else {
+    return null;
+  }
+  return mergeGeometries(gs, false)!;
+}

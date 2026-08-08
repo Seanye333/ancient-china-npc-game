@@ -138,5 +138,28 @@ for (let i = 0; i < 6; i++) {
 }
 await fromRiver([side * 0.8, 2.4, 3.0], 'f-battle');
 
+/*
+ * 做工的動作。
+ *
+ * 這一段也不看圖 —— 田裡的人彎沒彎腰,截圖上判不出來(而且田邊全是土坡和屋簷,
+ * 機位擺了四次都埋在裡面)。直接讀每個人這一幀彎了多少腰:
+ * 下田的該一直在變,扛包的該穩在一個角度上,市面上的幾乎不動。
+ */
+console.log('── 做工');
+await page.evaluate(() => window.__setClock(10.0, 'autumn'));
+await page.waitForTimeout(3500);
+const leans = [];
+for (let i = 0; i < 5; i++) {
+  leans.push(await page.evaluate(() => window.__crowdStat().workLean));
+  await page.waitForTimeout(260);
+}
+const st = await page.evaluate(() => window.__crowdStat());
+console.log('  作息', JSON.stringify(st.byState));
+console.log('  彎腰', leans.map((l) => JSON.stringify(l)).join('\n        '));
+ok((st.byState.work ?? 0) > 20, '巳時大半個村子在工上');
+// 至少有一個人的腰在動 —— 全是常數就是姿勢沒接上,而畫面上只是「大家站著」
+const moved = leans[0].some((v, k) => leans.some((row) => Math.abs(row[k] - v) > 0.15));
+ok(moved, '在工上的人腰真的在動(不是站著發呆)');
+
 console.log('errors:', errors.slice(0, 3).join(' | ') || 'none');
 await browser.close();

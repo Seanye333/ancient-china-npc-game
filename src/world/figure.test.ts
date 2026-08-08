@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import {
-  bodyGeom, headGeom, legGeom, armGeom, radiusAt, legSwing, armSwing,
+  bodyGeom, headGeom, legGeom, armGeom, radiusAt, legSwing, armSwing, workPose, toolGeom,
   HEAD_P, BODY_P, FACE_SQUASH, LIP, BROW, TRIM,
   FIG_H, FIG_HR, FIG_BODY_H, FIG_LEG_H,
 } from './figure';
@@ -138,5 +138,51 @@ describe('邁步', () => {
     expect(bb.max.y).toBeLessThan(FIG_HR * 0.4);
     expect(bb.min.y).toBeGreaterThan(-FIG_BODY_H * 0.75);
     expect(bb.min.y).toBeLessThan(-FIG_BODY_H * 0.45);
+  });
+});
+
+describe('做工的姿勢', () => {
+  /** 一個週期裡取樣,看這個行當到底動了多少。 */
+  function span(job: string) {
+    let lo = { lean: 9, arm: 9 }, hi = { lean: -9, arm: -9 };
+    for (let i = 0; i < 60; i++) {
+      const w = workPose(job, i * 0.1, 0);
+      lo = { lean: Math.min(lo.lean, w.lean), arm: Math.min(lo.arm, w.armL) };
+      hi = { lean: Math.max(hi.lean, w.lean), arm: Math.max(hi.arm, w.armL) };
+    }
+    return { lean: hi.lean - lo.lean, arm: hi.arm - lo.arm, leanMax: hi.lean };
+  }
+
+  it('下田的人真的在動 —— 站著發呆和彎腰揮鋤是兩個剪影', () => {
+    const farm = span('farm');
+    // 腰要彎得看得出來(至少三十度),手要掄得過半徑一弧度
+    expect(farm.leanMax).toBeGreaterThan(0.5);
+    expect(farm.lean).toBeGreaterThan(0.4);
+    expect(farm.arm).toBeGreaterThan(1.0);
+  });
+
+  it('手臂不會往前掄過頭 —— 過了就成了兩隻張開的翅膀', () => {
+    for (const job of ['farm', 'dock', 'wood', 'market']) {
+      for (let i = 0; i < 60; i++) {
+        const w = workPose(job, i * 0.1, 0);
+        expect(w.armL, `${job} 掄過頭`).toBeLessThan(1.15);
+        expect(w.armR, `${job} 掄過頭`).toBeLessThan(1.15);
+      }
+    }
+  });
+
+  it('扛包的人是穩的,不是在揮舞 —— 各行當的動作要分得出來', () => {
+    expect(span('dock').arm).toBeLessThan(span('farm').arm);
+    expect(span('market').lean).toBeLessThan(span('farm').lean);
+  });
+
+  it('手上的傢伙:農有鋤、埠有擔,市面上的空手', () => {
+    expect(toolGeom('farm')).not.toBeNull();
+    expect(toolGeom('dock')).not.toBeNull();
+    expect(toolGeom('market')).toBeNull();
+    // 傢伙和手臂同一個座標系(原點在肩),所以整件都在肩以下
+    const hoe = toolGeom('farm')!;
+    hoe.computeBoundingBox();
+    expect(hoe.boundingBox!.max.y).toBeLessThan(0);
   });
 });
