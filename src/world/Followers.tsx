@@ -11,6 +11,7 @@ import { playerPos, companions } from '../game/interact';
 import { useHero } from '../game/hero';
 import { useBattle } from '../game/combat';
 import { anyPerson } from '../game/countyfolk';
+import { pushContact } from './Contacts';
 
 /**
  * 隨行的人 — 跟在你身後那幾個。
@@ -101,6 +102,7 @@ export function Followers() {
       const step = t * 3.4 + (phase.current[i] ?? 0);
       const bob = moving ? Math.abs(Math.sin(step)) * 0.05 : Math.sin(t * 1.2 + i) * 0.012;
 
+      pushContact(got.x, y, got.z);
       body.position.set(got.x, y + bob, got.z);
       body.rotation.set(0, yaw, moving ? Math.sin(step * 0.5) * 0.05 : 0);
       head.position.set(got.x, y + bob + FIG_BODY_H * 0.99, got.z);

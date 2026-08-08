@@ -8,11 +8,12 @@ import {
 } from './figure';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { setSightTarget } from './Vegetation';
+import { pushContact } from './Contacts';
 import { findPath } from './nav';
 import { stepSound } from '../game/audio';
 import { meanderAt } from './sites';
 import { useHero, woundPenalty } from '../game/hero';
-import { playerPos, useInteract, warp } from '../game/interact';
+import { playerPos, useInteract, warp, findPresence } from '../game/interact';
 import { fighters, alive, fx } from '../game/combat';
 import { WEAPONS } from '../game/weapons';
 
@@ -97,6 +98,8 @@ export function Player() {
   const bodyRef = useRef<THREE.Mesh>(null);
   const headRef = useRef<THREE.Mesh>(null);
   const legRefs = useRef<Array<THREE.Mesh | null>>([]);
+  /** 0 = 平常,1 = 正在說話。鏡頭推近的程度,見下面的 talkPull。 */
+  const talkPull = useRef(0);
   const armRefs = useRef<Array<THREE.Mesh | null>>([]);
   /** 看美術用:凍住鏡頭解算,好把機位擺到臉前面。 */
   const camFrozen = useRef(false);
@@ -321,6 +324,7 @@ export function Player() {
 
     // 共享座標給互動偵測 — 走模組級可變引用,不進 zustand(每幀 set 會全樹重繪)
     playerPos.x = m.x; playerPos.y = m.y; playerPos.z = m.z; playerPos.yaw = m.yaw;
+    pushContact(m.x, m.y, m.z, 0.46);
 
     const bob = moving ? Math.abs(Math.sin(m.step)) * 0.055 : Math.sin(m.step * 0.2) * 0.012;
     const sway = moving ? Math.sin(m.step * 0.5) * 0.055 : 0;
@@ -398,8 +402,21 @@ export function Player() {
      * 不是猛一跳。全場慢鏡是 combat 給的,這裡只管鏡頭的姿態。
      */
     const finPull = fx.finisher > 0 ? Math.sin(Math.min(1, fx.finisher / 1.3) * Math.PI) : 0;
-    const baseDist = (foe ? FIGHT_DIST : CAM_DIST) * (1 - 0.30 * finPull);
-    const baseHigh = (foe ? FIGHT_HEIGHT : CAM_HEIGHT) * (1 - 0.40 * finPull);
+    /**
+     * 說話就推近 —— 鏡頭往前挪一步、壓低半步,視線抬到兩人臉的高度。
+     *
+     * 為什麼值得:對話在這之前是<b>一塊蓋在世界上的黑板</b> ——
+     * 面板一開,底下那兩個人還是六步外的兩個小影子,你在讀字,不是在跟人說話。
+     * 鏡頭挪進去以後,說話的那個人佔的畫面大了一倍,他的頭在點、
+     * 你的臉朝著他 —— 那句話才像是他說的。
+     *
+     * 用 lerp 而不是切:一步一步挪過去約半秒,退出來也一樣。
+     * 這一段和景深是配套的(見 App 的 DoF 掛載條件):推近的同時背景化開。
+     */
+    talkPull.current += ((talking ? 1 : 0) - talkPull.current) * Math.min(1, step * 3.4);
+    const tk = talkPull.current;
+    const baseDist = (foe ? FIGHT_DIST : CAM_DIST) * (1 - 0.30 * finPull) * (1 - 0.34 * tk);
+    const baseHigh = (foe ? FIGHT_HEIGHT : CAM_HEIGHT) * (1 - 0.40 * finPull) * (1 - 0.30 * tk);
     const underCanopy = viewBlocked(m.x, m.z, m.y + 2.2);
 
     /**
@@ -480,6 +497,24 @@ export function Player() {
       tmp.look.set(m.x + (foe.x - m.x) * 0.32, m.y + 1.25, m.z + (foe.z - m.z) * 0.32);
     } else {
       tmp.look.set(m.x, m.y + 1.25, m.z);
+      // 說話時視線移到<b>兩人中間</b>,並且抬到臉的高度 ——
+      // 只推近而不改視線的話,對方會被推出畫面外
+      const who = tk > 0.02 && talking ? findPresence(talking) : null;
+      if (who) {
+        tmp.look.set(
+          m.x + (who.x - m.x) * 0.5 * tk,
+          /*
+           * 視線<b>往下</b>壓半公尺 —— 這一條是拍出來才發現的。
+           *
+           * 對話面板佔了畫面下面三分之一,而鏡頭推近以後兩個人正好落在
+           * 那條邊上:講話的人被自己的台詞蓋住了半個身子。
+           * 把視線壓低,兩張臉就往上抬出面板 —— 鏡頭仰角看起來也自然,
+           * 因為你本來就是站在對方跟前和他說話,不是俯視他。
+           */
+          m.y + 1.25 - 0.50 * tk,
+          m.z + (who.z - m.z) * 0.5 * tk,
+        );
+      }
     }
     camera.lookAt(tmp.look);
 

@@ -191,6 +191,28 @@ export function skyFor(hour: number, season: Season, weather: Weather = 'clear')
   };
 }
 
+/**
+ * 這一刻該有多少體積光(0..1)。
+ *
+ * 光柱只在<b>日頭貼著地平線</b>的時候成立 —— 斜光穿過樹梢與屋脊才有那幾道。
+ * 正午開著只是把每個像素多取樣三十六次換來看不見的差別,陰雨天更是白付。
+ *
+ * 為什麼要是一條<b>連續</b>的曲線,而不是「在不在這個時段內」的真假:
+ * 布林值一翻,GodRays 整個 effect 掛上/卸下 —— 著色器重編譯不說,
+ * 畫面上是光柱「啪」地出現。日出那幾道光該是慢慢透出來的。
+ */
+export function godrayK(hour: number, season: Season, weather: Weather): number {
+  if (weather !== 'clear') return 0;
+  const { rise, set } = daylight(season);
+  const smooth = (e0: number, e1: number, x: number) => {
+    const t = clamp01((x - e0) / (e1 - e0));
+    return t * t * (3 - 2 * t);
+  };
+  /** 離地平線越近越強,爬高了就散。太陽在地平線下時為零 —— 那時根本沒有光源。 */
+  const arm = (up: number) => (up <= 0 ? 0 : smooth(0, 0.4, up) * (1 - smooth(0.6, 2.4, up)));
+  return Math.max(arm(hour - rise), arm(set - hour));
+}
+
 /* ── 四季的配色 ── 地表與林相 */
 export interface SeasonPalette {
   grass: THREE.Color;

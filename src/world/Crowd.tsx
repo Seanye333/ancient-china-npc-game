@@ -8,6 +8,7 @@ import {
 } from './figure';
 import { houseSites, fieldSites, meanderAt, DOCKS, BRIDGE, MARKET } from './sites';
 import { useClock } from './worldTime';
+import { pushContact } from './Contacts';
 import { makeVillagers } from '../game/npcs';
 import { useFolk } from '../game/folk';
 import { presences } from '../game/interact';
@@ -334,6 +335,8 @@ export function Crowd() {
         const lean = (wp ? wp.lean : moving ? 0.055 : 0) + (a.old ? 0.10 : 0);
 
         a.lean = lean;
+        // 腳邊的軟影 —— 陰天與夜裡,這是唯一讓人踩得到地的東西
+        pushContact(a.x, a.y, a.z, 0.44 * a.build);
         tmp.p.set(a.x, a.y + bob, a.z);
         tmp.e.set(lean, a.yaw, sway);
         tmp.q.setFromEuler(tmp.e);

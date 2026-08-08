@@ -16,6 +16,7 @@ import { raidParties, useRaids } from '../game/raids';
 import { useQuest } from '../game/quest';
 import { lifeTally } from '../game/daily';
 import { useClock } from './worldTime';
+import { pushContact } from './Contacts';
 import { swingSound, hitSound, hurtSound, bowSound } from '../game/audio';
 import { WEAPONS } from '../game/weapons';
 import { note } from '../game/journal';
@@ -323,6 +324,9 @@ export function Battle() {
       if (!g) continue;
       if (f.isPlayer) { g.visible = false; continue; }   // 玩家由 Player.tsx 畫
       g.visible = true;
+      // 躺著的人和站著的人接地面積不一樣 —— 一個倒地的還投一片腳掌大的圓影,
+      // 那片影子會讀成「他浮在自己的屍體上」
+      pushContact(f.x, f.y, f.z, f.stance === 'down' ? 0.62 : 0.44);
       poseInto(g, bodies.current[f.id], blades.current[f.id], f, t, trails.current[f.id],
         [legs.current[`${f.id}:0`], legs.current[`${f.id}:1`]]);
     }

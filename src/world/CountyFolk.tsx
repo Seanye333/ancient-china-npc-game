@@ -8,6 +8,7 @@ import { COUNTY } from './County';
 import { COUNTY_FOLK } from '../game/countyfolk';
 import { cityfolk } from '../game/interact';
 import { useHero } from '../game/hero';
+import { pushContact } from './Contacts';
 
 /**
  * 縣城裡的人,站在各自的崗位上。
@@ -87,6 +88,7 @@ export function CountyFolk() {
       }
 
       const y = groundAt(x, z);
+      pushContact(x, y, z);
       if (g) {
         const bob = post.to ? Math.abs(Math.sin(t * 5.2 + x)) * 0.05
           : Math.sin(t * 1.8 + post.x) * 0.014;

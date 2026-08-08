@@ -2,9 +2,9 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Sky, Cloud, Clouds } from '@react-three/drei';
 import {
-  EffectComposer, Bloom, N8AO, ToneMapping, Vignette, SMAA, GodRays,
+  EffectComposer, Bloom, N8AO, ToneMapping, Vignette, SMAA, GodRays, DepthOfField,
 } from '@react-three/postprocessing';
-import { ToneMappingMode } from 'postprocessing';
+import { ToneMappingMode, type GodRaysEffect, type DepthOfFieldEffect } from 'postprocessing';
 import * as THREE from 'three';
 import { Terrain, River } from './world/Terrain';
 import {
@@ -46,8 +46,10 @@ import { HeroBar } from './ui/HeroBar';
 import { Lanterns } from './world/Lanterns';
 import { Weather } from './world/Weather';
 import { Seasonals } from './world/Atmosphere';
+import { ColorGrade, gradeStat } from './world/ColorGrade';
+import { Contacts, contactStat } from './world/Contacts';
 import { Tavern } from './world/Interior';
-import { skyFor, daylight, useClock } from './world/worldTime';
+import { skyFor, godrayK, useClock } from './world/worldTime';
 import { NightSky, SunDisc } from './world/NightSky';
 import { MARKET } from './world/sites';
 import { playerPos } from './game/interact';
@@ -271,6 +273,76 @@ function Storm({ ambRef, baseAmbient }: {
   return null;
 }
 
+/**
+ * 對焦與光柱 —— 兩件每幀要餵的合成器參數。
+ *
+ * <b>景深的焦點永遠釘在主角身上</b>。這不是為了炫技:這個遊戲的鏡頭離人只有六步,
+ * 而地平線在四百步外 —— 遠山、對岸的林子、縣城的城牆全都一樣銳,
+ * 畫面因此沒有<b>深度</b>,像一張貼在玻璃上的圖。焦外一化開,遠景就退回它該在的地方。
+ *
+ * 化得<b>很輕</b>是刻意的:焦內範圍給到三十公尺,近處(擋在鏡頭與人之間的樹)
+ * 和中景(整個村子)都還是清楚的,糊掉的只有再遠的那一層。
+ * 這是「空氣透視」的補充,不是拍人像。
+ */
+/**
+ * 焦內的範圍(公尺)。<b>這個數字比直覺大得多是有理由的</b>。
+ *
+ * 著色器算的是 smoothstep(0, range, |距離 - 焦距|):第一版給 30,
+ * 於是二十步外的一條船就已經化了三成 —— 整個村子糊成一片,
+ * 讀起來不是「有景深」,是「近視」。這個鏡頭離人只有六步,
+ * 而該糊的是<b>對岸與遠山</b>,那是一兩百步外的事。
+ */
+const DOF_RANGE = 120;
+const DOF_BOKEH = 3.0;
+
+/**
+ * 景深<b>不是一直開著的</b> —— 量過:5.8 毫秒。
+ *
+ * 一整幀本來 7.5 毫秒,掛上景深變 13.3 —— 幾乎翻倍,而換來的是
+ * 遠山軟一點。試過把 resolutionScale 從 0.5 砍到 0.25:一毫秒都沒省下來,
+ * 因為貴的是<b>全解析度的 CoC 與遮罩兩道</b>,和散景的解析度無關。
+ *
+ * 所以改成:只在<b>它有話要說</b>的時候開 —— 說話、進場所、落幕。
+ * 那幾個時刻世界本來就停著,幀不緊張,而背景化開正好把人推到眼前。
+ * 標題頁也開著:那一秒把著色器編譯掉,之後每次掛上都命中 three 的程式快取,
+ * 不會在你按下搭話的那一幀卡一下。
+ */
+
+function Focus({ at, rays, dof }: {
+  at: THREE.Vector3;
+  rays: React.RefObject<GodRaysEffect | null>;
+  dof: React.RefObject<DepthOfFieldEffect | null>;
+}) {
+  // 景深開/關的對照片 —— 「有沒有比較好」只有並排才看得出來
+  useEffect(() => {
+    (window as unknown as Record<string, unknown>).__dof = (k: number) => {
+      if (dof.current) dof.current.bokehScale = k;
+      return !!dof.current;
+    };
+  }, [dof]);
+
+  useFrame(({ camera }, dt) => {
+    // 焦點在胸口高度,不是腳下 —— 釘在腳上的話人的頭會微微出焦
+    at.set(playerPos.x, playerPos.y + 1.0, playerPos.z);
+    const g = rays.current;
+    if (g) {
+      const st = useClock.getState();
+      const k = godrayK(st.hour, st.season, st.weather);
+      // 再插一次值 —— godrayK 本身連續,但天氣是瞬間切的
+      const cur = g.godRaysMaterial.uniforms.weight.value as number;
+      g.godRaysMaterial.uniforms.weight.value = cur + (k * 0.34 - cur) * Math.min(1, dt * 2.2);
+      rayStat.weight = +g.godRaysMaterial.uniforms.weight.value.toFixed(3);
+    } else rayStat.weight = 0;
+    dofStat.focus = +at.distanceTo(camera.position).toFixed(1);
+    if (dof.current) dofStat.bokeh = dof.current.bokehScale;
+  });
+  return null;
+}
+
+/** 原型階段的把手:光柱多強、焦點多遠。畫面上「有沒有在做」看不出來。 */
+const rayStat = { weight: 0 };
+const dofStat = { focus: 0, bokeh: 0 };
+
 /** 截圖腳本用的相機把手。原型階段直接掛 window,正式版不會留。 */
 /** 一幀開頭把 info 歸零 —— priority 給負的,讓它排在所有繪製之前。 */
 function GpuInfoReset() {
@@ -303,6 +375,12 @@ function CamBridge() {
     (window as unknown as Record<string, unknown>).__renderInfo = () => gl.info.render.calls;
     // 量成本要看三樣:畫幾次、幾個三角形、幾個程式。只看一樣會找錯瓶頸
     (window as unknown as Record<string, unknown>).__marks = () => ({ ...markStat, ...waterStat });
+    // 後處理是最難用眼睛驗的一層:調色「有沒有在動」、光柱「是不是零」
+    // 全都看不出來,所以每一項都露一個數字出來
+    (window as unknown as Record<string, unknown>).__post = () => ({
+      ...gradeStat, ...rayStat, ...dofStat, contacts: contactStat.count,
+      contactAlpha: contactStat.opacity,
+    });
     (window as unknown as Record<string, unknown>).__gpu = () => ({
       calls: gl.info.render.calls,
       tris: gl.info.render.triangles,
@@ -465,16 +543,23 @@ export default function App() {
    */
   const [started, setStarted] = useState(false);
   const ending = useEnding((s) => s.life);
+  const talking = useInteract((s) => s.talkingTo);
+  const atPlace = useInteract((s) => s.atPlace);
+  const softFocus = !started || !!ending || !!talking || !!atPlace;
   /** GodRays 要一個光源網格 —— SunDisc 掛好後把 ref 遞給合成器。 */
   const [sunMesh, setSunMesh] = useState<THREE.Mesh | null>(null);
-  // 體積光只在日頭低的時候開:清晨黃昏的斜光才穿得出光柱,
-  // 正午開著只是白付一遍取樣
-  const lowSun = useClock((s) => {
-    if (s.weather !== 'clear') return false;
-    const { rise, set } = daylight(s.season);
-    return (s.hour > rise - 0.1 && s.hour < rise + 2.2)
-      || (s.hour > set - 2.2 && s.hour < set + 0.1);
-  });
+  const raysRef = useRef<GodRaysEffect>(null);
+  const dofRef = useRef<DepthOfFieldEffect>(null);
+  /** 焦點的那個 Vector3 <b>不能每幀換一個新的</b> —— effect 只在掛載時收一次引用。 */
+  const focusAt = useMemo(() => new THREE.Vector3(), []);
+  /*
+   * 體積光掛不掛在場上。
+   *
+   * 強度由 godrayK() 每幀連續給(見 RayRamp),這裡只管<b>掛載</b> ——
+   * 而且門檻壓得極低(0.002),所以掛上與卸下都發生在強度已經是零的時候:
+   * 光柱是透出來的,不是彈出來的。
+   */
+  const lowSun = useClock((s) => godrayK(s.hour, s.season, s.weather) > 0.002);
   useEffect(() => {
     // 世界在標題頁不該偷偷走掉幾天
     if (!started) useClock.setState({ auto: false });
@@ -559,6 +644,7 @@ export default function App() {
           <Details />
           <GroundCover />
           <Marks />
+          <Contacts />
           <WaterLife />
           <Herbs />
           <Sickbeds />
@@ -579,15 +665,24 @@ export default function App() {
 
         <EffectComposer multisampling={0} enableNormalPass>
           <N8AO aoRadius={4.2} intensity={1.5} distanceFalloff={1.1} halfRes />
+          {softFocus ? (
+            <DepthOfField
+              ref={dofRef} target={focusAt} worldFocusRange={DOF_RANGE}
+              bokehScale={DOF_BOKEH} resolutionScale={0.5}
+            />
+          ) : <></>}
           {sunMesh && lowSun ? (
-            <GodRays sun={sunMesh} samples={36} density={0.92} decay={0.94}
-              weight={0.28} exposure={0.26} blur />
+            <GodRays ref={raysRef} sun={sunMesh} samples={36} density={0.92} decay={0.94}
+              weight={0} exposure={0.26} blur />
           ) : <></>}
           <Bloom intensity={0.42} luminanceThreshold={0.80} luminanceSmoothing={0.28} mipmapBlur />
           <ToneMapping mode={ToneMappingMode.AGX} />
+          {/* 調色擺在色調映射之後 —— 這一層動的是<b>成片</b>,不是場景的光 */}
+          <ColorGrade />
           <Vignette offset={0.28} darkness={0.60} />
           <SMAA />
         </EffectComposer>
+        <Focus at={focusAt} rays={raysRef} dof={dofRef} />
 
         <AdaptiveDpr />
         <GpuInfoReset />

@@ -73,6 +73,9 @@ export function Interaction() {
   useEffect(() => {
     const w = window as unknown as Record<string, unknown>;
     w.__near = () => useInteract.getState().nearbyId;
+    // 此刻街上有誰 —— 驗收要挑一個真的在場的人搭話,
+    // 「朝一個方向走去撞人」在這種密度的村子裡撞不到
+    w.__villagers = () => presences.map((q) => ({ id: q.id, x: q.x, z: q.z }));
     // 直接開口 —— 驗收腳本要點對話裡的按鈕,不必先走三十步過去追人
     w.__talkTo = (id: string) => { useInteract.getState().open(id); };
     // 診斷用:玩家在哪、最近的人多遠 —— 找不到人的時候得知道是誰的問題
