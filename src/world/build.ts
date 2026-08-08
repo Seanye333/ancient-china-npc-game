@@ -24,6 +24,44 @@ export const MATERIALS: Record<Bucket, THREE.MeshStandardMaterialParameters> = {
   snow: { color: '#e9edf2', roughness: 1 },
 };
 
+/**
+ * 村子過得好不好,寫在房子上。
+ *
+ * 這一條補的是一整條斷掉的線:村況(治安/收成/交易)在這之前
+ * <b>只出現在畫面下方那一排數字裡</b>。你把賊窩端了、糧價穩了,
+ * 村子還是同一副樣子 —— 那些數字因此讀起來像記分板,不像一個地方。
+ *
+ * 三樣材質各講一件事:
+ * 一、<b>茅草</b>(mud/paper)最誠實 —— 沒錢就修不起屋頂,顏色發灰發暗。
+ * 二、<b>木頭</b>被曬白、雨淋灰,新修的才紅。
+ * 三、<b>石與瓦</b>幾乎不動:石頭不會因為窮就變色,那樣就假了。
+ *
+ * 回傳的是<b>乘數</b>不是顏色 —— 材質的底色仍然只有一份,
+ * 換季換天氣的時候不會兩套顏色打架。
+ */
+export function upkeepTint(order: number, harvest: number, trade: number): number {
+  // 三項各佔一份,壓在 0..1。四十分以下就開始看得出破敗
+  const k = (order * 0.34 + harvest * 0.40 + trade * 0.26) / 100;
+  return Math.min(1, Math.max(0, k));
+}
+
+/** 這一桶在 upkeep = k 的時候該乘多少。 */
+export function upkeepMul(bucket: Bucket, k: number): [number, number, number] {
+  // 0.5 是「不好不壞」的基準:那時候乘 1,也就是材質的原色
+  const d = k - 0.5;
+  switch (bucket) {
+    // 茅與紙:窮了發灰發暗,富了乾淨透亮
+    case 'mud': return [1 + d * 0.30, 1 + d * 0.26, 1 + d * 0.16];
+    case 'paper': return [1 + d * 0.34, 1 + d * 0.30, 1 + d * 0.20];
+    // 木:窮了曬白泛灰,富了是新料的紅
+    case 'wood': return [1 + d * 0.40, 1 + d * 0.14, 1 + d * 0.10];
+    // 石與瓦:幾乎不動 —— 石頭不會因為窮就變色
+    case 'stone': return [1 + d * 0.08, 1 + d * 0.08, 1 + d * 0.08];
+    case 'tile': return [1 + d * 0.12, 1 + d * 0.12, 1 + d * 0.10];
+    default: return [1, 1, 1];
+  }
+}
+
 function place(g: THREE.BufferGeometry, px: number, py: number, pz: number,
                rx: number, ry: number, rz: number) {
   g.applyMatrix4(new THREE.Matrix4().compose(

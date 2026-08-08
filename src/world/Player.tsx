@@ -8,6 +8,7 @@ import {
 } from './figure';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { setSightTarget } from './Vegetation';
+import { beatPull } from './beats';
 import { pushContact } from './Contacts';
 import { findPath } from './nav';
 import { stepSound } from '../game/audio';
@@ -225,7 +226,8 @@ export function Player() {
     look: new THREE.Vector3(), sight: new THREE.Vector3(),
   }), []);
 
-  useFrame((_, dt) => {
+  useFrame(({ clock }, dt) => {
+    const t = clock.elapsedTime;
     const k = keys.current;
     const m = me.current;
     const step = dt > 0.1 ? 0.1 : dt;      // 分頁切回來時別瞬移
@@ -427,8 +429,19 @@ export function Player() {
      */
     talkPull.current += ((talking ? 1 : 0) - talkPull.current) * Math.min(1, step * 3.4);
     const tk = talkPull.current;
-    const baseDist = (foe ? FIGHT_DIST : CAM_DIST) * (1 - 0.30 * finPull) * (1 - 0.34 * tk);
-    const baseHigh = (foe ? FIGHT_HEIGHT : CAM_HEIGHT) * (1 - 0.40 * finPull) * (1 - 0.30 * tk);
+    /*
+     * 事件鏡頭 —— 有事發生就讓一下(見 beats.ts)。
+     *
+     * 它只給<b>偏移量</b>,不接管鏡頭:所以樹照樣讓路、鏡頭照樣不會埋進山裡,
+     * 而你的手一秒都沒有被拿走。說話那一拍優先 —— 正在跟人講話的時候
+     * 不該被山那邊的一夥賊把鏡頭拽走。
+     */
+    const bp = beatPull(t);
+    const bw = 1 - tk;
+    const baseDist = (foe ? FIGHT_DIST : CAM_DIST) * (1 - 0.30 * finPull)
+      * (1 - 0.34 * tk) * (1 + bp.dist * bw);
+    const baseHigh = (foe ? FIGHT_HEIGHT : CAM_HEIGHT) * (1 - 0.40 * finPull)
+      * (1 - 0.30 * tk) * (1 + bp.high * bw);
     const underCanopy = viewBlocked(m.x, m.z, m.y + 2.2);
 
     /**
@@ -507,6 +520,12 @@ export function Player() {
     if (foe) {
       // 看向你和敵人之間偏你這一側 —— 完全取中會讓主角滑到畫面邊上
       tmp.look.set(m.x + (foe.x - m.x) * 0.32, m.y + 1.25, m.z + (foe.z - m.z) * 0.32);
+    } else if (bp.look > 0.01 && tk < 0.5) {
+      // 視線往那件事偏過去。偏的是<b>視線</b>不是位置 —— 人還在畫面中央,
+      // 只是鏡頭轉過去看了一眼
+      tmp.look.set(
+        m.x + (bp.x - m.x) * bp.look, m.y + 1.25, m.z + (bp.z - m.z) * bp.look,
+      );
     } else {
       tmp.look.set(m.x, m.y + 1.25, m.z);
       // 說話時視線移到<b>兩人中間</b>,並且抬到臉的高度 ——

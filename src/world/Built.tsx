@@ -1,9 +1,10 @@
 import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { MATERIALS, type Bucket } from './build';
+import { MATERIALS, upkeepTint, upkeepMul, type Bucket } from './build';
 import { useClock, daylight } from './worldTime';
 import { snow } from './Storms';
+import { useVillage } from '../game/village';
 
 /**
  * 蓋起來的東西怎麼畫 —— 村屋、縣城、地標共用這一個出口。
@@ -14,6 +15,9 @@ import { snow } from './Storms';
  */
 
 export interface BuiltPart { key: Bucket; geom: THREE.BufferGeometry }
+
+/** 原型階段的把手:房子此刻調到多「新」(0 = 破敗,1 = 齊整)。 */
+export const builtStat = { upkeep: 0 };
 
 /**
  * 窗紙透出的燈火。
@@ -40,8 +44,43 @@ export function BuiltMeshes({ parts }: { parts: BuiltPart[] }) {
   const paperRef = useRef<THREE.MeshStandardMaterial>(null);
   const snowRef = useRef<THREE.Mesh>(null);
   const glow = useMemo(() => new THREE.Color('#ffb257'), []);
+  /** 每一桶各自的材質 —— 要按村況調色,就得抓得到它們。 */
+  const mats = useRef<Partial<Record<Bucket, THREE.MeshStandardMaterial>>>({});
+  const base = useMemo(() => {
+    const out: Partial<Record<Bucket, THREE.Color>> = {};
+    for (const k of Object.keys(MATERIALS) as Bucket[]) {
+      out[k] = new THREE.Color(MATERIALS[k].color as string);
+    }
+    return out;
+  }, []);
+  /** 現在調到哪 —— 村況一天才動一次,顏色要慢慢跟過去,不能跳。 */
+  const upkeep = useRef(-1);
 
-  useFrame(() => {
+  useFrame((_, dt) => {
+    /*
+     * 房子跟著村況變。
+     *
+     * 用<b>插值</b>而不是直接賦值:村況是一天結一次帳的,一結就跳三五分,
+     * 直接套上去的話整村的顏色會在某一幀「啪」地變一下 ——
+     * 那讀起來像 bug,不像日子在過。
+     *
+     * 時間常數十二秒。原本給三十,量的時候才發現那太長了:
+     * 一天是四分鐘,而村況一天才動一次 —— 十二秒已經慢到你看不見它在變,
+     * 三十秒則是「跑完一趟差事回來還沒調完」。
+     */
+    const v = useVillage.getState();
+    const want = upkeepTint(v.order, v.harvest, v.trade);
+    if (upkeep.current < 0) upkeep.current = want;
+    else upkeep.current += (want - upkeep.current) * Math.min(1, dt / 12);
+    for (const k of Object.keys(mats.current) as Bucket[]) {
+      const m = mats.current[k];
+      const b = base[k];
+      if (!m || !b) continue;
+      const [r, g, bl] = upkeepMul(k, upkeep.current);
+      m.color.setRGB(b.r * r, b.g * g, b.b * bl);
+    }
+    builtStat.upkeep = +upkeep.current.toFixed(3);
+
     const m = paperRef.current;
     if (m) {
       const st = useClock.getState();
@@ -78,13 +117,19 @@ export function BuiltMeshes({ parts }: { parts: BuiltPart[] }) {
         if (key === 'paper') {
           return (
             <mesh key={key} geometry={geom} castShadow receiveShadow>
-              <meshStandardMaterial ref={paperRef} {...MATERIALS.paper} />
+              <meshStandardMaterial
+                ref={(m) => { paperRef.current = m; mats.current.paper = m ?? undefined; }}
+                {...MATERIALS.paper}
+              />
             </mesh>
           );
         }
         return (
           <mesh key={key} geometry={geom} castShadow receiveShadow>
-            <meshStandardMaterial {...MATERIALS[key]} />
+            <meshStandardMaterial
+              ref={(m) => { mats.current[key] = m ?? undefined; }}
+              {...MATERIALS[key]}
+            />
           </mesh>
         );
       })}

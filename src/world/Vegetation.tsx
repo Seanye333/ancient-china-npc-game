@@ -55,6 +55,46 @@ const SIGHT_R = 1.15;
 const fadeShaders: Array<{ uniforms: Record<string, { value: unknown }> }> = [];
 /** 會搖的那些 —— 每幀餵時間與風力。 */
 const windShaders: Array<{ uniforms: Record<string, { value: unknown }> }> = [];
+/** 會透光的那些 —— 每幀餵太陽在視空間的方向。 */
+const sssShaders: Array<{ uniforms: Record<string, { value: unknown }> }> = [];
+
+/**
+ * 太陽在<b>視空間</b>的方向,以及這一刻的光有多強。
+ *
+ * 葉子是薄的:背著光看過去,光會從葉片裡透出來 —— 那一層暖黃是
+ * 「這是植物不是石頭」最強的一個信號。低角度的太陽最明顯
+ * (清晨黃昏一整片林子的邊緣都在發亮),正午幾乎看不見。
+ *
+ * 由 App 每幀餵,和 setSightTarget / setFoliageWind 同一套路:
+ * 那邊本來就在算太陽的位置,不必在著色器裡重新推一遍。
+ */
+export function setFoliageSun(sunView: THREE.Vector3, strength: number) {
+  for (const s of sssShaders) {
+    (s.uniforms.uSunView.value as THREE.Vector3).copy(sunView);
+    (s.uniforms.uSSS as { value: number }).value = strength;
+  }
+  foliageStat.sss = +strength.toFixed(3);
+}
+
+/** 原型階段的把手:此刻透光透多少、風多大。 */
+export const foliageStat = { sss: 0, wind: 0 };
+
+/**
+ * 量成本用的:把所有植被整批藏起來。
+ *
+ * 「該不該做 LOD」這種問題不能用猜的 —— 上一輪就是憑印象說「植被很貴」,
+ * 量下來才發現藏光了也只省不到一毫秒。要能一鍵藏,才量得出來。
+ */
+let vegHidden = false;
+const vegMeshes: THREE.InstancedMesh[] = [];
+export function setVegHidden(on: boolean) {
+  vegHidden = on;
+  for (const m of vegMeshes) m.visible = !on;
+  return vegMeshes.length;
+}
+function trackVeg(m: THREE.InstancedMesh | null) {
+  if (m && !vegMeshes.includes(m)) { vegMeshes.push(m); m.visible = !vegHidden; }
+}
 
 /**
  * 告訴植被「主角在鏡頭的哪個方向、多遠」。由 Player 每幀呼叫 ——
@@ -77,6 +117,7 @@ export function setFoliageWind(time: number, strength: number, dx = 1, dz = 0) {
   for (const s of windShaders) {
     (s.uniforms.uTime as { value: number }).value = time;
     (s.uniforms.uWind as { value: number }).value = strength;
+    foliageStat.wind = +strength.toFixed(3);
     (s.uniforms.uDir.value as THREE.Vector2).set(dx, dz);
   }
 }
@@ -89,11 +130,25 @@ export function setFoliageWind(time: number, strength: number, dx = 1, dz = 0) {
  * 不然整座山像一塊果凍。幅度由底到梢漸強(smoothstep lo→hi):
  * 樹幹不動,動的是冠;蘆葦整根伏。陰影貼圖沒跟著搖 —— 幅度小,看不出。
  */
-const applyFoliage = (fade: boolean, sway: number, lo: number, hi: number) =>
+const applyFoliage = (fade: boolean, sway: number, lo: number, hi: number, sss = 0) =>
   (m: THREE.Material | null) => {
   if (!m || m.userData.foliage) return;
   m.userData.foliage = true;
   m.onBeforeCompile = (shader) => {
+    /*
+     * vViewPos 由<b>兩個</b>功能共用(讓路要它、透光也要它),
+     * 所以宣告只能有一份 —— 兩邊各插一次的話著色器會因為重複宣告而編不過,
+     * 而編不過的材質在畫面上是<b>純黑</b>,不是報錯。
+     */
+    const needsView = fade || sss > 0;
+    if (needsView) {
+      shader.vertexShader = shader.vertexShader
+        .replace('void main() {', 'varying vec3 vViewPos;\nvoid main() {')
+        .replace(
+          '#include <project_vertex>',
+          '#include <project_vertex>\n  vViewPos = mvPosition.xyz;',
+        );
+    }
     if (sway > 0) {
       shader.uniforms.uTime = { value: 0 };
       shader.uniforms.uWind = { value: 0.7 };
@@ -128,17 +183,34 @@ const applyFoliage = (fade: boolean, sway: number, lo: number, hi: number) =>
           }
         `);
     }
+    if (sss > 0) {
+      shader.uniforms.uSunView = { value: new THREE.Vector3(0, 1, 0) };
+      shader.uniforms.uSSS = { value: 0 };
+      shader.uniforms.uSSSAmt = { value: sss };
+      sssShaders.push(shader as unknown as { uniforms: Record<string, { value: unknown }> });
+      shader.fragmentShader = shader.fragmentShader
+        .replace('void main() {',
+          (needsView && !fade ? 'varying vec3 vViewPos;\n' : '')
+          + 'uniform vec3 uSunView;\nuniform float uSSS;\nuniform float uSSSAmt;\nvoid main() {')
+        /*
+         * 加在<b>最後</b>(色調映射之前的那一步),而不是混進光照裡:
+         * 這是穿透過來的光,不是打在表面上的光 —— 它不該被表面法線遮掉,
+         * 背光那一面本來就是「照不到」的那一面。
+         */
+        .replace('#include <dithering_fragment>', `
+          #include <dithering_fragment>
+          {
+            // 視線朝著太陽看過去的程度 —— 越正對,穿過來的越多
+            float back = max(0.0, dot(normalize(vViewPos), uSunView));
+            float glow = pow(back, 4.0) * uSSS * uSSSAmt;
+            gl_FragColor.rgb += gl_FragColor.rgb * vec3(1.5, 1.15, 0.55) * glow;
+          }
+        `);
+    }
     if (!fade) { m.needsUpdate = true; return; }
     shader.uniforms.uSight = { value: new THREE.Vector3(0, 0, -6) };
     shader.uniforms.uSightR = { value: SIGHT_R };
     fadeShaders.push(shader as unknown as { uniforms: Record<string, { value: unknown }> });
-    shader.vertexShader = shader.vertexShader
-      .replace('void main() {', 'varying vec3 vViewPos;\nvoid main() {')
-      // project_vertex 這一段裡才有 mvPosition(而且已經乘過 instanceMatrix)
-      .replace(
-        '#include <project_vertex>',
-        '#include <project_vertex>\n  vViewPos = mvPosition.xyz;',
-      );
     shader.fragmentShader = shader.fragmentShader
       .replace(
         'void main() {',
@@ -188,12 +260,17 @@ const applyFoliage = (fade: boolean, sway: number, lo: number, hi: number) =>
 
 /** 樹幹只讓路不搖;各樹種的冠按自己的身量搖 —— 竹最軟,蘆葦整根伏。 */
 const applyNearFade = applyFoliage(true, 0, 0, 0);
-const coniferSway = applyFoliage(true, 0.07, -1.6, 1.8);
-const broadSway = applyFoliage(true, 0.06, -1.2, 1.6);
-const willowSway = applyFoliage(true, 0.065, -1.1, 1.2);
-const bambooLeafSway = applyFoliage(true, 0.10, -0.9, 0.95);
-const bambooCulmSway = applyFoliage(true, 0.045, -2.1, 2.1);
-const reedSway = applyFoliage(false, 0.10, -0.75, 0.75);
+/*
+ * 最後那個數是<b>透光的量</b>。厚薄不一樣:
+ * 松針疊得密,透不太過去;闊葉一片薄,背光時最亮;
+ * 竹葉與蘆葦幾乎是紙。樹幹和石頭當然是零。
+ */
+const coniferSway = applyFoliage(true, 0.07, -1.6, 1.8, 0.35);
+const broadSway = applyFoliage(true, 0.06, -1.2, 1.6, 0.95);
+const willowSway = applyFoliage(true, 0.065, -1.1, 1.2, 1.0);
+const bambooLeafSway = applyFoliage(true, 0.10, -0.9, 0.95, 1.15);
+const bambooCulmSway = applyFoliage(true, 0.045, -2.1, 2.1, 0.2);
+const reedSway = applyFoliage(false, 0.10, -0.75, 0.75, 1.2);
 
 function scatter(seed: number, count: number, pick: (x: number, z: number) => number | null) {
   const rand = rng(seed);
@@ -250,6 +327,7 @@ function useInstances(
   useLayoutEffect(() => {
     const mesh = ref.current;
     if (!mesh) return;
+    trackVeg(mesh);
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const pos = new THREE.Vector3();

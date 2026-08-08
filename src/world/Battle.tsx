@@ -17,6 +17,7 @@ import { useQuest } from '../game/quest';
 import { lifeTally } from '../game/daily';
 import { useClock } from './worldTime';
 import { pushContact } from './Contacts';
+import { strikeBeat } from './beats';
 import { swingSound, hitSound, hurtSound, bowSound } from '../game/audio';
 import { WEAPONS } from '../game/weapons';
 import { note } from '../game/journal';
@@ -236,7 +237,8 @@ export function Battle() {
     }));
   }, []);
 
-  useFrame((_, dt) => {
+  useFrame(({ clock }, dt) => {
+    const now = clock.elapsedTime;
     const step = dt > 0.1 ? 0.1 : dt;
     // 打擊感的衰減擺在這裡 —— 這個元件常駐,打完了殘餘的晃也要收得掉
     fx.slow = Math.max(0, fx.slow - step);
@@ -264,6 +266,12 @@ export function Battle() {
         // 掛旗子而不是刪掉 —— 刪了的話你打輸,他們就憑空消失,
         // 攔路失敗反而幫村子解了圍
         r.fighting = true;
+        // 一夥人從山上下來攔在路上 —— 鏡頭往後讓一步,把他們框進來。
+        // 這是整個遭遇戰的前搖,從前只有距離在變,畫面上沒有一拍
+        // 時間基準<b>只能是三的鐘</b> —— beatPull 那邊也拿它比。
+        // 混 performance.now() 的話兩邊差一個開場的偏移量,那一拍會直接跳過
+        // (同一個形狀的 bug 這一輪已經吃過一次:hurtAt 對 elapsedTime)
+        strikeBeat('engage', r.x, r.z, now);
         useRaids.getState().bump();
         engagedRaid.current = { partyId: r.id, bandId: r.bandId, name: r.name };
         return;
@@ -329,6 +337,8 @@ export function Battle() {
       if (f.stance === 'down' && prevStance.current[f.id] !== 'down') {
         puffs.current.push({ x: f.x, y: f.y + 0.15, z: f.z, t0: t });
         if (puffs.current.length > 8) puffs.current.shift();
+        // 倒的是<b>自己人</b>才帶鏡頭。賊倒一個帶一次,一場架鏡頭就成了風車
+        if (f.side === 'you' && !f.isPlayer) strikeBeat('fell', f.x, f.z, t);
       }
       prevStance.current[f.id] = f.stance;
       const g = groups.current[f.id];

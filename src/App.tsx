@@ -8,7 +8,7 @@ import { ToneMappingMode, type GodRaysEffect, type DepthOfFieldEffect } from 'po
 import * as THREE from 'three';
 import { Terrain, River } from './world/Terrain';
 import {
-  Conifers, BroadLeaf, Reeds, Rocks, Bamboo, Willows, setFoliageWind,
+  Conifers, BroadLeaf, Reeds, Rocks, Bamboo, Willows, setFoliageWind, setFoliageSun,
 } from './world/Vegetation';
 import { Birds, Chickens, Dogs, FishSplash, TavernFlag } from './world/Life';
 import { Details } from './world/Details';
@@ -51,7 +51,10 @@ import { SkyClouds, cloudStat } from './world/SkyClouds';
 import { Storms, stormStat, snow } from './world/Storms';
 import { ColorGrade, gradeStat } from './world/ColorGrade';
 import { Contacts, contactStat } from './world/Contacts';
-import { Tavern } from './world/Interior';
+import { builtStat } from './world/Built';
+import { coverStat } from './world/GroundCover';
+import { foliageStat, setVegHidden } from './world/Vegetation';
+import { Tavern, Smithy } from './world/Interior';
 import { skyFor, godrayK, useClock } from './world/worldTime';
 import { gustAt } from './world/sky';
 import { NightSky, SunDisc } from './world/NightSky';
@@ -99,8 +102,14 @@ function VillageClock() {
   const lastDay = useRef(-1);
   // 原型階段的除錯鉤子 — 讓截圖腳本壓治安,好把剿匪的活逼出來
   useEffect(() => {
-    (window as unknown as Record<string, unknown>).__village =
-      (order: number) => useVillage.getState().nudge({ order });
+    // 驗收要能一次推好幾項 —— 房子的顏色看的是治安/收成/交易三項的合成,
+    // 只推治安一項的話推不太動(第一版就是這樣量出「幾乎沒差」的假結論)
+    (window as unknown as Record<string, unknown>).__village = (
+      order: number, harvest?: number, trade?: number,
+    ) => useVillage.getState().nudge({
+      order, ...(harvest !== undefined ? { harvest } : {}),
+      ...(trade !== undefined ? { trade } : {}),
+    });
   }, []);
   /**
    * 過一天結一次帳。
@@ -169,10 +178,21 @@ function TimedScene({ boltUntil }: { boltUntil: React.RefObject<number> }) {
 
   // 風 —— 規矩在 sky.ts 的 gustAt():平時幾乎不動,忽然一陣掃過去。
   // 強度和<b>方向</b>都餵給植被的頂點著色器
-  useFrame(({ clock }) => {
+  const sunView = useMemo(() => new THREE.Vector3(), []);
+  useFrame(({ clock, camera }) => {
     const t = clock.elapsedTime;
     const g = gustAt(t, useClock.getState().weather);
     setFoliageWind(t, g.strength, g.dx, g.dz);
+    /*
+     * 葉子透光 —— 把太陽的方向換算到視空間再餵下去。
+     *
+     * 強度掛在<b>太陽有多低</b>上:清晨黃昏斜光穿過整片林子,葉緣一路發亮;
+     * 正午幾乎看不出來(光是從上面下來的,不從葉子後面來),
+     * 陰雨天更沒有 —— 沒有直射就沒有穿透。
+     */
+    sunView.copy(sky.light).normalize().transformDirection(camera.matrixWorldInverse);
+    const low = 1 - Math.min(1, Math.max(0, sky.light.y / (sky.light.length() || 1)) * 1.7);
+    setFoliageSun(sunView, Math.min(1, sky.sunIntensity / 2.2) * (0.25 + low * 0.9));
   });
 
   // 環境音跟著時辰與天氣走 —— 一秒更新一次就夠,它本來就是慢慢淡的
@@ -394,6 +414,12 @@ function CamBridge() {
     });
     // 地上躺著幾個、幾攤血 —— 打完就走的人不會回頭看,驗收要看
     (window as unknown as Record<string, unknown>).__fallen = () => ({ ...fallenStat });
+    // 房子調到多「新」、葉子透光透多少 —— 兩樣都是幾個百分點的事,眼睛比不出來
+    (window as unknown as Record<string, unknown>).__built = () => ({ ...builtStat });
+    (window as unknown as Record<string, unknown>).__foliage = () => ({ ...foliageStat });
+    (window as unknown as Record<string, unknown>).__groundCover2 = () => ({ ...coverStat });
+    // 量「植被到底花多少錢」用的:整批藏起來,前後各量一次幀時間
+    (window as unknown as Record<string, unknown>).__hideVeg = (on: boolean) => setVegHidden(!!on);
     // 積雪要好幾分鐘才化得完 —— 驗收等不起,給一個直接設深度的把手
     (window as unknown as Record<string, unknown>).__snow = (k: number) => {
       snow.pack = Math.min(1, Math.max(0, k));
@@ -676,6 +702,7 @@ export default function App() {
           <Fallen />
           <Interaction />
           <Tavern />
+          <Smithy />
           <Weather />
           <Seasonals />
           <Birds />
