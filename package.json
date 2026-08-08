@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "coverage": "vitest run --coverage",
+    "sim": "tsx tools/sim/measure.ts"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
@@ -26,6 +28,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/three": "^0.184.1",
     "@vitejs/plugin-react": "^6.0.1",
+    "@vitest/coverage-v8": "^4.1.10",
     "typescript": "~6.0.2",
     "vite": "^8.0.12",
     "vitest": "^4.1.10"
