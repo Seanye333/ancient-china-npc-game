@@ -20,7 +20,10 @@ import { WEAPONS } from '../game/weapons';
 import { countyPrice } from '../game/economy';
 import { raidParties } from '../game/raids';
 import { kinWord } from '../game/kin';
-import { deltaOf, isSick, spreadRumor } from '../game/folk';
+import { deltaOf, isSick, spreadRumor, useFolk } from '../game/folk';
+import {
+  useFurlough, REASON_ASK, grantEffect, refuseEffect,
+} from '../game/furlough';
 import { homeOf, homeBonus, moodOf, isGrieving } from '../game/company';
 import { useClock } from '../world/worldTime';
 import { partsFor } from '../game/calendar';
@@ -68,6 +71,7 @@ export function Dialogue() {
   // 換季才換活,一季之內怎麼等都是同一件。現在有真的曆法了
   const span = useClock((s) => partsFor(s.day).xunIndex);
   const day = useClock((s) => s.day);
+  const pending = useFurlough((s) => s.pending);
   const errand = useMemo(() => {
     if (!npc) return null;
     const e = errandFrom(npc, village, span, hero.merit, bands);
@@ -339,6 +343,57 @@ export function Dialogue() {
           >
             {joined ? '已隨你左右' : '跟我走吧'}
           </button>
+        )}
+        {/*
+          告假 —— 他有他自己的日子。
+          擺在最前面:人家開了口堵在你面前,你總不能先跟他寒暄。
+        */}
+        {!shown && pending?.id === npc.id && (
+          <div style={{ display: 'grid', gap: 6 }}>
+            <div style={{ fontSize: 13, opacity: .85, lineHeight: 1.7 }}>
+              {REASON_ASK[pending.reason]}
+              <span style={{ opacity: .6 }}>{` (要去 ${pending.days} 天)`}</span>
+            </div>
+            <button style={{ ...btn, borderColor: '#7fb08a', color: '#a8d4b4' }}
+              onClick={() => {
+                const eff = grantEffect();
+                useFurlough.getState().clearAsk();
+                // 走的時候<b>從隨行名單裡拿掉</b> —— 不然他人在幾十里外,
+                // 你的差事還算他一份人手、糧也照吃他一口
+                hero.dismiss(npc.id);
+                useFurlough.getState().send({
+                  id: npc.id, reason: pending.reason, backOn: day + pending.days,
+                });
+                hero.addFavor(npc.id, eff.favor);
+                useFolk.getState().bumpRegard(npc.id, eff.regard);
+                useHero.setState((st) => ({ renown: st.renown + eff.renown }));
+                spreadRumor({
+                  text: `${npc.name}家裡有事,他二話不說就准了。`,
+                  delta: 1.4, life: 5, aboutId: npc.id,
+                });
+                setLine('⋯⋯多謝。事一完我就回來。');
+              }}>
+              去罷,事辦完了再回來
+            </button>
+            <button style={{ ...btn, opacity: .85 }}
+              onClick={() => {
+                const eff = refuseEffect(pending.reason);
+                useFurlough.getState().clearAsk();
+                hero.addFavor(npc.id, eff.favor);
+                useFolk.getState().bumpRegard(npc.id, eff.regard);
+                if (Math.random() < eff.quitChance) {
+                  hero.dismiss(npc.id);
+                  setLine(npc.temper === 'gruff'
+                    ? '那我自己去。你另尋人罷。'
+                    : '⋯⋯我懂了。那我也不跟著你了。');
+                } else {
+                  setLine(npc.temper === 'timid' ? '⋯⋯是。我知道了。'
+                    : '⋯⋯行。那就不去了。');
+                }
+              }}>
+              眼下走不開<span style={{ opacity: .55 }}> · 他會記著這一筆</span>
+            </button>
+          </div>
         )}
         {/*
           結義 —— 全遊戲唯一一條不由錢維持的關係。

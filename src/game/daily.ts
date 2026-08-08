@@ -28,6 +28,9 @@ import {
 } from './vendetta';
 import { deathMul, recoverChance } from './herbs';
 import { mayLeave, payrollCount, useOath } from './oath';
+import {
+  useFurlough, furloughRoll, ignoreEffect, ASK_PATIENCE, REASON_WORD,
+} from './furlough';
 import { groundAt, water } from '../world/field';
 import { invalidateNav } from '../world/nav';
 import type { Season } from '../world/worldTime';
@@ -416,6 +419,64 @@ export function settleDay(day: number, season: Season): DayReport {
     // 主角也長一歲 —— 全村都在老,只有你不老的話,那個村子就是佈景
     useHero.setState((s) => ({ age: s.age + 1 }));
     journal.note(day, `又是一年。你今年${useHero.getState().age}歲了。`, 'plain');
+  }
+
+  /*
+   * 告假 —— 跟著你的人也有他自己的日子。
+   *
+   * 三件事在這裡結:有人開口、外面的人回來、以及<b>你晾著不答的代價</b>。
+   * 決定本身不在這裡做(那是對話裡的事),這裡只管時間走過去會怎樣。
+   */
+  {
+    const fur = useFurlough.getState();
+
+    // 一、回來的人。招不下就再等一天 —— 別讓他因為你人滿了就此消失
+    for (const a of [...fur.away]) {
+      if (day < a.backOn) continue;
+      const npc = anyPerson(a.id);
+      if (useHero.getState().recruit(a.id)) {
+        fur.returned(a.id);
+        journal.note(day, `${npc?.name ?? '同行'}回來了。${REASON_WORD[a.reason]},事辦完了。`);
+        useFolk.getState().bumpRegard(a.id, 1);
+      } else if (day === a.backOn) {
+        journal.note(day, `${npc?.name ?? '同行'}回來了,可你身邊已經滿了 —— 他在村口等著。`);
+      }
+    }
+
+    // 二、晾著沒答的。回絕好歹是個交代,不理是另一回事
+    const p = fur.pending;
+    if (p && day - p.askedOn >= ASK_PATIENCE) {
+      const npc = anyPerson(p.id);
+      const eff = ignoreEffect();
+      useFurlough.getState().clearAsk();
+      if (useHero.getState().followers.includes(p.id)) {
+        useHero.getState().dismiss(p.id);
+        report.left.push(p.id);
+        useHero.getState().addFavor(p.id, eff.favor);
+        useFolk.getState().bumpRegard(p.id, eff.regard);
+        journal.note(day,
+          `${npc?.name ?? '同行'}自己走了 —— 他求了你一句,你一直沒給句話。`, 'bad');
+        spreadRumor({
+          text: `${npc?.name ?? '那人'}求了他一件事,他連個話都沒有。`,
+          delta: -2.5, life: 5, aboutId: p.id,
+        });
+      }
+    }
+
+    // 三、今天有沒有人開口
+    const ask = furloughRoll({
+      followers: useHero.getState().followers,
+      away: useFurlough.getState().away.map((a) => a.id),
+      pending: !!useFurlough.getState().pending,
+      season,
+      sickAtHome: Object.values(useFolk.getState().deltas).some((d) => (d?.sick ?? 0) > 0),
+      roll: Math.random,
+    });
+    if (ask) {
+      useFurlough.getState().ask({ ...ask, askedOn: day });
+      const npc = anyPerson(ask.id);
+      journal.note(day, `${npc?.name ?? '同行'}欲言又止 —— 像是有話要跟你說。`);
+    }
   }
 
   /*

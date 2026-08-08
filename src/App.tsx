@@ -58,6 +58,7 @@ import { placeById, houseOf } from './game/places';
 import { herbSpots, spotReady } from './game/herbs';
 import { useFolk } from './game/folk';
 import { useOath, payrollCount } from './game/oath';
+import { useFurlough } from './game/furlough';
 import { makeVillagers } from './game/npcs';
 import { DOCKS } from './world/sites';
 import { useJournal } from './game/journal';
@@ -348,6 +349,23 @@ function CamBridge() {
       sworn: useOath.getState().sworn,
       swornOn: useOath.getState().swornOn,
       fallen: useOath.getState().fallen,
+    });
+    // 告假:讓某個隨行的人立刻開口(等他自己開口要好幾旬,驗收等不起)
+    (window as unknown as Record<string, unknown>).__askLeave = (
+      id: string, reason = 'illness', days = 8,
+    ) => {
+      useFurlough.getState().clearAsk();
+      useFurlough.getState().ask({
+        id, reason: reason as never, askedOn: useClock.getState().day, days,
+      });
+      return useFurlough.getState().pending;
+    };
+    // 手動結一天的帳 —— 驗收要把日子往前推,而等時鐘走太慢
+    (window as unknown as Record<string, unknown>).__settle = (d: number) =>
+      settleDay(d, useClock.getState().season);
+    (window as unknown as Record<string, unknown>).__furlough = () => ({
+      pending: useFurlough.getState().pending,
+      away: useFurlough.getState().away,
     });
     (window as unknown as Record<string, unknown>).__payroll = () => {
       const h = useHero.getState();

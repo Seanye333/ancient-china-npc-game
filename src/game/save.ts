@@ -12,6 +12,7 @@ import { useRefugees } from './refugees';
 import { useVendetta } from './vendetta';
 import { useHerbs } from './herbs';
 import { useOath } from './oath';
+import { useFurlough } from './furlough';
 import { useFair } from './fair';
 import { lifeTally } from './daily';
 import { useClock } from '../world/worldTime';
@@ -37,7 +38,7 @@ const KEY = 'baishen.save.v1';
 // 3:採藥(herbs/dressedOn/採空的藥叢)
 // 4:義結金蘭(sworn/swornOn/fallen)+ 主角有了歲數。版本不合就丟 —— 舊檔缺欄位,
 // undefined 混進帳裡是 NaN 的溫床
-const VERSION = 4;
+const VERSION = 5;
 
 interface SaveData {
   v: number;
@@ -60,6 +61,7 @@ interface SaveData {
   herbs: unknown;
   /** 結義。不存的話讀個檔兄弟就變回雇工了 —— 而且他會開始領月錢。 */
   oath: unknown;
+  furlough: unknown;
   /** 擂台打到第幾場 —— 比到一半讀檔丟兩場勝利,那就是搶劫。 */
   fair: unknown;
   /**
@@ -112,6 +114,12 @@ export function saveGame(): boolean {
         swornOn: useOath.getState().swornOn,
         fallen: useOath.getState().fallen,
       },
+      // 告假在外的人。不存的話讀檔那一刻他們就人間蒸發了 ——
+      // 而玩家只會記得「我明明有五個人」
+      furlough: {
+        pending: useFurlough.getState().pending,
+        away: useFurlough.getState().away,
+      },
       fair: {
         round: useFair.getState().round,
         out: useFair.getState().out,
@@ -160,6 +168,8 @@ export function loadGame(): boolean {
     useVendetta.getState().reset((data.grudges as never) ?? {});
     useHerbs.getState().reset((data.herbs as never) ?? {});
     useOath.getState().reset((data.oath as never) ?? undefined);
+    useFurlough.getState().reset();
+    if (data.furlough) useFurlough.setState(data.furlough as never);
     if (data.fair) useFair.setState(data.fair as never);
     useConvoy.getState().bump();
     if (data.tally) {
