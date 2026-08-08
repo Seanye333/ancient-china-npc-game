@@ -50,3 +50,48 @@ describe('窪地選址', () => {
     expect(again.map((p) => [p.x, p.z])).toEqual(spots.map((p) => [p.x, p.z]));
   });
 });
+
+/* ── 岸線 ────────────────────────────────────── */
+
+import { __shoreSpots } from './Water';
+import { riverMask } from './field';
+
+describe('岸線', () => {
+  const shore = __shoreSpots();
+
+  it('沿著整條河,不是只有半段', () => {
+    expect(shore.length).toBeGreaterThan(300);
+    const zs = shore.map((s) => s.z);
+    expect(Math.min(...zs)).toBeLessThan(-150);
+    expect(Math.max(...zs)).toBeGreaterThan(150);
+  });
+
+  /**
+   * 這一條是這批唯一真正難查的:水面那張網用 riverMask 裁外圍,可它是一片
+   * <b>平的</b>板子鋪在 WATER_Y —— 靠岸那一段早埋進土裡了。眼睛看到的水邊
+   * 在遮罩邊界的內側。照遮罩擺浪的話,三百道浪全在地底下,而截圖裡
+   * 看起來就只是「浪沒做出來」。
+   */
+  it('落在<b>看得見的水邊</b>上,不是遮罩的邊界', () => {
+    for (const s of shore) {
+      // 往河心退一點,那裡該還是水(遮罩沒歸零)
+      const cx = meanderAtOf(s.z);
+      const inward = s.x + Math.sign(cx - s.x) * 0.6;
+      expect(riverMask(inward, s.z), `(${s.x.toFixed(1)}, ${s.z.toFixed(1)}) 不在水邊`)
+        .toBeGreaterThan(0.05);
+      // 而地面在這裡已經爬到水位附近 —— 這才是看得見的那條線
+      expect(terrainHeight(s.x, s.z)).toBeGreaterThan(waterLevel() - 0.8);
+    }
+  });
+
+  it('兩岸都有 —— 只做一邊的話,轉個身河就成了硬邊', () => {
+    const left = shore.filter((s) => s.yaw < 0).length;
+    const right = shore.filter((s) => s.yaw > 0).length;
+    expect(left).toBeGreaterThan(50);
+    expect(right).toBeGreaterThan(50);
+  });
+});
+
+function meanderAtOf(z: number): number {
+  return Math.sin(z * 0.02) * 9 + Math.sin(z * 0.047) * 3.5;
+}
