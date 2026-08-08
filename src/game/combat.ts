@@ -64,6 +64,19 @@ export interface Fighter {
   /** 最後一次挨打的時刻,用來閃紅。 */
   hurtAt: number;
   /**
+   * 最後一次<b>擋掉/閃開</b>一刀的時刻,以及是怎麼躲的。
+   *
+   * 從前一刀沒中就是 `return` —— 邏輯上正確,畫面上是<b>一片空白</b>:
+   * 兩個人面對面揮了十幾刀,只有其中三四刀看得出發生過事,
+   * 其餘全是「揮空了」。可那些多半不是揮空,是被架開的。
+   * 把「沒中」分成擋與閃,同一組數字就多出一半看得見的攻防。
+   *
+   * <b>數值一分不動</b> —— 命中率的算式完全沒碰,擲出來沒中的那些
+   * 只是從此有了樣子。平衡鎖(combat.balance.test.ts)因此一動不動。
+   */
+  guardAt: number;
+  guardKind: 'parry' | 'dodge' | null;
+  /**
    * 弓手 —— 大寨才有(見 beginBattle)。隔著十來步放箭,你逼近他就退。
    *
    * 他改變的不是數值,是<b>玩家的腳</b>:近戰誰站著誰吃虧只在圍毆裡成立,
@@ -103,6 +116,107 @@ export const stuckArrows: StuckArrow[] = [];
 
 /** 場上所有人 — 高頻資料,每幀動。 */
 export const fighters: Fighter[] = [];
+
+/**
+ * 打在身上的那一下 —— 火花、血點。
+ *
+ * 和 fighters 一樣走模組級陣列:一場架一秒鐘可以有十幾下,
+ * 每一下都進 store 的話,zustand 一秒要通知渲染樹十幾次。
+ */
+export interface Impact {
+  x: number; y: number; z: number;
+  /** 打過來的方向(單位向量的 xz)—— 火花與血要往這個方向濺。 */
+  dx: number; dz: number;
+  t: number;
+  /** 擋掉的是火星(金屬相擊),打中的是血。 */
+  kind: 'spark' | 'blood';
+}
+export const impacts: Impact[] = [];
+const IMPACT_CAP = 40;
+
+/** 從 (fx,fz) 打到 tgt 身上 —— 濺出去的方向就是這一擊來的方向。 */
+function addImpact(fx: number, fz: number, tgt: Fighter, kind: Impact['kind']) {
+  const d = Math.hypot(tgt.x - fx, tgt.z - fz) || 1;
+  if (impacts.length >= IMPACT_CAP) impacts.shift();
+  impacts.push({
+    // 打在胸口高度,不是腳下 —— 火花從地上冒出來很怪
+    x: (fx + tgt.x) / 2, y: tgt.y + 0.85, z: (fz + tgt.z) / 2,
+    dx: (tgt.x - fx) / d, dz: (tgt.z - fz) / d, t: clock, kind,
+  });
+}
+
+/**
+ * 倒在地上的人 —— <b>打完了還留著</b>。
+ *
+ * 從前一場打完,fighters 整個清空,屍首跟著消失:你走回頭看那片草地,
+ * 什麼都沒發生過。一個把「死」寫進日誌、寫進仇家名單的遊戲,
+ * 地上卻乾乾淨淨,那是最說不通的一處。
+ *
+ * 存的是 day 而不是秒:屍首躺幾天,由曆法決定,不由這一局的計時器。
+ */
+export interface Corpse {
+  x: number; y: number; z: number; yaw: number;
+  side: Side;
+  chief: boolean;
+  /** 倒下那天。過幾天就收走了 —— 村裡會有人來埋。 */
+  day: number;
+}
+export const corpses: Corpse[] = [];
+/** 躺幾天。三天:夠你打完一趟回來看見,又不會積成一片亂葬崗。 */
+export const CORPSE_DAYS = 3;
+const CORPSE_CAP = 24;
+
+/** 地上的血漬 —— 比屍首留得久一點,雨會沖淡(渲染端管淡)。 */
+export interface Stain { x: number; y: number; z: number; r: number; day: number }
+export const stains: Stain[] = [];
+const STAIN_CAP = 32;
+
+/** 今天過去了 —— 收走該收的屍首。由 daily 的結算呼叫。 */
+export function ageBattlefield(day: number) {
+  for (let i = corpses.length - 1; i >= 0; i--) {
+    if (day - corpses[i].day >= CORPSE_DAYS) corpses.splice(i, 1);
+  }
+  for (let i = stains.length - 1; i >= 0; i--) {
+    if (day - stains[i].day >= CORPSE_DAYS * 2) stains.splice(i, 1);
+  }
+}
+
+/** 有人倒下 —— 留一具屍首、一攤血。 */
+function layDown(f: Fighter, day: number) {
+  if (corpses.length >= CORPSE_CAP) corpses.shift();
+  corpses.push({ x: f.x, y: f.y, z: f.z, yaw: f.yaw, side: f.side, chief: !!f.chief, day });
+  if (stains.length >= STAIN_CAP) stains.shift();
+  stains.push({ x: f.x, y: f.y, z: f.z, r: 0.5 + Math.random() * 0.35, day });
+}
+
+/**
+ * 今天是第幾天 —— 由外面設。
+ *
+ * combat.ts 不 import 世界時鐘(它是純邏輯,空跑一千場不該需要一個 store),
+ * 所以日子是<b>餵進來</b>的。beginBattle 收一次就夠:一場架不會跨日。
+ */
+let battleDay = 0;
+
+/** 擋了幾刀、閃了幾刀、中了幾刀 —— 空跑要驗「這三個數加起來等於出手數」。 */
+export const guardTally = { parries: 0, dodges: 0, hits: 0 };
+
+/**
+ * 這一場打了多久(秒)。
+ *
+ * <b>凡是和 hurtAt / guardAt / impact.t 比的,都得用這個</b>,
+ * 不能拿 three 的 clock.elapsedTime。兩者不是同一條時間軸:
+ * 這一條每開一場架就歸零,那一條從開網頁那一刻起一路加上去。
+ *
+ * 為什麼特地寫下來:渲染端原本就是拿 elapsedTime 去減 hurtAt 的,
+ * 於是「挨打閃一下」和命中的聲音<b>從來沒有發生過</b> ——
+ * 條件是 `elapsedTime - hurtAt < 0.05`,而左邊在開場一分鐘後就是 60,
+ * 永遠不可能小於 0.05。畫面上什麼都沒有,又不會報錯,
+ * 所以它安安靜靜地壞了很久(是這一批加火花時才被抓到的:
+ * 火花一顆都不出現,而屍首確實在增加)。
+ */
+export function battleTime(): number {
+  return clock;
+}
 
 /**
  * 上一次有人挨刀是什麼時候。
@@ -235,6 +349,8 @@ export function beginBattle(input: {
   sleeping?: boolean;
   /** 弓手幾把 —— 平常由 count 推(見下),調參要能單獨關掉它量基線。 */
   archers?: number;
+  /** 今天第幾天 —— 屍首要記在哪一天倒的。不給就沿用上一次。 */
+  day?: number;
   rng?: () => number;
 }) {
   rand = input.rng ?? Math.random;
@@ -243,7 +359,11 @@ export function beginBattle(input: {
   fighters.length = 0;
   arrows.length = 0;
   arrowTally.loosed = 0;
+  impacts.length = 0;
+  guardTally.parries = 0; guardTally.dodges = 0; guardTally.hits = 0;
+  battleDay = input.day ?? battleDay;
   fx.shielded = null;
+  // 屍首與血漬<b>不清</b> —— 那是上一場留下的,清了就等於沒留過
 
   const { band, at, ground } = input;
   const toBand = Math.atan2(band.x - at.x, band.z - at.z);
@@ -324,7 +444,7 @@ function mk(p: {
     ...p,
     hp, maxHp: hp,
     targetId: null, cool: 0.4 + rand() * 0.5, stance: 'closing',
-    phase: 0, hurtAt: -9,
+    phase: 0, hurtAt: -9, guardAt: -9, guardKind: null,
   };
 }
 
@@ -526,7 +646,7 @@ function stepArrows(dt: number, ground: (x: number, z: number) => number) {
     for (const f of fighters) {
       if (f.side === a.side || !alive(f)) continue;
       if (segDist(px, py, pz, a.x, a.y, a.z, f.x, f.y + 1.0, f.z) < 0.55) {
-        applyHit(f, a.dmg);
+        applyHit(f, a.dmg, a.x - a.vx, a.z - a.vz);
         hit = true;
         break;
       }
@@ -671,9 +791,32 @@ function resolveStrike(f: Fighter) {
   const reachEdge = (f.reach - tgt.reach) * 0.22;
   const chance = clampf(
     0.44 + (f.war - tgt.war) / 190 + crowd + flank + reachEdge, 0.15, 0.90);
-  if (rand() > chance) return;
+  if (rand() > chance) {
+    /*
+     * 沒中 —— 但沒中<b>也有樣子</b>。
+     *
+     * 站定了對砍的人是<b>架開</b>那一刀(兵器相擊,火星);
+     * 正在逼近、剛挨過打、或者被繞到背後的人來不及架,只能<b>閃</b>。
+     * 這一段一分數值都沒改:上面那個 chance 和從前一模一樣,
+     * 擲出來沒中的那些只是從此看得見。
+     */
+    const canParry = tgt.stance === 'engaged' || tgt.stance === 'striking';
+    tgt.guardAt = clock;
+    tgt.guardKind = canParry ? 'parry' : 'dodge';
+    if (canParry) {
+      guardTally.parries++;
+      addImpact(f.x, f.z, tgt, 'spark');
+      // 架開也是要力氣的 —— 下一刀慢一點點。這一項小到不動勝率,
+      // 但它讓「一直被壓著打」在手感上真的比較吃虧
+      tgt.cool = Math.max(tgt.cool, 0.06);
+    } else {
+      guardTally.dodges++;
+    }
+    return;
+  }
+  guardTally.hits++;
 
-  applyHit(tgt, (6.5 + f.war * 0.10) * f.dmgMul * (0.75 + rand() * 0.6));
+  applyHit(tgt, (6.5 + f.war * 0.10) * f.dmgMul * (0.75 + rand() * 0.6), f.x, f.z);
   // 背後挨的那一下另外掉士氣 —— 「被包了」該是感覺得到的
   if (flank > FLANK_BONUS * 0.6 && alive(tgt)) {
     tgt.morale -= FLANK_MORALE;
@@ -686,8 +829,19 @@ function resolveStrike(f: Fighter) {
  * 挨了一下 —— 刀和箭共用的那半段:掉血、閃紅、驚醒、頓幀、倒地與士氣。
  * 刀在這之前擲過命中,箭沒有 —— 箭的「命中率」是空間裡飛出來的。
  */
-function applyHit(tgt: Fighter, dmg: number) {
+/**
+ * 挨了一下。
+ *
+ * 血點<b>擺在這裡</b>而不是擺在刀那一路 —— 因為挨打不只一種來源:
+ * 第一版只讓刀濺血,結果驗收裡打了二十秒一滴血都沒有,
+ * 原因是那一場的三個近戰卡在障礙後面過不來,真正在打人的是<b>弓手</b>,
+ * 而箭走的是另一條路。凡是掉血的地方只有一處,血就只該畫在那一處。
+ */
+function applyHit(tgt: Fighter, dmg: number, fromX?: number, fromZ?: number) {
   lastBlow = clock;
+  if (fromX !== undefined && fromZ !== undefined) {
+    addImpact(fromX, fromZ, tgt, 'blood');
+  }
   /*
    * 義兄弟替你擋那一刀。
    *
@@ -703,6 +857,7 @@ function applyHit(tgt: Fighter, dmg: number) {
       guard.hp = 0;
       guard.stance = 'down';
       guard.phase = 0;
+      layDown(guard, battleDay);
       // 他把你推開了。留下的不能只是一口氣 —— 空跑出來的:
       // 撈回一成八的血,下一刀照樣要你的命,倒地率一個點都沒動
       tgt.hp = Math.max(1, tgt.maxHp * 0.35);
@@ -736,6 +891,7 @@ function applyHit(tgt: Fighter, dmg: number) {
     tgt.hp = 0;
     tgt.stance = 'down';
     tgt.phase = 0;
+    layDown(tgt, battleDay);
     // 放倒一個 —— 慢半拍,讓那一下看得清
     fx.slow = 0.42;
     fx.shake = Math.max(fx.shake, 0.45);

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import {
   bodyGeom, headGeom, legGeom, armGeom, radiusAt, legSwing, armSwing, workPose, toolGeom,
-  HEAD_P, BODY_P, FACE_SQUASH, LIP, BROW, TRIM,
+  HEAD_P, BODY_P, FACE_SQUASH, LIP, BROW, TRIM, gesturePose, type Mood,
   FIG_H, FIG_HR, FIG_BODY_H, FIG_LEG_H,
 } from './figure';
 
@@ -184,5 +184,126 @@ describe('做工的姿勢', () => {
     const hoe = toolGeom('farm')!;
     hoe.computeBoundingBox();
     expect(hoe.boundingBox!.max.y).toBeLessThan(0);
+  });
+});
+
+/**
+ * 神情。
+ *
+ * 這一組<b>不能靠截圖驗</b>,試過了:把鏡頭端到人臉前面,再繞四圈挑
+ * 「最亮的那一面」當正臉 —— 挑回來的是後腦勺(白髮比背光的臉還亮),
+ * 而且那些人自己還會走開。神情是幾何,幾何就該從幾何驗:
+ * 把烘了色的眉與唇挑出來,量它們的座標。
+ */
+describe('神情', () => {
+  /** 眉毛內側(靠鼻樑那一端)的高度 —— 兇是壓下來,怕是吊起來。 */
+  const browInnerY = (mood: Mood) => {
+    const vs = vertsOfColor(headGeom({ mood }), BROW).filter(([x]) => x > 0);
+    // x 最小的那幾個 = 最靠中線的一段
+    const minX = Math.min(...vs.map(([x]) => x));
+    const inner = vs.filter(([x]) => x < minX + FIG_HR * 0.06);
+    return inner.reduce((a, [, y]) => a + y, 0) / inner.length;
+  };
+
+  it('兇的眉壓下來,怕的眉吊起來', () => {
+    const stern = browInnerY('stern');
+    const calm = browInnerY('calm');
+    const afraid = browInnerY('afraid');
+    expect(stern).toBeLessThan(calm);
+    expect(afraid).toBeGreaterThan(calm);
+    // 差距要看得出來 —— 差一根頭髮寬等於沒有表情
+    expect(afraid - stern).toBeGreaterThan(FIG_HR * 0.06);
+  });
+
+  it('和氣的嘴角是揚的,兇的嘴是抿平的', () => {
+    const cornerMinusMid = (mood: Mood) => {
+      const vs = vertsOfColor(headGeom({ mood }), LIP);
+      const maxX = Math.max(...vs.map(([x]) => Math.abs(x)));
+      const corner = vs.filter(([x]) => Math.abs(x) > maxX * 0.7);
+      const mid = vs.filter(([x]) => Math.abs(x) < maxX * 0.3);
+      const avg = (a: Array<[number, number, number]>) =>
+        a.reduce((s, [, y]) => s + y, 0) / a.length;
+      return avg(corner) - avg(mid);
+    };
+    // 笑 = 嘴角比中段高
+    expect(cornerMinusMid('glad')).toBeGreaterThan(0);
+    // 兇 = 中段比嘴角高(撇下來)
+    expect(cornerMinusMid('stern')).toBeLessThan(0);
+    expect(Math.abs(cornerMinusMid('calm'))).toBeLessThan(FIG_HR * 0.005);
+  });
+
+  it('怕的時候眼睛睜大,倦的時候瞇著', () => {
+    const eyeSpan = (mood: Mood) => {
+      const g = headGeom({ mood });
+      g.computeBoundingBox();
+      // 眼白是唯一那個顏色 —— 拿它的縱向跨度當「眼睛多大」
+      const vs = vertsOfColor(g, new THREE.Color('#f2f0ea'));
+      expect(vs.length).toBeGreaterThan(0);
+      const ys = vs.map(([, y]) => y);
+      return Math.max(...ys) - Math.min(...ys);
+    };
+    expect(eyeSpan('afraid')).toBeGreaterThan(eyeSpan('calm'));
+    expect(eyeSpan('weary')).toBeLessThan(eyeSpan('calm'));
+  });
+
+  it('換神情不會把五官弄到臉外面去', () => {
+    const cy = FIG_HR * 0.84;
+    const skinR = (y: number) => radiusAt(HEAD_P, (y - cy) / FIG_HR) * FIG_HR;
+    for (const mood of ['calm', 'stern', 'afraid', 'glad', 'weary'] as const) {
+      const g = headGeom({ mood });
+      for (const c of [LIP, BROW]) {
+        for (const [x, y, z] of vertsOfColor(g, c)) {
+          const d = Math.hypot(x, z / FACE_SQUASH);
+          expect(d / skinR(y), `${mood} 的五官跑出臉外`).toBeLessThan(1.30);
+        }
+      }
+    }
+  });
+});
+
+describe('隨身帶的東西', () => {
+  it('市面上的人手上不再是空的', () => {
+    for (const kind of ['basket', 'jar', 'firewood']) {
+      const g = toolGeom(kind);
+      expect(g, `${kind} 沒做出來`).not.toBeNull();
+      g!.computeBoundingBox();
+      const b = g!.boundingBox!;
+      // 掛在肩的座標系裡:不能大過人、也不能離身體太遠
+      const size = Math.max(b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z);
+      expect(size, `${kind} 大得不像話`).toBeLessThan(FIG_H);
+      expect(size, `${kind} 小到看不見`).toBeGreaterThan(FIG_HR * 0.3);
+      for (const v of [b.min, b.max]) {
+        expect(Math.hypot(v.x, v.z), `${kind} 飄在身體外面`).toBeLessThan(FIG_H);
+      }
+    }
+  });
+
+  it('沒有這一行的還是回 null —— 不要無中生有', () => {
+    expect(toolGeom('none')).toBeNull();
+  });
+});
+
+describe('說話的手勢', () => {
+  it('一輪裡有拱手、有比劃、也有垂手聽著', () => {
+    const arms: Array<[number, number]> = [];
+    for (let t = 0; t < 8; t += 0.05) {
+      const p = gesturePose(t, 0);
+      arms.push([p.armL, p.armR]);
+    }
+    // 拱手 = 兩手同時抬到胸前(而且左右一樣高)
+    const bow = arms.filter(([l, r]) => l > 0.8 && Math.abs(l - r) < 1e-6);
+    expect(bow.length, '一輪裡沒有拱手').toBeGreaterThan(4);
+    // 比劃 = 一手抬起來、另一手垂著
+    const point = arms.filter(([l, r]) => l < -0.5 && r > -0.2);
+    expect(point.length, '一輪裡沒有比劃').toBeGreaterThan(4);
+    // 聽著 = 兩手都垂著
+    const idle = arms.filter(([l, r]) => Math.abs(l) < 0.1 && Math.abs(r) < 0.1);
+    expect(idle.length, '一輪裡沒有停下來的時候').toBeGreaterThan(10);
+  });
+
+  it('每個人的節拍不同 —— 一village的人同時拱手是閱兵', () => {
+    const a = gesturePose(3, 0);
+    const b = gesturePose(3, 0.7);
+    expect(a.armL).not.toBeCloseTo(b.armL, 3);
   });
 });

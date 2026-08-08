@@ -330,6 +330,18 @@ export function Player() {
     const sway = moving ? Math.sin(m.step * 0.5) * 0.055 : 0;
 
     if (bodyRef.current) {
+      /*
+       * 你的傷<b>穿在身上</b>。
+       *
+       * 傷勢在這之前只活在數字裡(woundPenalty 讓你出手輕一點)和
+       * 一行日誌裡。可你低頭看自己,那件袍子乾乾淨淨 ——
+       * 而這個遊戲的鏡頭有九成的時間對著你的背。
+       * 衣色乘一層暗紅,傷得越重越髒:不是血條,是這件衣裳的樣子。
+       */
+      // wounded 的單位是<b>旬</b>(剩幾旬才好),不是點數 —— 三旬就已經很重了
+      const hurt = Math.min(1, useHero.getState().wounded / 3);
+      (bodyRef.current.material as THREE.MeshStandardMaterial)
+        .color.setRGB(1 - hurt * 0.38, 1 - hurt * 0.66, 1 - hurt * 0.64);
       bodyRef.current.position.set(m.x, m.y + bob, m.z);
       bodyRef.current.rotation.set(0, m.yaw, sway);
     }

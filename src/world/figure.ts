@@ -382,6 +382,11 @@ function faceZ(py: number, out = 0): number {
 function faceStrip(o: {
   x: number; y: number; py: number;
   w: number; h: number; d: number; tilt: number; R: number;
+  /**
+   * 中段往上/往下拱多少 —— 一條直線的嘴只能是面無表情,
+   * 兩端不動、中間動,才有得笑或撇。正 = 中間往下(嘴角上揚 = 笑)。
+   */
+  curve?: number;
 }): THREE.BufferGeometry {
   const SEG = 4;
   const gs: THREE.BufferGeometry[] = [];
@@ -394,8 +399,10 @@ function faceStrip(o: {
     const z = -Math.sqrt(Math.max(0, 1 - k * k)) * rx * FACE_SQUASH + o.d * 0.30;
     // 疊 45%:第一版只疊 12%,順著臉彎過去以後每一段的 z 各不相同,
     // 斜著看縫就開了 —— 一條眉毛讀成一條虛線
+    // 拱:中段偏移最大、兩端幾乎不動(t 走到 ±0.375 就歸零)
+    const arc = (o.curve ?? 0) * (1 - (t / 0.375) ** 2);
     gs.push(at(rot(slab((o.w / SEG) * 1.45, o.h, o.d), 0, 0, o.tilt),
-      sx, o.y + t * o.w * Math.tan(o.tilt), z));
+      sx, o.y + t * o.w * Math.tan(o.tilt) - arc, z));
   }
   return mergeGeometries(gs, false)!;
 }
@@ -416,9 +423,56 @@ function faceStrip(o: {
  * 分開成一個物件而不是幾個位置參數,是因為<b>這裡遲早會長</b>:
  * 三十八個村民要是共用兩種頭,那不是一個村子,是一批複製人。
  */
+/**
+ * 神情。
+ *
+ * 這副臉的五官是<b>烘進幾何裡</b>的,不能每幀改 —— 所以神情是
+ * 「這個人是什麼樣的人」,不是「他這一秒在想什麼」:
+ * 賊眉眼壓著、老人眼皮垂著、性子暖的嘴角是揚的。
+ *
+ * 就這麼四個數也夠用:眉高、眉的斜度、嘴的弧、眼的大小。
+ * 在這之前全村四十個人共用同一張沒有表情的臉 ——
+ * 賊和賣菜的除了衣色以外一模一樣,那是這副臉最大的一處空白。
+ */
+export type Mood = 'calm' | 'stern' | 'afraid' | 'glad' | 'weary';
+
+interface MoodShape {
+  /** 眉往上抬多少(單位 R)。 */
+  browY: number;
+  /**
+   * 眉的斜度。<b>正 = 內側壓低(兇),負 = 內側吊高(愁/怕)。</b>
+   *
+   * 這個方向是量出來才對的:原本以為預設那條眉是「外高內低」
+   * (程式碼註解也這麼寫),把眉毛的頂點座標撈出來一算 ——
+   * 內側 0.362、外側 0.338,是<b>內高外低</b>。照著錯的方向加,
+   * 「兇」只會變成「更愁」。
+   */
+  browTilt: number;
+  /** 嘴的弧。正 = 嘴角上揚。 */
+  mouthCurve: number;
+  /** 嘴寬倍率。 */
+  mouthW: number;
+  /** 眼睛大小倍率。 */
+  eye: number;
+}
+
+const MOODS: Record<Mood, MoodShape> = {
+  calm: { browY: 0, browTilt: 0, mouthCurve: 0, mouthW: 1, eye: 1 },
+  // 兇:眉壓下來、內側壓到眼上,嘴抿成一條寬而平的線
+  stern: { browY: -0.055, browTilt: 0.66, mouthCurve: -0.012, mouthW: 1.16, eye: 0.90 },
+  // 怕:眉整個吊起來、內側最高,眼睜大,嘴縮小
+  afraid: { browY: 0.075, browTilt: -0.40, mouthCurve: -0.006, mouthW: 0.76, eye: 1.22 },
+  // 和氣:眉稍鬆,嘴角揚起來
+  glad: { browY: 0.028, browTilt: -0.02, mouthCurve: 0.028, mouthW: 1.20, eye: 0.96 },
+  // 倦:眼皮垂下來,眉尾也垮
+  weary: { browY: -0.012, browTilt: -0.18, mouthCurve: -0.010, mouthW: 0.90, eye: 0.78 },
+};
+
 export interface HeadStyle {
   /** 這個人的膚色。不給就用預設那一個。 */
   skin?: THREE.Color;
+  /** 神情。不給就是面無表情。 */
+  mood?: Mood;
   /**
    * 這張臉的種子(0..1)。眼距、眼大小、眉高、嘴寬按它微調 ——
    * 同一副幾何,換一個數字就是另一個人。
@@ -437,15 +491,16 @@ export interface HeadStyle {
 export function headGeom(style: HeadStyle = {}) {
   const {
     hat = false, old: oldHair = false, cloth = false, beard = false,
-    skin = SKIN, face = 0.5,
+    skin = SKIN, face = 0.5, mood = 'calm',
   } = style;
+  const m = MOODS[mood];
   const SKIN_D = shade(skin);
   // 種子推出四個微調量。幅度都很小 —— 這副臉的骨架是固定的,
   // 差別要小到「說不出哪裡不一樣,但就是不同的人」
-  const fGap = 0.40 + face * 0.06;              // 眼距
-  const fEye = 0.94 + face * 0.14;              // 眼大小
-  const fBrow = 0.19 + face * 0.07;             // 眉高
-  const fMouth = 0.17 + face * 0.07;            // 嘴寬
+  const fGap = 0.40 + face * 0.06;                        // 眼距
+  const fEye = (0.94 + face * 0.14) * m.eye;              // 眼大小
+  const fBrow = 0.19 + face * 0.07 + m.browY;             // 眉高
+  const fMouth = (0.17 + face * 0.07) * m.mouthW;         // 嘴寬
   const gs: THREE.BufferGeometry[] = [];
   const HAIR_C = oldHair ? new THREE.Color('#d6d0c4') : HAIR;
   const cy = FIG_HR * 0.84;
@@ -470,14 +525,16 @@ export function headGeom(style: HeadStyle = {}) {
     // 凸 0.02R:看得出是一顆球,又不至於頂出臉的側影
     gs.push(tint(at(new THREE.SphereGeometry(EYE_R, 10, 7),
       ex, cy - R * 0.10, faceZ(-0.10, R * 0.02 - eyeHalf), 1, 1.12, EYE_FLAT), INK));
-    gs.push(tint(at(new THREE.SphereGeometry(R * 0.095, 6, 5),
+    // 眼裡那一點光要跟著眼睛一起大小 —— 只放大虹膜的話,
+    // 「睜大眼睛」在幾何上量不出差別(測試就是這樣抓到的:怕與平的眼白一樣高)
+    gs.push(tint(at(new THREE.SphereGeometry(R * 0.095 * fEye, 6, 5),
       ex - side * R * 0.06, cy + R * 0.02, faceZ(-0.10, R * 0.035), 1, 1, 0.26),
       new THREE.Color('#f2f0ea')));
     // 眉 —— 外高內低斜著一撇。<b>切成三小段</b>,一段一段貼上去
     gs.push(tint(faceStrip({
       x: ex + side * R * 0.02, y: cy + R * (oldHair ? fBrow + 0.03 : fBrow), py: 0.22,
       w: R * (oldHair ? 0.36 : 0.30), h: R * 0.052, d: R * 0.042,
-      tilt: side * -0.22, R,
+      tilt: side * (-0.22 + m.browTilt), R,
     }), oldHair ? new THREE.Color('#8e867c') : BROW));
     /*
      * 耳。膚色不是深一號的灰 —— 深色的一小塊掛在頭側,讀作一顆疣。
@@ -512,6 +569,7 @@ export function headGeom(style: HeadStyle = {}) {
   gs.push(tint(faceStrip({
     x: 0, y: cy - R * 0.46, py: -0.46,
     w: R * fMouth, h: R * 0.042, d: R * 0.045, tilt: 0, R,
+    curve: R * m.mouthCurve,
   }), LIP));
 
   /*
@@ -648,6 +706,38 @@ export function workPose(job: string, t: number, phase: number): WorkPose {
 }
 
 /**
+ * 手勢 —— 說話時手在幹什麼。
+ *
+ * 在這之前,兩個人「在說話」的樣子是<b>站著點頭</b>:身體不動、手垂著,
+ * 只有頭上下晃。那個畫面讀起來不像交談,像兩個人各自在打瞌睡。
+ *
+ * 漢代人見面拱手。這一下的好處是它<b>認得出來</b> ——
+ * 兩隻手臂同時抬到胸前,剪影就變了,遠遠一看就知道那邊在打招呼。
+ * 拱完手放下,說話時偶爾比劃一下,然後再拱一次。
+ *
+ * 回傳的是 WorkPose,和做工共用同一組旋鈕(前傾、起伏、兩臂)——
+ * 渲染端不必分辨「這人在做工還是在說話」,拿到什麼擺什麼。
+ */
+export function gesturePose(t: number, phase: number): WorkPose {
+  // 一輪 7 秒:拱手 → 放下 → 比劃 → 停
+  const cyc = ((t * 0.143 + phase * 0.31) % 1 + 1) % 1;
+  if (cyc < 0.22) {
+    // 拱手:兩手抬到胸前,身子略躬。進出各佔前後兩成,中間是持禮
+    const k = Math.sin(Math.min(1, cyc / 0.22) * Math.PI);
+    const e = Math.min(1, k * 2.2);
+    return { lean: 0.10 + e * 0.16, bob: -e * 0.02,
+             armL: -0.10 + e * 1.25, armR: -0.10 + e * 1.25 };
+  }
+  if (cyc < 0.55) {
+    // 比劃:單手抬起來甩兩下,另一手垂著
+    const w = Math.sin((cyc - 0.22) * 26) * 0.5 + 0.5;
+    return { lean: 0.05, bob: 0, armL: -0.08 - w * 0.75, armR: -0.04 };
+  }
+  // 聽著 —— 手垂著,身子微晃。留白也是動作的一部分
+  return { lean: 0.03, bob: Math.sin(t * 1.1 + phase) * 0.010, armL: -0.05, armR: -0.05 };
+}
+
+/**
  * 手上的傢伙 —— 原點在<b>肩</b>,和手臂同一個座標系。
  *
  * 這樣一來它<b>和手臂共用同一個矩陣</b>:手臂擺到哪,鋤頭就跟到哪,
@@ -683,6 +773,36 @@ export function toolGeom(job: string): THREE.BufferGeometry | null {
       hx, hy - FIG_BODY_H * 0.14, hz - FIG_BODY_H * 0.26), WOOD));
     gs.push(tint(at(rot(slab(FIG_HR * 0.10, FIG_HR * 0.30, FIG_HR * 0.26), 0.5, 0, 0),
       hx, hy - FIG_BODY_H * 0.46, hz - FIG_BODY_H * 0.60), IRON));
+  /*
+   * 下面三樣不是「傢伙」,是<b>隨身帶的東西</b>。
+   *
+   * 分出來是因為手上有沒有東西,是這批人像不像「有日子在過」的分水嶺:
+   * 沒有活幹的那幾種變體(市面上的、上了年紀的)從前手上空空,
+   * 一整片人走來走去而沒有一個人拎著什麼 —— 那讀作路人甲,不是村民。
+   */
+  } else if (job === 'basket') {
+    // 提籃:垂在身側,走路會晃(晃是手臂給的,它掛在同一個矩陣上)
+    gs.push(tint(at(new THREE.CylinderGeometry(FIG_HR * 0.30, FIG_HR * 0.24,
+      FIG_HR * 0.34, 7, 1, true),
+      hx, hy - FIG_BODY_H * 0.30, hz), new THREE.Color('#9c8149')));
+    gs.push(tint(at(rot(new THREE.TorusGeometry(FIG_HR * 0.26, FIG_HR * 0.022, 4, 8,
+      Math.PI), 0, 0, 0), hx, hy - FIG_BODY_H * 0.14, hz), new THREE.Color('#7d6636')));
+  } else if (job === 'jar') {
+    // 水甕:扛在肩上,一手扶著
+    gs.push(tint(at(new THREE.SphereGeometry(FIG_HR * 0.32, 8, 6),
+      hx * 0.3, hy + FIG_HR * 0.46, hz - FIG_HR * 0.10, 1, 1.15, 1),
+      new THREE.Color('#6d5a4c')));
+    gs.push(tint(at(new THREE.CylinderGeometry(FIG_HR * 0.13, FIG_HR * 0.17, FIG_HR * 0.16, 7),
+      hx * 0.3, hy + FIG_HR * 0.82, hz - FIG_HR * 0.10), new THREE.Color('#5e4d41')));
+  } else if (job === 'firewood') {
+    // 柴捆:背在背上,一捆橫著三根
+    for (let i = 0; i < 3; i++) {
+      gs.push(tint(at(rot(new THREE.CylinderGeometry(FIG_HR * 0.06, FIG_HR * 0.05,
+        FIG_HR * 1.15, 4), 0, 0, Math.PI / 2 + (i - 1) * 0.10),
+        -hx * 0.4, hy - FIG_HR * (0.10 + i * 0.22), hz - FIG_HR * 0.62), WOOD));
+    }
+    gs.push(tint(at(rot(new THREE.TorusGeometry(FIG_HR * 0.28, FIG_HR * 0.02, 4, 8), 0, Math.PI / 2, 0),
+      -hx * 0.4, hy - FIG_HR * 0.32, hz - FIG_HR * 0.62), new THREE.Color('#4e4436')));
   } else {
     return null;
   }

@@ -4,6 +4,7 @@ import { grainCost, grainSale, jobsToday, mouths, DAYS_PER_SHI, restQuality } fr
 import { settleDay, grainDays } from './daily';
 import { useHero } from './hero';
 import { useVillage } from './village';
+import { useMarauders } from './marauders';
 import { useCalamity } from './calamity';
 import { useJournal } from './journal';
 import type { VillageState } from './village';
@@ -161,8 +162,14 @@ describe('過一天要結的帳', () => {
      * 一場災,而它還在燒 —— 按住的是「新災」,不是「正在燒的災」。
      * 所以先把場上的災清掉。(整套一起跑時三十次炸一次,單跑這個檔二十次都不炸,
      * 就是這個形狀:錯不在自己這條,在前面留下來的東西。)
+     *
+     * 清了災還是炸過一次(60 → 53)。同一個形狀還有<b>第二個</b>:
+     * 亂兵。phase 停在 'present' 的話,每天照樣咬一口收成,
+     * 而它和天災是兩套狀態 —— 「把場上正在燒的東西清乾淨」這件事
+     * 得對每一個按天生效的系統各做一次,漏一個就會再回來。
      */
     useCalamity.getState().clear();
+    useMarauders.getState().clear();
     const dice = vi.spyOn(Math, 'random').mockReturnValue(0.99);
     const before = useVillage.getState().harvest;
     // 一旬之內不動

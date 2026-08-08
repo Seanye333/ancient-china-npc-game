@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { groundAt, rng, slideMove, dryLandNear } from './field';
 import {
-  bodyGeom, headGeom, legGeom, legSwing, poseLeg, armGeom, armSwing, poseArm, workPose, toolGeom, SKINS,
+  bodyGeom, headGeom, legGeom, legSwing, poseLeg, armGeom, armSwing, poseArm, workPose, gesturePose, toolGeom, SKINS,
   FIG_BODY_H, FIG_LEG_H, FIG_SHOULDER_Y,
 } from './figure';
 import { houseSites, fieldSites, meanderAt, DOCKS, BRIDGE, MARKET } from './sites';
@@ -154,16 +154,23 @@ export function Crowd() {
   // 0 農(褐+笠) 1 埠(青+笠) 2 市(綠) 3 老(灰+白髮)
   const variants = useMemo(
     () => [
+      /*
+       * 神情跟著行當與年紀走。
+       *
+       * 從前八種變體共用同一張<b>面無表情</b>的臉:一村子的人只差衣色。
+       * 現在下田扛包的是曬得瞇著眼的倦、市面上的是招呼人的和氣、
+       * 上了年紀的眼皮垂著 —— 遠遠看不清五官,但剪影裡的眉眼是不一樣的。
+       */
       // 露髻的四種
-      { robe: '#6b5741', head: { hat: true } },
-      { robe: '#3f5568', head: { hat: true } },
-      { robe: '#4a6b52', head: {} },
-      { robe: '#6a6350', head: { old: true, beard: true } },
+      { robe: '#6b5741', head: { hat: true, mood: 'weary' as const } },
+      { robe: '#3f5568', head: { hat: true, mood: 'stern' as const } },
+      { robe: '#4a6b52', head: { mood: 'glad' as const } },
+      { robe: '#6a6350', head: { old: true, beard: true, mood: 'weary' as const } },
       // 裹幘的四種 —— 同樣的行當、同樣的衣色,換一種頭
-      { robe: '#6b5741', head: { cloth: true, beard: true } },
-      { robe: '#3f5568', head: { cloth: true } },
-      { robe: '#4a6b52', head: { cloth: true, beard: true } },
-      { robe: '#6a6350', head: { old: true, cloth: true } },
+      { robe: '#6b5741', head: { cloth: true, beard: true, mood: 'calm' as const } },
+      { robe: '#3f5568', head: { cloth: true, mood: 'weary' as const } },
+      { robe: '#4a6b52', head: { cloth: true, beard: true, mood: 'glad' as const } },
+      { robe: '#6a6350', head: { old: true, cloth: true, mood: 'calm' as const } },
     ].map((v, i) => ({
       // 膚色與臉型跟著變體走。八種變體八張臉 —— 不是四十張,
       // 但比一張強得多,而且不必為此把 InstancedMesh 拆成四十份
@@ -175,8 +182,16 @@ export function Crowd() {
       }),
       leg: legGeom(),
       arm: armGeom(new THREE.Color(v.robe), new THREE.Color(SKINS[i % SKINS.length])),
-      // 傢伙跟著行當走。變體 0/4 是農、1/5 是埠,其餘手上沒東西
-      tool: toolGeom(i % 4 === 0 ? 'farm' : i % 4 === 1 ? 'dock' : 'none'),
+      /*
+       * 手上帶的東西跟著變體走。
+       *
+       * 從前只有農(鋤)和埠(扁擔)有東西,市面上的和上了年紀的兩手空空 ——
+       * 一整片人在村裡走動而沒有一個人拎著什麼,那讀作路人甲。
+       * 現在八種各有各的:鋤、扁擔、提籃、扛甕、背柴。
+       */
+      tool: toolGeom(
+        ['farm', 'dock', 'basket', 'firewood', 'farm', 'dock', 'jar', 'basket'][i],
+      ),
       idx: agents.map((a, k) => (a.variant === i ? k : -1)).filter((k) => k >= 0),
     })),
     [agents],
@@ -326,7 +341,9 @@ export function Crowd() {
         const moving = a.state === 'goWork' || a.state === 'goMarket' || a.state === 'goHome';
         const step = t * a.speed * 3.1 + a.phase;
         // 在工上就做工的姿勢;其餘時候走路/站著
-        const wp = a.state === 'work' ? workPose(a.job, t, a.phase) : null;
+        // 做工有做工的姿勢,說話有說話的手勢 —— 兩者共用同一組旋鈕
+        const wp = a.state === 'work' ? workPose(a.job, t, a.phase)
+          : a.state === 'talk' ? gesturePose(t, a.phase) : null;
         const bob = wp ? wp.bob
           : moving ? Math.abs(Math.sin(step)) * 0.055
             : Math.sin(t * 1.15 + a.phase) * 0.014;

@@ -22,7 +22,7 @@ import { WEAPONS } from '../game/weapons';
 import { note } from '../game/journal';
 import { makeVillagers, might } from '../game/npcs';
 import {
-  fighters, arrows, arrowTally, stuckArrows, beginBattle, stepBattle, battleOver,
+  fighters, arrows, arrowTally, stuckArrows, beginBattle, stepBattle, battleOver, battleTime, impacts, guardTally,
   playerStrike, useBattle, alive, fx, type Fighter,
 } from '../game/combat';
 
@@ -100,6 +100,7 @@ export function challengeChief(b: {
     at: { x: playerPos.x, z: playerPos.z },
     ground: groundAt,
     leadership: hero.stats.leadership,
+    day: useClock.getState().day,
   });
   return accepted;
 }
@@ -191,6 +192,9 @@ export function Battle() {
         stance: f.stance, bow: !!f.bow, sworn: !!f.sworn })),
       arrows: arrows.length,
       loosed: arrowTally.loosed,
+      // 擋/閃/中各幾次,以及此刻天上有幾顆火花 —— 兩個數分得開
+      // 「根本沒發生」和「發生了但畫不出來」
+      guard: { ...guardTally }, impacts: impacts.length, bt: +battleTime().toFixed(2),
       // shielded 一定要露出來 —— 少了它,「他替你擋了那一刀」在瀏覽器裡驗不到,
       // 而探針只會安靜地報「這一場沒人需要擋」
       fx: { slow: +fx.slow.toFixed(2), finisher: +fx.finisher.toFixed(2), shielded: fx.shielded },
@@ -221,6 +225,7 @@ export function Battle() {
         at: { x: playerPos.x, z: playerPos.z },
         ground: groundAt,
         leadership: hero.stats.leadership,
+        day: useClock.getState().day,
       });
     };
     // 驗收用:直接把一夥打散,不必真的走過去打一場
@@ -254,7 +259,7 @@ export function Battle() {
           ours: ourSide(hero, byId),
           band: { id: r.id, x: r.x, z: r.z, fierce: r.fierce, count: r.count },
           at: { x: playerPos.x, z: playerPos.z }, ground: groundAt,
-          leadership: hero.stats.leadership,
+          leadership: hero.stats.leadership, day: useClock.getState().day,
         });
         // 掛旗子而不是刪掉 —— 刪了的話你打輸,他們就憑空消失,
         // 攔路失敗反而幫村子解了圍
@@ -274,7 +279,7 @@ export function Battle() {
           ours: ourSide(hero, byId),
           band: { id: b.id, x: b.x, z: b.z, fierce: b.fierce, count: b.count },
           at: { x: playerPos.x, z: playerPos.z }, ground: groundAt,
-          leadership: hero.stats.leadership,
+          leadership: hero.stats.leadership, day: useClock.getState().day,
           sleeping,
         });
         if (night) {
@@ -306,9 +311,15 @@ export function Battle() {
   // 每幀把算好的位置搬到 three 的物件上
   useFrame(({ clock }) => {
     const t = clock.elapsedTime;
+    /*
+     * 和「剛剛發生的事」比,要用<b>戰鬥自己的鐘</b>。
+     * 三的 elapsedTime 是從開網頁算起的,而 hurtAt 是從這一場開打算起的 ——
+     * 兩條軸混著減,得到的永遠是一個幾十秒的大數。(見 combat.ts 的 battleTime。)
+     */
+    const bt = battleTime();
     // 誰在這一幀挨了打 —— hurtAt 是現成的,不必另外開一條事件線
     for (const f of fighters) {
-      if (t - f.hurtAt < 0.05 && f.hurtAt > lastHurt.current) {
+      if (bt - f.hurtAt < 0.05 && f.hurtAt > lastHurt.current) {
         lastHurt.current = f.hurtAt;
         if (f.isPlayer) hurtSound(); else hitSound();
       }
@@ -327,7 +338,7 @@ export function Battle() {
       // 躺著的人和站著的人接地面積不一樣 —— 一個倒地的還投一片腳掌大的圓影,
       // 那片影子會讀成「他浮在自己的屍體上」
       pushContact(f.x, f.y, f.z, f.stance === 'down' ? 0.62 : 0.44);
-      poseInto(g, bodies.current[f.id], blades.current[f.id], f, t, trails.current[f.id],
+      poseInto(g, bodies.current[f.id], blades.current[f.id], f, t, bt, trails.current[f.id],
         [legs.current[`${f.id}:0`], legs.current[`${f.id}:1`]]);
     }
     // 土:每蓬三團,冒起來、散開、化掉
@@ -363,6 +374,14 @@ export function Battle() {
    */
   useEffect(() => {
     if (!tally || !bandId) return;
+    /*
+     * 收場那一刻把火花清乾淨。
+     *
+     * 打完之後 stepBattle 不再跑,戰鬥的鐘就<b>停在那裡</b> ——
+     * 最後那幾顆火花的 age 從此不再增加,會一直掛在半空中。
+     * 屍首與血漬是要留的,火花不是。
+     */
+    impacts.length = 0;
     if (useBattle.getState().sparring) return;   // 切磋 —— 世界不動,帳不記
 
     /*
@@ -540,7 +559,8 @@ function ArrowFlights() {
  */
 function poseInto(
   g: THREE.Group, body: THREE.Mesh | null, blade: THREE.Group | null,
-  f: Fighter, t: number, trail?: THREE.Mesh | null,
+  /** t = 三的鐘(拿來做無所謂起點的晃動);bt = 這一場的鐘(拿來和 hurtAt 比)。 */
+  f: Fighter, t: number, bt: number, trail?: THREE.Mesh | null,
   legs?: Array<THREE.Mesh | null>,
 ) {
   g.position.set(f.x, f.y, f.z);
@@ -561,7 +581,14 @@ function poseInto(
     }
   }
 
-  const hurtFlash = t - f.hurtAt < 0.18;
+  const hurtFlash = bt - f.hurtAt < 0.18;
+  /*
+   * 剛架開一刀 —— 兵器橫過來擋在身前,身子往後讓半步。
+   *
+   * 這一下和「挨打」是<b>兩件相反的事</b>,可從前畫面上長得一樣(都是什麼都沒有)。
+   * 一場架裡有一半的出手是被架開的,那一半在畫面上原本完全不存在。
+   */
+  const guarding = bt - f.guardAt < 0.22 && f.stance !== 'down';
   // 逃跑的人刀都扔了 —— 「打散」要看得出是打散,不是換個方向走
   if (blade) blade.visible = f.stance !== 'fleeing';
   if (trail) trail.visible = f.stance === 'striking' && !f.bow;
@@ -615,9 +642,35 @@ function poseInto(
     }
   }
 
+  // 擋/閃壓在姿態的最上層 —— 它比對峙、比逼近都優先,只讓給倒地
+  if (guarding && f.stance !== 'down') {
+    if (f.guardKind === 'parry') {
+      // 架:刀橫過來、身子往後仰一點
+      if (blade) blade.rotation.set(-0.35, 0, 1.25);
+      g.rotation.x = -0.10;
+    } else {
+      // 閃:整個人往側後方一撤。yaw 不動 —— 撤步不是轉身
+      const k = 1 - (bt - f.guardAt) / 0.22;
+      g.rotation.z = 0.20 * k;
+      g.position.y = f.y + 0.03 * k;
+    }
+  } else {
+    g.rotation.z = 0;
+  }
+
   if (body) {
     const m = body.material as THREE.MeshStandardMaterial;
     // 挨打閃一下 —— 沒有血條,這是唯一的「中了」回饋
     m.emissive.setRGB(hurtFlash ? 0.45 : 0, 0, 0);
+    /*
+     * 傷勢畫在<b>身上</b>。
+     *
+     * 這個系統刻意沒有血條(「重點是畫面上還站著幾個人」),可代價是
+     * 一個剩一成血的人和一個沒挨過打的人長得一模一樣 —— 你根本不知道
+     * 該補哪一個。衣色乘上一層暗紅:傷得越重,那件袍子越髒越深。
+     * 這比血條誠實:你看得出「他快不行了」,但看不出還剩幾點。
+     */
+    const hurt = 1 - Math.max(0, Math.min(1, f.hp / f.maxHp));
+    m.color.setRGB(1 - hurt * 0.42, 1 - hurt * 0.72, 1 - hurt * 0.70);
   }
 }

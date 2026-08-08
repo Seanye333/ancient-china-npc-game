@@ -33,6 +33,7 @@ import { FairDay } from './world/FairDay';
 import { LostPerson } from './world/LostPerson';
 import { Cart } from './world/Cart';
 import { Battle } from './world/Battle';
+import { Fallen, fallenStat } from './world/Fallen';
 import { Dialogue } from './ui/Dialogue';
 import { BattleHud } from './ui/BattleHud';
 import { QuestHud } from './ui/QuestHud';
@@ -391,6 +392,8 @@ function CamBridge() {
     (window as unknown as Record<string, unknown>).__sky = () => ({
       ...cloudStat, ...stormStat,
     });
+    // 地上躺著幾個、幾攤血 —— 打完就走的人不會回頭看,驗收要看
+    (window as unknown as Record<string, unknown>).__fallen = () => ({ ...fallenStat });
     // 積雪要好幾分鐘才化得完 —— 驗收等不起,給一個直接設深度的把手
     (window as unknown as Record<string, unknown>).__snow = (k: number) => {
       snow.pack = Math.min(1, Math.max(0, k));
@@ -670,6 +673,7 @@ export default function App() {
           <Cart />
           <Followers />
           <Battle />
+          <Fallen />
           <Interaction />
           <Tavern />
           <Weather />
