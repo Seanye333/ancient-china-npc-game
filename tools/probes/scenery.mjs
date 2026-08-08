@@ -115,11 +115,20 @@ await clock(8.6, 'autumn');
   await shot('s-dock-dusk');
 }
 {
+  // 夜:機位要高過屋簷,不然拍到的是自己頭上那片瓦
   const mk = await page.evaluate(() => window.__placePos('market'));
   await clock(21.0, 'autumn');
   const h = await y(mk[0], mk[1]);
-  await pose(mk[0], mk[1] + 8, [mk[0] + 14, h + 7, mk[1] + 22], [mk[0], h + 1.5, mk[1]]);
+  await pose(mk[0], mk[1] + 10, [mk[0] + 22, h + 15, mk[1] + 30], [mk[0], h + 2, mk[1]]);
   await shot('s-village-night');
+}
+{
+  // 卯末辰初:一村子的炊煙。這一張要看得出「有人住」
+  const mk = await page.evaluate(() => window.__placePos('market'));
+  await clock(7.0, 'autumn');
+  const h = await y(mk[0], mk[1]);
+  await pose(mk[0], mk[1] + 10, [mk[0] + 26, h + 17, mk[1] + 34], [mk[0], h + 3, mk[1]]);
+  await shot('s-hearths');
 }
 for (const [h, se, w, name] of [
   [14.0, 'summer', 'rain', 's-rain'],

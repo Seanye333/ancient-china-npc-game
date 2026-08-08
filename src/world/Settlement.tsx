@@ -6,8 +6,9 @@ import {
   registerBlockers, clearBlockers, registerDecks, clearDecks,
   type Blocker, type Deck,
 } from './field';
-import { useClock } from './worldTime';
-import { emptyParts, MATERIALS, pushBox, pushCyl, house, type Bucket } from './build';
+import { BuiltMeshes } from './Built';
+import { Hearths } from './Hearths';
+import { emptyParts, pushBox, pushCyl, house, type Bucket } from './build';
 
 /**
  * 聚落 — 沿河谷兩岸的鋪面,加一座跨河木橋。
@@ -19,13 +20,14 @@ import { emptyParts, MATERIALS, pushBox, pushCyl, house, type Bucket } from './b
 const meanderAt = (z: number) => Math.sin(z * 0.02) * 9 + Math.sin(z * 0.047) * 3.5;
 
 export function Settlement() {
-  const winter = useClock((st) => st.season) === 'winter';
-  const { merged, foot, deck } = useMemo(() => {
+  const { merged, foot, deck, hearths } = useMemo(() => {
     const parts = emptyParts();
     // 房子擋鏡頭但不擋人 —— 堂屋前面是敞開的,人走得進去;
     // 若連人一起擋,村民會被自己家門口卡住。
     const foot: Blocker[] = [];
     const deck: Deck[] = [];
+    /** 每戶的屋脊 —— 炊煙從這裡冒。 */
+    const hearths: Array<{ x: number; z: number; y: number }> = [];
     const rand = rng(20260802);
 
     // 必須記錄已放位置做間距檢查 —— 第一版沒做,屋頂全疊在一起穿模。
@@ -63,6 +65,7 @@ export function Settlement() {
           top: g + 0.42 + floors * 2.5 + 1.5,        // 屋脊
         });
       }
+      hearths.push({ x, z, y: g + 0.42 + floors * 2.5 + 1.5 });
       placed++;
     }
 
@@ -106,7 +109,7 @@ export function Settlement() {
         out.push({ key: k, geom: g });
       }
     });
-    return { merged: out, foot, deck };
+    return { merged: out, foot, deck, hearths };
   }, []);
 
   useEffect(() => {
@@ -121,13 +124,8 @@ export function Settlement() {
 
   return (
     <>
-      {merged.map(({ key, geom }) => (
-        // 積雪那一桶只有冬天掛上去 —— 其餘三季它整桶不畫,零開銷
-        <mesh key={key} geometry={geom} castShadow receiveShadow
-          visible={key !== 'snow' || winter}>
-          <meshStandardMaterial {...MATERIALS[key]} />
-        </mesh>
-      ))}
+      <BuiltMeshes parts={merged} />
+      <Hearths spots={hearths} />
     </>
   );
 }

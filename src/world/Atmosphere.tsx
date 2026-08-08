@@ -330,8 +330,18 @@ function MorningMist() {
       Math.max(0, Math.min(1, (hr - 4.6) / 1.2)),
       Math.max(0, Math.min(1, (9.0 - hr) / 1.4)),
     );
-    mat.current.opacity = k * 0.5;
-    if (k <= 0) { im.count = 0; return; }
+    /*
+     * 鏡頭抬高就把霧收掉。
+     *
+     * 晨霧是<b>貼著河面的一層紗</b>,人站在岸邊看過去才是那個味道。
+     * 可它是九片二十公尺寬的立牌,從高處俯視就成了幾塊躺在河上的白斑 ——
+     * 早上七點的村景截圖裡,河谷像被人潑了白漆。
+     * 高過水面十公尺就開始淡,二十五公尺以上完全不畫。
+     */
+    const high = Math.max(0, Math.min(1,
+      (camera.position.y - (WATER_Y + 10)) / 15));
+    mat.current.opacity = k * 0.34 * (1 - high);
+    if (k <= 0 || high >= 1) { im.count = 0; return; }
     const t = clock.elapsedTime;
     spots.forEach((s, i) => {
       tmp.obj.position.set(s.x + Math.sin(t * 0.05 + s.phase) * 5, WATER_Y + 2.4, s.z);
@@ -347,7 +357,7 @@ function MorningMist() {
 
   return (
     <instancedMesh ref={mesh} args={[undefined, undefined, MIST_N]} frustumCulled={false} renderOrder={1}>
-      <planeGeometry args={[20, 5.5]} />
+      <planeGeometry args={[20, 3.6]} />
       <meshBasicMaterial
         ref={mat} color="#dfe6ec" alphaMap={alphaMap} transparent opacity={0}
         depthWrite={false} side={THREE.DoubleSide}
