@@ -22,8 +22,52 @@ const smoothstep = (a: number, b: number, x: number) => {
  * 改烘進 color attribute:高度與坡度只算一次,四季各出一套顏色預先備好,
  * 換季就是換一個 attribute,不必重算地形。
  */
+/**
+ * 地表的細顆粒。
+ *
+ * 頂點色已經有「斑塊」(低頻)和「顆粒」(高頻),可是網格一格 1.73 公尺 ——
+ * 那個「高頻」在人眼前是一公尺半一格的方塊。鏡頭一壓低,腳下就是一整片
+ * 沒有東西的顏色(草叢補了一層,草叢之間還是空的)。
+ *
+ * 一張<b>乘在頂點色上</b>的噪點圖補的正是那一段:亮度在 0.88~1.0 之間晃,
+ * 只改明暗不改色相 —— 地是什麼顏色仍然由頂點色說了算,四季照常換。
+ * 平均值壓在接近 1:低了整片地會暗一號,而那是最難查的一種「怎麼變醜了」。
+ */
+function groundGrain(): THREE.Texture {
+  const S = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 0, S, S);
+  const img = g.getImageData(0, 0, S, S);
+  const d = img.data;
+  // 兩層:粗一點的斑(讀作土塊)+ 一格一顆的細噪(讀作砂)
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const blot = Math.sin(x * 0.11 + Math.sin(y * 0.07) * 2.1)
+        * Math.sin(y * 0.13 + Math.sin(x * 0.05) * 1.7);
+      const h = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+      const fine = h - Math.floor(h);
+      const v = 255 * (0.94 + blot * 0.045 + (fine - 0.5) * 0.055);
+      const i = (y * S + x) * 4;
+      d[i] = d[i + 1] = d[i + 2] = Math.max(0, Math.min(255, v));
+    }
+  }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  // 整塊地 520 公尺,重複 210 次 ≈ 兩步半一張 —— 走過去看得出在動,又不到花的地步
+  t.repeat.set(210, 210);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
 export function Terrain() {
   const season = useClock((s) => s.season);
+  const grainTex = useMemo(() => groundGrain(), []);
+  useEffect(() => () => grainTex.dispose(), [grainTex]);
 
   const { geom, colorSets } = useMemo(() => {
     const g = new THREE.PlaneGeometry(SIZE, SIZE, SEG, SEG);
@@ -110,7 +154,9 @@ export function Terrain() {
 
   return (
     <mesh geometry={geom} receiveShadow castShadow>
-      <meshStandardMaterial ref={matRef} vertexColors roughness={0.95} metalness={0} />
+      <meshStandardMaterial
+        ref={matRef} vertexColors map={grainTex} roughness={0.95} metalness={0}
+      />
     </mesh>
   );
 }

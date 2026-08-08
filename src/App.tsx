@@ -14,6 +14,7 @@ import { Birds, Chickens, Dogs, FishSplash, TavernFlag } from './world/Life';
 import { Details } from './world/Details';
 import { Herbs } from './world/Herbs';
 import { GroundCover } from './world/GroundCover';
+import { Marks, markStat } from './world/Marks';
 import { Sickbeds } from './world/Sickbeds';
 import { Landmarks } from './world/Landmarks';
 import { Farmland, Roads } from './world/Landuse';
@@ -300,6 +301,7 @@ function CamBridge() {
     (window as unknown as Record<string, unknown>).__clock = () => useClock.getState();
     (window as unknown as Record<string, unknown>).__renderInfo = () => gl.info.render.calls;
     // 量成本要看三樣:畫幾次、幾個三角形、幾個程式。只看一樣會找錯瓶頸
+    (window as unknown as Record<string, unknown>).__marks = () => ({ ...markStat });
     (window as unknown as Record<string, unknown>).__gpu = () => ({
       calls: gl.info.render.calls,
       tris: gl.info.render.triangles,
@@ -555,6 +557,7 @@ export default function App() {
           <TavernFlag />
           <Details />
           <GroundCover />
+          <Marks />
           <Herbs />
           <Sickbeds />
           <Lanterns />

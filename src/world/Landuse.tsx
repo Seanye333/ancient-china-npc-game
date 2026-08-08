@@ -95,6 +95,16 @@ export function Roads() {
   const geom = useMemo(() => {
     const segs: THREE.BufferGeometry[] = [];
 
+    /*
+     * 車轍 —— 路中間那兩道被壓實踩禿的地方。
+     *
+     * 一條等寬等色的帶子讀作「鋪了一條路」,不是「這裡人走了幾十年」。
+     * 真正的土路中間比兩邊深、比兩邊亮(土被壓實、草不長),而路肩是碎的。
+     * 做法最省:同一條路鋪兩層 —— 底下一層原寬的路基,上面一層窄一點、
+     * 抬高一絲的「常走的那道」。兩層各一個材質,一次 draw 各一個。
+     */
+    const worn: THREE.BufferGeometry[] = [];
+
     const layPath = (
       points: Array<[number, number]>,
       width: number,
@@ -126,6 +136,16 @@ export function Roads() {
             new THREE.Vector3(1, 1, 1),
           ));
           segs.push(g);
+          // 中間那道:窄六成、抬一公分。窄路(山徑)不分層 —— 本來就只有一道
+          if (width > 2) {
+            const w2 = new THREE.BoxGeometry(width * 0.52, 0.34, len);
+            w2.applyMatrix4(new THREE.Matrix4().compose(
+              new THREE.Vector3(mx, (ya + yb) / 2 + 0.032, mz),
+              new THREE.Quaternion().setFromEuler(new THREE.Euler(-pitch, yaw, 0, 'YXZ')),
+              new THREE.Vector3(1, 1, 1),
+            ));
+            worn.push(w2);
+          }
         }
       }
     };
@@ -153,13 +173,21 @@ export function Roads() {
       }
       layPath(trail, 1.5, 4);
     }
-    return mergeGeometries(segs, false);
+    return { bed: mergeGeometries(segs, false), worn: mergeGeometries(worn, false) };
   }, []);
 
-  if (!geom) return null;
+  if (!geom.bed) return null;
   return (
-    <mesh geometry={geom} receiveShadow>
-      <meshStandardMaterial color="#7d6f56" roughness={0.98} />
-    </mesh>
+    <>
+      <mesh geometry={geom.bed} receiveShadow>
+        <meshStandardMaterial color="#7d6f56" roughness={0.98} />
+      </mesh>
+      {geom.worn && (
+        // 壓實的土比路肩亮一點、也光一點 —— 光滑不是水,是被鞋底磨出來的
+        <mesh geometry={geom.worn} receiveShadow>
+          <meshStandardMaterial color="#8f8163" roughness={0.88} />
+        </mesh>
+      )}
+    </>
   );
 }
