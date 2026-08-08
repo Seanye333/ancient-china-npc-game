@@ -1,5 +1,5 @@
 import { MARKET, DOCKS, fieldSites, houseSites, meanderAt } from '../world/sites';
-import { terrainHeight, rng } from '../world/field';
+import { terrainHeight, rng, dryLandNear } from '../world/field';
 import { COUNTY } from '../world/County';
 import { herbSpots } from './herbs';
 import type { JobKind } from './economy';
@@ -32,8 +32,18 @@ export interface Place {
   job?: JobKind;
 }
 
+/**
+ * 把一個座標變成一處「站得上去」的地方。
+ *
+ * 加 dryLandNear 是測試逼出來的:碼頭那一處的圓心<b>落在水裡</b>。
+ * 圈夠大,所以走近了照樣認得出來,平常玩不會發現 ——
+ * 可 __walkToPlace('dock')(以及將來「點一下走過去」)會把你送進河裡。
+ * 一處地方的座標同時是「判定的圓心」和「要走去的那一點」,
+ * 後者要求它站得上去。
+ */
 function at(x: number, z: number) {
-  return { x, z, y: terrainHeight(x, z) };
+  const [dx, dz] = dryLandNear(x, z);
+  return { x: dx, z: dz, y: terrainHeight(dx, dz) };
 }
 
 let cache: Place[] | null = null;
@@ -143,8 +153,14 @@ export function places(): Place[] {
  * 將來要改就改這裡,Crowd 改成調用它。
  */
 export function houseOf(npcId: string): { x: number; z: number; door: [number, number] } | null {
-  const i = Number(npcId.replace(/^v/, ''));
-  if (!Number.isFinite(i)) return null;
+  /*
+   * 要先確認它<b>真的是</b>一個村民的 id。
+   *
+   * 原本只擋 NaN,可 `Number('')` 是 0 —— 於是空字串會安安靜靜地回「第 0 棟」。
+   * 這種錯不會炸,只會讓你端著藥站在別人家門口,而那看起來像遊戲設計得很怪。
+   */
+  if (!/^v\d+$/.test(npcId)) return null;
+  const i = Number(npcId.slice(1));
   const houses = houseSites();
   const h = houses[i % houses.length];
   return h ? { x: h.x, z: h.z, door: h.door } : null;

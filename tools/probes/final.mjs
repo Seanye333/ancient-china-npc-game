@@ -17,8 +17,18 @@ page.on('pageerror', (e) => errors.push(String(e)));
 await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'load', timeout: 60000 });
 await page.bringToFront();
 await page.waitForFunction(() => typeof window.__post === 'function', null, { timeout: 60000 });
-await page.evaluate(() => window.__begin && window.__begin());
-await page.waitForTimeout(2000);
+/*
+ * 開場<b>用真的點一下</b>,不用 __begin()。
+ *
+ * 差別只在聲音:瀏覽器不准沒有使用者手勢就開 AudioContext,
+ * 而 page.evaluate 呼叫的函式不算手勢 —— 用 __begin 進場的話
+ * 整局都是靜音的,而且 __audio() 會誠實地報 ready:false。
+ * (別的探針無所謂,這一支要驗聲音。)
+ */
+const startBtn = page.getByRole('button', { name: '就這樣開始' });
+if (await startBtn.count()) await startBtn.first().click();
+else await page.evaluate(() => window.__begin && window.__begin());
+await page.waitForTimeout(2200);
 
 const ok = (b, s) => console.log(b ? `  ✓ ${s}` : `  ✗ ${s}`);
 const frameMs = () => page.evaluate(() => new Promise((res) => {
@@ -107,6 +117,25 @@ console.log(`  有植被 ${withVeg} ms · ${g1.calls} draw · ${(g1.tris / 1e6).
 console.log(`  全藏起 ${noVeg} ms · ${g2.calls} draw · ${(g2.tris / 1e6).toFixed(2)}M`);
 console.log(`  植被的代價 ${(withVeg - noVeg).toFixed(2)} ms —— `
   + `${withVeg - noVeg < 1.5 ? 'LOD 現在買不到幀率,不做' : '值得做 LOD'}`);
+
+/*
+ * 聲音 —— 這一段只有<b>真的瀏覽器</b>驗得到。
+ *
+ * 混音與樂句的規矩已經抽成純函式在 vitest 裡驗了(audio.test.ts),
+ * 剩下的是「噪音真的接上濾波器了嗎、排程真的在走嗎」——
+ * 那需要一個 AudioContext。而聲音壞掉的樣子是安靜,
+ * 和「還沒做」一模一樣,所以非驗不可。
+ */
+console.log('── 聲音:真的在響嗎');
+const a0 = await page.evaluate(() => window.__audio());
+console.log(`  ${JSON.stringify(a0)}`);
+ok(a0.ready, '音訊起來了 —— 而且是真的點了「就這樣開始」才起來的');
+await page.evaluate(() => window.__pluck());
+await page.waitForTimeout(2500);
+const a1 = await page.evaluate(() => window.__audio());
+ok(a1.music.plucked > a0.music.plucked,
+   `琴真的撥了(${a0.music.plucked} → ${a1.music.plucked} 個音)`);
+ok(!a1.muted, '沒有被靜音');
 
 /* ── 對照片 ── */
 await page.evaluate(() => window.__freezeCam(true));

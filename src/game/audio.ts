@@ -82,6 +82,28 @@ export function isMuted(): boolean {
 }
 
 /**
+ * 三層環境音此刻各該多大聲。
+ *
+ * <b>抽成純函式</b>是因為這是整個 audio.ts 裡唯一有「規矩」的一段,
+ * 其餘都是把噪音接到濾波器上。而聲音壞掉的樣子是<b>安靜</b> ——
+ * 和「還沒做」一模一樣,眼睛看不出來、截圖也拍不到。
+ * 規矩獨立出來就驗得到:入夜蟲聲要起來、雨天才有雨聲、進了屋一律壓小。
+ */
+export function ambienceMix(input: {
+  hour: number; weather: string; indoors?: boolean;
+}): { wind: number; night: number; rain: number } {
+  const night = input.hour < 5.4 || input.hour > 19.4;
+  const dusk = !night && (input.hour < 7 || input.hour > 17.6);
+  // 進了屋不是換一套聲音,是<b>同一套壓小</b> —— 門板擋掉的是音量不是內容
+  const damp = input.indoors ? 0.4 : 1;
+  return {
+    wind: (night ? 0.06 : 0.11) * damp,
+    night: (night ? 0.055 : dusk ? 0.022 : 0.004) * damp,
+    rain: (input.weather === 'rain' ? 0.16 : input.weather === 'snow' ? 0.02 : 0) * damp,
+  };
+}
+
+/**
  * 環境音跟著時辰、天氣、以及你站在哪裡走。
  *
  * 三層各自淡入淡出,而不是切換音軌:白天的風裡本來就摻著一點蟲聲,
@@ -93,13 +115,11 @@ export function updateAmbience(input: {
   if (!ctx || !bed) return;
   const t = ctx.currentTime;
   const night = input.hour < 5.4 || input.hour > 19.4;
-  const dusk = !night && (input.hour < 7 || input.hour > 17.6);
-  const damp = input.indoors ? 0.4 : 1;
+  const mix = ambienceMix(input);
 
-  bed.wind.gain.setTargetAtTime((night ? 0.06 : 0.11) * damp, t, 1.2);
-  bed.night.gain.setTargetAtTime((night ? 0.055 : dusk ? 0.022 : 0.004) * damp, t, 1.6);
-  bed.rain.gain.setTargetAtTime(
-    (input.weather === 'rain' ? 0.16 : input.weather === 'snow' ? 0.02 : 0) * damp, t, 1.0);
+  bed.wind.gain.setTargetAtTime(mix.wind, t, 1.2);
+  bed.night.gain.setTargetAtTime(mix.night, t, 1.6);
+  bed.rain.gain.setTargetAtTime(mix.rain, t, 1.0);
 
   // 琴 —— 幾十秒一段,夜裡更稀更輕。打起來就把下一段往後推:
   // 那時候的配樂是刀風;收場之後它也不搶著回來,喘完氣才續上
@@ -211,7 +231,7 @@ export function barkSound() {
  */
 
 /** 宮調五聲,兩個八度 —— C D F G A,古琴定弦的骨架。 */
-const GONG = [130.8, 146.8, 174.6, 196.0, 220.0, 261.6, 293.7, 349.2];
+export const GONG = [130.8, 146.8, 174.6, 196.0, 220.0, 261.6, 293.7, 349.2];
 
 const music = { next: 0, plucked: 0 };
 const pluckCache = new Map<number, AudioBuffer>();
@@ -256,21 +276,42 @@ function pluck(freq: number, when: number, gain: number, slideFrom = 1) {
  * 一段樂句:三到六個音在五聲音階上散步,步子小、節奏散,收在一個長音上。
  * 沒有「曲子」—— 每段都是現編的,聽起來像有人在遠處隨手撫弦。
  */
+export interface Note { hz: number; at: number; gain: number; slide: number }
+
+/**
+ * 一段樂句該彈哪幾個音 —— <b>純函式</b>,不碰聲音。
+ *
+ * 抽出來是為了驗兩件事:音一定落在五聲音階上(散步不能走出音階,
+ * 走出去就成了亂彈),以及每一步都是<b>小步</b>(相鄰兩音差不超過兩級)——
+ * 這兩條加起來才是「有人在遠處隨手撫弦」,不是隨機數列。
+ */
+export function phraseWalk(soft: boolean, rand: () => number = Math.random): Note[] {
+  let t = 0.05;
+  let idx = 1 + Math.floor(rand() * 5);
+  const n = 3 + Math.floor(rand() * 4);
+  const vol = soft ? 0.10 : 0.16;
+  const out: Note[] = [];
+  for (let i = 0; i < n; i++) {
+    const last = i === n - 1;
+    out.push({
+      hz: GONG[idx], at: t,
+      gain: vol * (0.8 + rand() * 0.4),
+      slide: rand() < 0.3 ? 0.92 : 1,
+    });
+    t += last ? 1.7 : [0.38, 0.55, 0.8, 1.15][Math.floor(rand() * 4)];
+    idx = Math.max(0, Math.min(GONG.length - 1,
+      idx + [-2, -1, -1, 1, 1, 2][Math.floor(rand() * 6)]));
+  }
+  return out;
+}
+
 function playPhrase(soft: boolean): number {
   if (!ctx) return 0;
-  let t = ctx.currentTime + 0.05;
-  let idx = 1 + Math.floor(Math.random() * 5);
-  const notes = 3 + Math.floor(Math.random() * 4);
-  const vol = soft ? 0.10 : 0.16;
-  for (let i = 0; i < notes; i++) {
-    const last = i === notes - 1;
-    const slide = Math.random() < 0.3 ? 0.92 : 1;
-    pluck(GONG[idx], t, vol * (0.8 + Math.random() * 0.4), slide);
-    t += last ? 1.7 : [0.38, 0.55, 0.8, 1.15][Math.floor(Math.random() * 4)];
-    idx = Math.max(0, Math.min(GONG.length - 1,
-      idx + [-2, -1, -1, 1, 1, 2][Math.floor(Math.random() * 6)]));
-  }
-  return t - ctx.currentTime;
+  const t0 = ctx.currentTime;
+  const notes = phraseWalk(soft);
+  for (const nt of notes) pluck(nt.hz, t0 + nt.at, nt.gain, nt.slide);
+  const last = notes[notes.length - 1];
+  return last.at + 1.7;
 }
 
 /** 驗收要問得到 —— 聲音壞掉的樣子就是安靜,和沒做完全一樣。 */

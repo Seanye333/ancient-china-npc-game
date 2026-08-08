@@ -17,6 +17,15 @@ export default defineConfig({
        */
       include: ['src/game/**/*.ts'],
       exclude: ['src/game/**/*.test.ts'],
+      /*
+       * 一道<b>只准往上</b>的門檻。
+       *
+       * 訂在剛好低於現況一點點(現在 73.7%),意思不是「70 分就夠了」,
+       * 而是「別再掉回去」。從前那份「零測試模組」清單是靠猜的,
+       * 而且猜錯過 —— 真正的空白是 audio/places/tavern 這三個
+       * 誰都沒想到會壞的檔。有一道線,下次就不必再猜。
+       */
+      thresholds: { lines: 70, functions: 68, branches: 62 },
     },
   },
 });

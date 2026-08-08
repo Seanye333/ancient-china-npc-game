@@ -17,4 +17,6 @@ jobs:
       - run: npm ci
       # tsc -b 而不是 --noEmit:未用的匯入只有前者會擋下來
       - run: npm run build
-      - run: npx vitest run
+      # 跑覆蓋率而不是光跑測試 —— vite.config.ts 訂了一道只准往上的門檻。
+      # 這一步同時是「測試有沒有全過」和「有沒有整塊沒人管的程式碼」兩件事
+      - run: npm run coverage
