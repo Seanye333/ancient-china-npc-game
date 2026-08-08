@@ -7,6 +7,7 @@ import {
 } from './field';
 import { paletteFor, useClock } from './worldTime';
 import { jitteredColor, rngGate } from './palette';
+import { snow } from './Storms';
 
 /**
  * 腳邊的東西 —— 草叢、碎石、斷枝。
@@ -145,7 +146,7 @@ export function GroundCover() {
   const geoms = useMemo(() => ({ tuft: tuftGeom(), grit: grittGeom() }), []);
   const tmp = useMemo(() => ({ o: new THREE.Object3D() }), []);
   /** 上次重鋪時鏡頭在哪一格 —— 沒換格就不必重算。 */
-  const last = useRef({ cx: NaN, cz: NaN, season: '', weather: '' });
+  const last = useRef({ cx: NaN, cz: NaN, season: '', weather: '', pack: -1 });
 
   useFrame(() => {
     const tm = tuft.current, gm = grit.current;
@@ -153,12 +154,25 @@ export function GroundCover() {
     const cx = Math.round(camera.position.x / CELL);
     const cz = Math.round(camera.position.z / CELL);
     const st = last.current;
-    if (cx === st.cx && cz === st.cz && season === st.season && weather === st.weather) return;
-    last.current = { cx, cz, season, weather };
+    /*
+     * 積雪也要當成「該重鋪」的理由之一,但只認到小數第一位 ——
+     * snow.pack 每幀都在動,認到底的話等於每幀重鋪一次(量過 1.9 毫秒,
+     * 走一步重鋪一次是划算的,每幀重鋪就不是了)。
+     */
+    const pack = Math.round(snow.pack * 10) / 10;
+    if (cx === st.cx && cz === st.cz && season === st.season
+        && weather === st.weather && pack === st.pack) return;
+    last.current = { cx, cz, season, weather, pack };
     const t0 = performance.now();
 
-    // 冬雪蓋住草,只剩石頭露頭 —— 「季節」在腳邊也要算數
-    const buried = weather === 'snow';
+    /*
+     * 雪把草<b>一叢一叢</b>埋掉,不是「下雪就全沒了」。
+     *
+     * 從前這裡是 `weather === 'snow'`:雪一開始下,滿地的草同一幀集體消失;
+     * 雪一停又同一幀集體長回來。雪是一層一層積起來的 ——
+     * 矮的先沒頂、高的還露著幾根,積到八成才真的看不見一根草。
+     * 門檻用位置雜湊(h0)決定哪一叢先被埋,所以同一個地方每次都一樣。
+     */
     let nT = 0, nG = 0;
     for (let dx = -RING; dx <= RING; dx++) {
       for (let dz = -RING; dz <= RING; dz++) {
@@ -171,7 +185,9 @@ export function GroundCover() {
          * 讀起來不是石頭是垃圾。石頭該有石頭的地方:近水多、內陸幾乎沒有。
          */
         const stony = s.h1 < 0.04 + riverMask(s.x, s.z) * 0.55;
-        if (!stony && buried) continue;
+        // 石頭壓在雪底下比草更早不見 —— 它本來就矮
+        if (stony && pack > 0.55) continue;
+        if (!stony && pack > 0.12 + s.h0 * 0.72) continue;
         // 抬高一點點:網格在凹處高於解析面,不抬的話草根露不出來
         tmp.o.position.set(s.x, s.y + 0.05, s.z);
         tmp.o.rotation.set(0, s.h0 * Math.PI * 2, 0);

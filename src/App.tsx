@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Sky, Cloud, Clouds } from '@react-three/drei';
+import { Sky } from '@react-three/drei';
 import {
   EffectComposer, Bloom, N8AO, ToneMapping, Vignette, SMAA, GodRays, DepthOfField,
 } from '@react-three/postprocessing';
@@ -46,10 +46,13 @@ import { HeroBar } from './ui/HeroBar';
 import { Lanterns } from './world/Lanterns';
 import { Weather } from './world/Weather';
 import { Seasonals } from './world/Atmosphere';
+import { SkyClouds, cloudStat } from './world/SkyClouds';
+import { Storms, stormStat, snow } from './world/Storms';
 import { ColorGrade, gradeStat } from './world/ColorGrade';
 import { Contacts, contactStat } from './world/Contacts';
 import { Tavern } from './world/Interior';
 import { skyFor, godrayK, useClock } from './world/worldTime';
+import { gustAt } from './world/sky';
 import { NightSky, SunDisc } from './world/NightSky';
 import { MARKET } from './world/sites';
 import { playerPos } from './game/interact';
@@ -120,7 +123,7 @@ function VillageClock() {
   return null;
 }
 
-function TimedScene() {
+function TimedScene({ boltUntil }: { boltUntil: React.RefObject<number> }) {
   const hour = useClock((s) => s.hour);
   const season = useClock((s) => s.season);
   const tick = useClock((s) => s.tick);
@@ -163,12 +166,12 @@ function TimedScene() {
     if (hemiRef.current) hemiRef.current.intensity = sky.hemiIntensity * (1 - k * 0.3);
   });
 
-  // 風 —— 晴天有一陣沒一陣,雨裡樹是狂的。強度餵給植被的頂點著色器
+  // 風 —— 規矩在 sky.ts 的 gustAt():平時幾乎不動,忽然一陣掃過去。
+  // 強度和<b>方向</b>都餵給植被的頂點著色器
   useFrame(({ clock }) => {
     const t = clock.elapsedTime;
-    const gust = 0.55 + Math.sin(t * 0.13) * 0.22 + Math.sin(t * 0.047) * 0.14;
-    const w = useClock.getState().weather;
-    setFoliageWind(t, w === 'rain' ? 1.45 : w === 'snow' ? 0.9 : Math.max(0.25, gust));
+    const g = gustAt(t, useClock.getState().weather);
+    setFoliageWind(t, g.strength, g.dx, g.dz);
   });
 
   // 環境音跟著時辰與天氣走 —— 一秒更新一次就夠,它本來就是慢慢淡的
@@ -219,7 +222,7 @@ function TimedScene() {
       />
       <hemisphereLight ref={hemiRef} args={[sky.skyColor, sky.groundColor, sky.hemiIntensity]} />
       <ambientLight ref={ambRef} intensity={sky.ambient} color="#9fb4c8" />
-      <Storm ambRef={ambRef} baseAmbient={sky.ambient} />
+      <Storm ambRef={ambRef} baseAmbient={sky.ambient} boltUntil={boltUntil} />
     </>
   );
 }
@@ -254,8 +257,9 @@ function AdaptiveDpr() {
  * 雷雨 — 夏天的大雨隔一陣劈一道:閃電是環境光猛地拉滿一瞬,
  * 雷聲晚半拍到兩拍才到(光比聲快,這半拍就是「遠」)。
  */
-function Storm({ ambRef, baseAmbient }: {
+function Storm({ ambRef, baseAmbient, boltUntil }: {
   ambRef: React.RefObject<THREE.AmbientLight | null>; baseAmbient: number;
+  boltUntil: React.RefObject<number>;
 }) {
   const st = useRef({ next: 8, flashUntil: -1 });
   useFrame(({ clock }) => {
@@ -264,6 +268,8 @@ function Storm({ ambRef, baseAmbient }: {
     const storming = s.weather === 'rain' && s.season === 'summer';
     if (storming && t > st.current.next) {
       st.current.flashUntil = t + 0.13;
+      // 天上真的劈一道 —— 只有光沒有形狀的話,讀起來像有人在按電燈開關
+      boltUntil.current = t + 0.16;
       st.current.next = t + 9 + Math.random() * 20;
       setTimeout(() => thunderSound(), 500 + Math.random() * 1600);
     }
@@ -381,6 +387,15 @@ function CamBridge() {
       ...gradeStat, ...rayStat, ...dofStat, contacts: contactStat.count,
       contactAlpha: contactStat.opacity,
     });
+    // 天氣落到地上的那一半:雲/水花/風痕/雷/積雪。全都是一閃即逝的,截圖抓不準
+    (window as unknown as Record<string, unknown>).__sky = () => ({
+      ...cloudStat, ...stormStat,
+    });
+    // 積雪要好幾分鐘才化得完 —— 驗收等不起,給一個直接設深度的把手
+    (window as unknown as Record<string, unknown>).__snow = (k: number) => {
+      snow.pack = Math.min(1, Math.max(0, k));
+      return snow.pack;
+    };
     (window as unknown as Record<string, unknown>).__gpu = () => ({
       calls: gl.info.render.calls,
       tris: gl.info.render.triangles,
@@ -388,6 +403,27 @@ function CamBridge() {
       geometries: gl.info.memory.geometries,
       textures: gl.info.memory.textures,
     });
+    /*
+     * 螢幕上這一點是什麼東西。
+     *
+     * 加這個把手是因為:遠景裡有三個對不上任何東西的白色大圓,
+     * 掃過整棵場景樹也認不出是誰(「大而透明」的清單裡沒有一個對得上)。
+     * 眼睛認不出、清單也查不到的時候,就從那個像素射一條線回去問。
+     */
+    (window as unknown as Record<string, unknown>).__pick = (px: number, py: number) => {
+      const rc = new THREE.Raycaster();
+      const el = gl.domElement;
+      rc.setFromCamera(new THREE.Vector2(
+        (px / el.clientWidth) * 2 - 1, -(py / el.clientHeight) * 2 + 1,
+      ), camera);
+      return rc.intersectObjects(scene.children, true).slice(0, 5).map((h) => ({
+        d: Math.round(h.distance),
+        geo: (h.object as THREE.Mesh).geometry?.type,
+        mat: ((h.object as THREE.Mesh).material as THREE.Material)?.type,
+        type: h.object.type,
+        at: [h.point.x, h.point.y, h.point.z].map((v) => Math.round(v)),
+      }));
+    };
     (window as unknown as Record<string, unknown>).__nav = (
       x0: number, z0: number, x1: number, z1: number,
     ) => ({ path: findPath(x0, z0, x1, z1), stats: navStats() });
@@ -548,6 +584,8 @@ export default function App() {
   const softFocus = !started || !!ending || !!talking || !!atPlace;
   /** GodRays 要一個光源網格 —— SunDisc 掛好後把 ref 遞給合成器。 */
   const [sunMesh, setSunMesh] = useState<THREE.Mesh | null>(null);
+  /** 閃電亮到什麼時候(clock.elapsedTime)。Storm 寫、Bolt 讀。 */
+  const boltUntil = useRef(0);
   const raysRef = useRef<GodRaysEffect>(null);
   const dofRef = useRef<DepthOfFieldEffect>(null);
   /** 焦點的那個 Vector3 <b>不能每幀換一個新的</b> —— effect 只在掛載時收一次引用。 */
@@ -609,7 +647,7 @@ export default function App() {
           scene.fog = new THREE.FogExp2(0xb9c9d8, 0.0018);
         }}
       >
-        <TimedScene />
+        <TimedScene boltUntil={boltUntil} />
         <NightSky />
         <SunDisc ref={setSunMesh} />
         <VillageClock />
@@ -655,12 +693,8 @@ export default function App() {
           <Willows />
           <Reeds />
           <Rocks />
-          <Clouds material={THREE.MeshBasicMaterial} limit={220}>
-            <Cloud seed={7} bounds={[130, 8, 130]} volume={26} position={[0, 78, -40]}
-              opacity={0.28} speed={0.06} color="#eef3fa" />
-            <Cloud seed={13} bounds={[110, 6, 110]} volume={20} position={[80, 92, 60]}
-              opacity={0.20} speed={0.05} color="#e6edf6" />
-          </Clouds>
+          <SkyClouds />
+          <Storms boltUntil={boltUntil} />
         </Suspense>
 
         <EffectComposer multisampling={0} enableNormalPass>

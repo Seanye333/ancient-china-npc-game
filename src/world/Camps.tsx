@@ -136,16 +136,31 @@ function CampSmoke() {
     dark: new THREE.Color('#4c453f'), pale: new THREE.Color('#c2c8cd'),
   }), []);
 
-  useFrame(({ clock, camera }) => {
+  useFrame(({ clock, camera, scene }) => {
     const im = mesh.current;
     if (!im) return;
     const t = clock.elapsedTime;
+    /*
+     * 淡出要往<b>此刻的霧色</b>上靠,不是往一個寫死的淺灰。
+     *
+     * 這一段原本是 lerp 到 #c2c8cd 再配 toneMapped=false —— 用意是
+     * 「遠遠也看得見那道煙」,實際拍出來是<b>三個掛在山腰的白色大圓球</b>:
+     * 一團 12 公尺寬、亮度衝破 AgX 的壓縮,而且還擋住後面的山。
+     * (查了一輪都認不出來是誰畫的,最後是把幾夥賊全打散、前後各拍一張
+     *  才對上號 —— 順手加了 __pick 這個從像素反查物件的把手。)
+     *
+     * 現在:吃色調映射、往場景真正的霧色收 —— 收到底就正好是背景色,
+     * 那才叫散掉。頂上那一截乾脆不畫,煙本來就是越高越沒有。
+     */
+    const fog = (scene.fog as THREE.FogExp2 | null)?.color;
+    if (fog) tmp.pale.copy(fog);
     let i = 0;
     for (const b of live) {
       const gy = groundAt(b.x, b.z);
       for (let p = 0; p < PUFFS; p++) {
         // 每團煙各自從火塘升到散掉,再從頭來 —— 相位錯開才不是一串珠子
         const phase = ((t * 0.13 + p / PUFFS + b.x * 0.017) % 1 + 1) % 1;
+        if (phase > 0.9) continue;
         const rise = phase * 9.5;
         tmp.obj.position.set(
           b.x + Math.sin(t * 0.4 + p) * phase * 1.5,
@@ -153,12 +168,23 @@ function CampSmoke() {
           b.z + Math.cos(t * 0.33 + p * 1.7) * phase * 1.2,
         );
         tmp.obj.quaternion.copy(camera.quaternion);     // 永遠正對鏡頭
-        const s = 1.0 + phase * 3.6;
+        /*
+         * 散掉是<b>縮回去</b>,不是「變得跟背景一樣白」。
+         *
+         * instanceColor 沒有 alpha,所以一整批共用一個 opacity ——
+         * 唯一能讓單一團淡出的辦法只有兩條:往背景色靠,或者縮小。
+         * 往背景色靠這條試過了,不行:賊窩在山坡上,煙是襯著<b>山</b>看的,
+         * 而背景色是<b>天</b>的顏色 —— 收到底就成了襯在綠山上的一個白圓。
+         * 所以顏色最多只走一半,剩下的交給尺寸:升到頂就收沒了。
+         */
+        const grow = 0.6 + phase * 2.0;
+        const gone = Math.min(1, Math.max(0, (phase - 0.6) / 0.35));
+        const s = grow * (1 - gone * gone * (3 - 2 * gone));
         tmp.obj.scale.set(s, s, s);
         tmp.obj.updateMatrix();
         im.setMatrixAt(i, tmp.obj.matrix);
-        // 越升越淡:instanceColor 沒有 alpha,所以拿顏色往天色上靠來當淡出
-        im.setColorAt(i, tmp.col.copy(tmp.dark).lerp(tmp.pale, Math.min(1, phase * 1.35)));
+        // 越升越淡:instanceColor 沒有 alpha,所以拿顏色往霧色上靠來當淡出
+        im.setColorAt(i, tmp.col.copy(tmp.dark).lerp(tmp.pale, Math.min(0.5, phase * 1.25)));
         i++;
       }
     }
@@ -180,8 +206,8 @@ function CampSmoke() {
     >
       <planeGeometry args={[2.6, 2.6]} />
       <meshBasicMaterial
-        alphaMap={alphaMap} transparent opacity={0.34}
-        depthWrite={false} toneMapped={false} fog
+        alphaMap={alphaMap} transparent opacity={0.26}
+        depthWrite={false} fog
       />
     </instancedMesh>
   );

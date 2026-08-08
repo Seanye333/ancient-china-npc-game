@@ -83,9 +83,18 @@ function FallingLeaves({ petals = false }: { petals?: boolean }) {
       f.z += Math.cos(t * 1.3 + f.phase) * 0.4 * dt;
       const out = Math.abs(f.x - cx) > LEAF_BOX || Math.abs(f.z - cz) > LEAF_BOX;
       if (out || f.y < terrainHeight(f.x, f.z)) {
-        // 掉到地上或鏡頭走遠了 —— 從鏡頭附近的半空重新飄下來
-        f.x = cx + (Math.random() - 0.5) * LEAF_BOX * 1.7;
-        f.z = cz + (Math.random() - 0.5) * LEAF_BOX * 1.7;
+        /*
+         * 掉到地上或鏡頭走遠了 —— 從鏡頭附近的半空重新飄下來。
+         * 但<b>不能貼著鏡頭生</b>:一片三十公分的葉子生在半公尺外,
+         * 在畫面上就是一塊橫跨半個天空的褐色板子。秋天的截圖裡
+         * 天上飄著幾張門板,那就是這一行少了下面這個最小距離。
+         */
+        let d = 0;
+        do {
+          f.x = cx + (Math.random() - 0.5) * LEAF_BOX * 1.7;
+          f.z = cz + (Math.random() - 0.5) * LEAF_BOX * 1.7;
+          d = Math.hypot(f.x - cx, f.z - cz);
+        } while (d < 5);
         f.y = terrainHeight(f.x, f.z) + 5 + Math.random() * 9;
       }
       tmp.obj.position.set(f.x, f.y, f.z);

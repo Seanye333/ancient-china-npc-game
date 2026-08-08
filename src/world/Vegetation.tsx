@@ -66,11 +66,18 @@ export function setSightTarget(viewSpacePlayer: THREE.Vector3) {
   }
 }
 
-/** 風 —— App 每幀餵。世界不搖的時候是一張剪紙,搖起來才是林子。 */
-export function setFoliageWind(time: number, strength: number) {
+/**
+ * 風 —— App 每幀餵。世界不搖的時候是一張剪紙,搖起來才是林子。
+ *
+ * 方向是後來補的:原本的搖固定在 +x/+z 兩軸上,於是<b>一整年、
+ * 整座山的樹都往同一邊倒同樣的幅度</b>。風向一給,一陣風掃過來的時候
+ * 半山的樹會一起朝同一邊壓下去 —— 那才是「風」而不是「樹在抖」。
+ */
+export function setFoliageWind(time: number, strength: number, dx = 1, dz = 0) {
   for (const s of windShaders) {
     (s.uniforms.uTime as { value: number }).value = time;
     (s.uniforms.uWind as { value: number }).value = strength;
+    (s.uniforms.uDir.value as THREE.Vector2).set(dx, dz);
   }
 }
 
@@ -93,12 +100,14 @@ const applyFoliage = (fade: boolean, sway: number, lo: number, hi: number) =>
       shader.uniforms.uSway = { value: sway };
       shader.uniforms.uSwayLo = { value: lo };
       shader.uniforms.uSwayHi = { value: hi };
+      shader.uniforms.uDir = { value: new THREE.Vector2(1, 0) };
       windShaders.push(shader as unknown as { uniforms: Record<string, { value: unknown }> });
       shader.vertexShader = shader.vertexShader
         .replace(
           'void main() {',
           'uniform float uTime;\nuniform float uWind;\nuniform float uSway;\n'
-          + 'uniform float uSwayLo;\nuniform float uSwayHi;\nvoid main() {',
+          + 'uniform float uSwayLo;\nuniform float uSwayHi;\nuniform vec2 uDir;\n'
+          + 'void main() {',
         )
         .replace('#include <begin_vertex>', `
           #include <begin_vertex>
@@ -110,8 +119,12 @@ const applyFoliage = (fade: boolean, sway: number, lo: number, hi: number) =>
             #endif
             float ph = iwp.x * 0.37 + iwp.y * 0.29;
             float k = uSway * uWind * smoothstep(uSwayLo, uSwayHi, transformed.y);
-            transformed.x += (sin(uTime * 1.7 + ph) + 0.5 * sin(uTime * 3.1 + ph * 1.7)) * k;
-            transformed.z += cos(uTime * 1.35 + ph * 1.3) * k * 0.7;
+            // 順風那一路:一個<b>常駐的偏移</b>加上擺動。
+            // 少了常駐那一項,風再大也只是擺得快一點,不會「壓下去」
+            float along = 0.55 + sin(uTime * 1.7 + ph) + 0.5 * sin(uTime * 3.1 + ph * 1.7);
+            float side = cos(uTime * 1.35 + ph * 1.3) * 0.5;
+            transformed.x += (uDir.x * along - uDir.y * side) * k;
+            transformed.z += (uDir.y * along + uDir.x * side) * k;
           }
         `);
     }

@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { terrainHeight, slopeAt, riverMask, waterLevel, rng } from './field';
 import { useClock } from './worldTime';
 import { playerPos } from '../game/interact';
+import { snowUnderfoot } from './Storms';
 
 /**
  * 地上的痕跡 —— 積水的窪和踩出來的腳印。
@@ -129,12 +130,20 @@ function Footprints() {
      * 只有<b>踩得出印子的地面</b>才留腳印:雪地和雨後的泥。
      * 乾土上走一趟不留痕,這一條讓「下雪了」多一層看得見的後果。
      */
-    const want = w === 'snow' ? 1 : w === 'rain' ? 0.7 : 0;
+    /*
+     * 踩得出印子的是<b>地上有什麼</b>,不是天上在下什麼。
+     *
+     * 從前直接看 weather:雪一停,腳印立刻開始淡 —— 可地上那層雪還在,
+     * 走過去當然還是留印子。改讀積雪深度以後,雪停後那一串腳印
+     * 會跟著雪一起慢慢化掉,而不是跟著雲走。
+     */
+    const pack = snowUnderfoot();
+    const want = Math.max(pack, w === 'rain' ? 0.7 : 0);
     soft.current += (want - soft.current) * Math.min(1, dt / (want > soft.current ? 6 : 45));
     mat.current.opacity = soft.current * 0.5;
     if (soft.current <= 0.02) { im.count = 0; markStat.prints = 0; return; }
     // 雪上的印子是暗的(踩開了雪露出土),泥上的是亮的(壓實反光)
-    mat.current.color.setHex(w === 'snow' ? 0x8d8b86 : 0x5f5647);
+    mat.current.color.setHex(pack > 0.3 ? 0x8d8b86 : 0x5f5647);
 
     const d = Math.hypot(playerPos.x - last.current.x, playerPos.z - last.current.z);
     if (d > STRIDE && want > 0) {

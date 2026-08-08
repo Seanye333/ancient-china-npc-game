@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { MATERIALS, type Bucket } from './build';
 import { useClock, daylight } from './worldTime';
+import { snow } from './Storms';
 
 /**
  * 蓋起來的東西怎麼畫 —— 村屋、縣城、地標共用這一個出口。
@@ -36,26 +37,44 @@ function windowGlow(hour: number, season: Parameters<typeof daylight>[0]): numbe
 }
 
 export function BuiltMeshes({ parts }: { parts: BuiltPart[] }) {
-  const season = useClock((s) => s.season);
-  const winter = season === 'winter';
   const paperRef = useRef<THREE.MeshStandardMaterial>(null);
+  const snowRef = useRef<THREE.Mesh>(null);
   const glow = useMemo(() => new THREE.Color('#ffb257'), []);
 
   useFrame(() => {
     const m = paperRef.current;
-    if (!m) return;
-    const st = useClock.getState();
-    const k = windowGlow(st.hour, st.season);
-    // 窗紙本來就是暖白,發光只是把它推上去 —— 推過 bloom 的閾值就有燈的味道
-    m.emissive.copy(glow);
-    m.emissiveIntensity = k * 1.15;
+    if (m) {
+      const st = useClock.getState();
+      const k = windowGlow(st.hour, st.season);
+      // 窗紙本來就是暖白,發光只是把它推上去 —— 推過 bloom 的閾值就有燈的味道
+      m.emissive.copy(glow);
+      m.emissiveIntensity = k * 1.15;
+    }
+    /*
+     * 屋頂的雪跟著<b>積雪深度</b>走,不再是「季節是不是冬天」。
+     *
+     * 舊寫法有兩個說不通的地方:秋天下一整天的雪,屋頂還是乾的;
+     * 冬天一個沒下雪的大晴天,屋頂照樣白。現在兩邊都對了 ——
+     * 而且薄薄一層先貼上去、越積越厚(用縮放演,幾何只有一份)。
+     */
+    const s = snowRef.current;
+    if (s) {
+      const k = Math.min(1, Math.max(0, (snow.pack - 0.18) / 0.5));
+      s.visible = k > 0.02;
+      s.scale.set(1, 0.35 + k * 0.85, 1);
+    }
   });
 
   return (
     <>
       {parts.map(({ key, geom }) => {
-        // 積雪那一桶只有冬天掛上去 —— 其餘三季整桶不畫,零開銷
-        if (key === 'snow' && !winter) return null;
+        if (key === 'snow') {
+          return (
+            <mesh key={key} ref={snowRef} geometry={geom} castShadow receiveShadow visible={false}>
+              <meshStandardMaterial {...MATERIALS.snow} />
+            </mesh>
+          );
+        }
         if (key === 'paper') {
           return (
             <mesh key={key} geometry={geom} castShadow receiveShadow>
